@@ -94,10 +94,10 @@ public:
 	~MidiFile();
 	void ClearAll(void);
 	
-	UINT8 LoadFile(char* FileName);
+	UINT8 LoadFile(const char* fileName);
 	//UINT8 LoadFile(UINT32 FileLen, UINT8* FileData);
 	
-	UINT8 SaveFile(char* FileName);
+	UINT8 SaveFile(const char* fileName);
 	//UINT8 SaveFile(UINT32* RetFileSize, UINT8** RetFileData);
 	
 	UINT16 GetMidiFormat(void) const;

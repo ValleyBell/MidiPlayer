@@ -601,7 +601,7 @@ UINT8 MidiFile::DeleteTrack(UINT16 trackID)
 }
 
 
-UINT8 MidiFile::LoadFile(char* FileName)
+UINT8 MidiFile::LoadFile(const char* fileName)
 {
 	FILE* infile;
 	UINT32 TempLng;
@@ -611,7 +611,7 @@ UINT8 MidiFile::LoadFile(char* FileName)
 	UINT16 CurTrk;
 	UINT8 RetVal;
 	
-	infile = fopen(FileName, "rb");
+	infile = fopen(fileName, "rb");
 	if (infile == NULL)
 		return 0xFF;
 	
@@ -652,7 +652,7 @@ UINT8 MidiFile::LoadFile(char* FileName)
 	return RetVal;
 }
 
-UINT8 MidiFile::SaveFile(char* FileName)
+UINT8 MidiFile::SaveFile(const char* fileName)
 {
 	FILE* outfile;
 	UINT32 TempLng;
@@ -661,7 +661,7 @@ UINT8 MidiFile::SaveFile(char* FileName)
 	UINT8 RetVal;
 	std::vector<MidiTrack*>::const_iterator trkIt;
 	
-	outfile = fopen(FileName, "wb");
+	outfile = fopen(fileName, "wb");
 	if (outfile == NULL)
 		return 0xFF;
 	

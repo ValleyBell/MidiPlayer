@@ -39,11 +39,13 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(ProjectDir);$(IncludePath)</IncludePath>
+    <IncludePath>D:\VStudio-Programme\VC++\libs\pdcurs34;$(ProjectDir);$(IncludePath)</IncludePath>
+    <LibraryPath>D:\VStudio-Programme\VC++\libs\pdcurs34\win32;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(ProjectDir);$(IncludePath)</IncludePath>
+    <IncludePath>D:\VStudio-Programme\VC++\libs\pdcurs34;$(ProjectDir);$(IncludePath)</IncludePath>
+    <LibraryPath>D:\VStudio-Programme\VC++\libs\pdcurs34\win32;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -56,7 +58,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>kernel32.lib;winmm.lib</AdditionalDependencies>
+      <AdditionalDependencies>pdcurses.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -74,7 +76,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>kernel32.lib;winmm.lib</AdditionalDependencies>
+      <AdditionalDependencies>pdcurses.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -85,6 +87,7 @@
     <ClCompile Include="MidiOut_WinMM.c" />
     <ClCompile Include="MidiPlay.cpp" />
     <ClCompile Include="OSTimer_Win.c" />
+    <ClCompile Include="vis_curses.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MidiBankScan.hpp" />
@@ -93,6 +96,7 @@
     <ClInclude Include="MidiOut.h" />
     <ClInclude Include="MidiPlay.hpp" />
     <ClInclude Include="OSTimer.h" />
+    <ClInclude Include="vis.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

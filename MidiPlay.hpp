@@ -21,6 +21,8 @@ struct PlayerOpts
 	UINT8 flags;	// see PLROPTS_ defines
 };
 
+typedef void (*MIDI_EVT_CB)(void* userData, const MidiEvent* midiEvt, UINT16 chnID);
+
 class MidiPlayer
 {
 public:
@@ -35,7 +37,8 @@ public:
 	{
 		UINT8 flags;	// Bit 7 (80) - is drum channel
 		UINT8 curIns;
-		UINT8 insBank[2];	// 0 = Bank MSB; 1 = Bank LSB (current/patched state)
+		UINT8 insBank[2];	// 0 = Bank MSB, 1 = Bank LSB (current/patched state)
+		UINT16 userInsID;
 		const INS_DATA* insMapOPtr;	// original instrument
 		const INS_DATA* insMapPPtr;	// patched instrument
 		UINT8 ctrls[0x80];
@@ -72,6 +75,7 @@ public:
 	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts);
 	void SetOutPortMapping(size_t numPorts, const size_t* outPorts);
 	void SetOptions(const PlayerOpts& plrOpts);
+	void SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);
 	UINT8 Start(void);
 	UINT8 Stop(void);
@@ -79,6 +83,8 @@ public:
 	UINT8 Resume(void);
 	UINT8 GetState(void) const;
 	double GetSongLength(void) const;	// returns length in seconds
+	double GetPlaybackPos(void) const;
+	const std::vector<ChannelState>& GetChannelStates(void) const;
 	
 	void DoPlaybackStep(void);
 private:
@@ -109,6 +115,8 @@ private:
 	const INS_BANK* _insBankMT32;
 	
 	PlayerOpts _options;
+	MIDI_EVT_CB _evtCbFunc;
+	void* _evtCbData;
 	std::vector<size_t> _portMap;	// MIDI track port -> ID of MIDIOUT_PORT object
 	std::vector<MIDIOUT_PORT*> _outPorts;
 	OS_TIMER* _osTimer;

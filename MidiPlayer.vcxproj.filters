@@ -36,6 +36,9 @@
     <ClCompile Include="MidiInsReader.c">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="vis_curses.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MidiLib.hpp">
@@ -54,6 +57,9 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="MidiBankScan.hpp">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="vis.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

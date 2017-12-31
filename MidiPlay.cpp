@@ -12,6 +12,7 @@
 #include "MidiPlay.hpp"
 #include "MidiBankScan.hpp"
 #include "MidiInsReader.h"	// for MODTYPE_ defines
+#include "vis.hpp"
 
 
 #define TICK_FP_SHIFT	8
@@ -27,7 +28,8 @@ static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00,
 
 MidiPlayer::MidiPlayer() :
 	_cMidi(NULL), _songLength(0),
-	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL)
+	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL),
+	_evtCbFunc(NULL), _evtCbData(NULL)
 {
 	_osTimer = OSTimer_Init();
 	_tmrFreq = OSTimer_GetFrequency(_osTimer) << TICK_FP_SHIFT;
@@ -70,6 +72,12 @@ void MidiPlayer::SetOutPortMapping(size_t numPorts, const size_t* outPorts)
 void MidiPlayer::SetOptions(const PlayerOpts& plrOpts)
 {
 	_options = plrOpts;
+}
+
+void MidiPlayer::SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData)
+{
+	_evtCbFunc = cbFunc;
+	_evtCbData = cbData;
 }
 
 void MidiPlayer::SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank)
@@ -262,6 +270,32 @@ double MidiPlayer::GetSongLength(void) const
 	return (double)_songLength / (double)_tmrFreq;
 }
 
+double MidiPlayer::GetPlaybackPos(void) const
+{
+	UINT64 curTime;
+	UINT64 tmrTick;
+	std::list<TempoChg>::const_iterator tempoIt;
+	
+	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	tmrTick = 0;
+	for (tempoIt = _tempoList.begin(); tempoIt != _tempoList.end(); ++tempoIt)
+	{
+		if (tempoIt->tick > _lastEvtTick)
+			break;	// stop when going too far
+	}
+	--tempoIt;
+	// I just assume that _curTickTime is correct.
+	tmrTick = tempoIt->tmrTick + (_lastEvtTick - tempoIt->tick) * _curTickTime;
+	if (curTime < _tmrStep)
+		tmrTick -= (_tmrStep - curTime);
+	return (double)tmrTick / (double)_tmrFreq;
+}
+
+const std::vector<MidiPlayer::ChannelState>& MidiPlayer::GetChannelStates(void) const
+{
+	return _chnStates;
+}
+
 
 void MidiPlayer::RefreshTickTime(void)
 {
@@ -282,25 +316,27 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	{
 		UINT8 evtType = midiEvt->evtType & 0xF0;
 		UINT8 evtChn = midiEvt->evtType & 0x0F;
-		ChannelState* chnSt = &_chnStates[(trkState->portID << 4) | evtChn];
+		UINT16 chnID = (trkState->portID << 4) | evtChn;
+		ChannelState* chnSt = &_chnStates[chnID];
+		bool didEvt = false;
 		
 		switch(evtType)
 		{
 		case 0x80:
 		case 0x90:
-			if (HandleNoteEvent(chnSt, trkState, midiEvt))
-				return;
+			didEvt = HandleNoteEvent(chnSt, trkState, midiEvt);
 			break;
 		case 0xB0:
-			if (HandleControlEvent(chnSt, trkState, midiEvt))
-				return;
+			didEvt = HandleControlEvent(chnSt, trkState, midiEvt);
 			break;
 		case 0xC0:
-			if (HandleInstrumentEvent(chnSt, trkState, midiEvt))
-				return;
+			didEvt = HandleInstrumentEvent(chnSt, trkState, midiEvt);
 			break;
 		}
-		MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
+		if (! didEvt)
+			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
+		if (_evtCbFunc != NULL)
+			_evtCbFunc(_evtCbData, midiEvt, chnID);
 		return;
 	}
 	
@@ -310,13 +346,15 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	case 0xF7:
 		{
 			if (HandleSysEx(trkState, midiEvt))
-				return;
+				break;
 			
 			std::vector<UINT8> msgData(0x01 + midiEvt->evtData.size());
 			msgData[0x00] = midiEvt->evtType;
 			memcpy(&msgData[0x01], &midiEvt->evtData[0x00], midiEvt->evtData.size());
 			MidiOutPort_SendLongMsg(outPort, msgData.size(), &msgData[0x00]);
 		}
+		if (_evtCbFunc != NULL)
+			_evtCbFunc(_evtCbData, midiEvt, (trkState->portID << 4) | 0x00);
 		break;
 	case 0xFF:
 		switch(midiEvt->evtValA)
@@ -325,13 +363,13 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			if (trkState->trkID == 0 || _cMidi->GetMidiFormat() == 2)
 			{
 				std::string text(midiEvt->evtData.begin(), midiEvt->evtData.end());
-				printf("Text: %s\n", text.c_str());
+				//printf("Text: %s\n", text.c_str());
 			}
 			break;
 		case 0x06:	// Marker
 			{
 				std::string text(midiEvt->evtData.begin(), midiEvt->evtData.end());
-				printf("Marker: %s\n", text.c_str());
+				//printf("Marker: %s\n", text.c_str());
 			}
 			break;
 		case 0x21:	// MIDI Port
@@ -349,7 +387,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			break;
 		case 0x2F:	// Track End
 			trkState->evtPos = trkState->endPos;
-			return;
+			break;
 		case 0x51:	// Trk End
 			_midiTempo = (midiEvt->evtData[0x00] << 16) |
 					(midiEvt->evtData[0x01] <<  8) |
@@ -357,6 +395,8 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			RefreshTickTime();
 			break;
 		}
+		if (_evtCbFunc != NULL)
+			_evtCbFunc(_evtCbData, midiEvt, trkState->trkID);
 		break;
 	}
 	
@@ -660,6 +700,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	chnSt->insBank[1] = chnSt->ctrls[0x20];
 	chnSt->curIns = midiEvt->evtValA;
 	chnSt->curIns = (chnSt->curIns & 0x7F) | (chnSt->flags & 0x80);
+	chnSt->userInsID = 0xFFFF;
 	chnSt->insMapOPtr = chnSt->insMapPPtr = NULL;
 	isUserIns = false;
 	didPatch = false;
@@ -670,15 +711,15 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		if (MMASK_MOD(_options.dstType) >= MTGS_SC88 && MMASK_MOD(_options.dstType) != MTGS_TG300B)
 		{
 			if (chnSt->curIns == (0x80|0x40) || chnSt->curIns == (0x80|0x41))
-				isUserIns = true;
+				chnSt->userInsID = 0x8000 | (chnSt->curIns & 0x01);
 			else if (chnSt->insBank[0] == 0x40 || chnSt->insBank[0] == 0x41)
-				isUserIns = true;
+				chnSt->userInsID = ((chnSt->insBank[0] & 0x01) << 7) | (chnSt->curIns & 0x7F);
 		}
 	}
 	else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 	{
 		if (chnSt->insBank[0] == 0x3F)
-			isUserIns = true;
+			chnSt->userInsID = (chnSt->curIns & 0x7F);
 	}
 	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
 	{
@@ -693,6 +734,8 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		isUserIns = true;	// disable CTF patch
 		bankIgnore = 0x03;	// MT-32 doesn't support Bank MSB/LSB
 	}
+	if (chnSt->userInsID != 0xFFFF)
+		isUserIns = true;
 	
 	// ignore Bank MSB/LSB on drum channels, depending on device type
 	if (chnSt->flags & 0x80)
@@ -831,31 +874,33 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		didPatch = true;
 	}
 	
-	if (didPatch)
+	if (true)
 	{
 		const char* oldName;
 		const char* newName;
 		UINT8 ctrlEvt = 0xB0 | (midiEvt->evtType & 0x0F);
 		UINT8 insEvt = midiEvt->evtType;
+		char msgStr[0x80];
 		
 		oldName = (chnSt->insMapOPtr == NULL) ? "" : chnSt->insMapOPtr->insName;
 		newName = (chnSt->insMapPPtr == NULL) ? "" : chnSt->insMapPPtr->insName;
-		printf("%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n"
-			"       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
-			(chnSt->flags & 0x80) ? "Drm" : "Ins",
-			ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName,
-			ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
-	}
-	else
-	{
-		const char* newName;
-		UINT8 ctrlEvt = 0xB0 | (midiEvt->evtType & 0x0F);
-		UINT8 insEvt = midiEvt->evtType;
-		
-		newName = (chnSt->insMapPPtr == NULL) ? "" : chnSt->insMapPPtr->insName;
-		printf("%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
-			(chnSt->flags & 0x80) ? "Drm" : "Ins",
-			ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
+		if (didPatch)
+		{
+			sprintf(msgStr, "%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
+				(chnSt->flags & 0x80) ? "Drm" : "Ins",
+				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName);
+			vis_addstr(msgStr);
+			sprintf(msgStr, "       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
+				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
+			vis_addstr(msgStr);
+		}
+		else
+		{
+			sprintf(msgStr, "%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
+				(chnSt->flags & 0x80) ? "Drm" : "Ins",
+				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
+			vis_addstr(msgStr);
+		}
 	}
 	
 	MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, chnSt->curIns & 0x7F, 0x00);
@@ -892,7 +937,7 @@ bool MidiPlayer::HandleSysEx(const TrackState* trkSt, const MidiEvent* midiEvt)
 				{
 				case 0x00007F:	// SC-88 System Mode Set
 					InitializeChannels();
-					printf("SysEx: SC-88 System Mode Set\n");
+					vis_addstr("SysEx: SC-88 System Mode Set\n");
 					break;
 				}
 				break;
@@ -909,7 +954,7 @@ bool MidiPlayer::HandleSysEx(const TrackState* trkSt, const MidiEvent* midiEvt)
 				case 0x40007F:	// GS reset
 					// F0 41 10 42 12 40 00 7F 00 41 F7
 					InitializeChannels();
-					printf("SysEx: GS Reset\n");
+					vis_addstr("SysEx: GS Reset\n");
 					break;
 				case 0x401015:	// use Rhythm Part (-> drum channel)
 					// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
@@ -940,7 +985,7 @@ bool MidiPlayer::HandleSysEx(const TrackState* trkSt, const MidiEvent* midiEvt)
 			case 0x00007E:	// XG System On
 				// XG Reset: F0 43 10 4C 00 00 7E 00 F7
 				InitializeChannels();
-				printf("SysEx: XG Reset\n");
+				vis_addstr("SysEx: XG Reset\n");
 				break;
 			}
 		}
@@ -955,12 +1000,12 @@ bool MidiPlayer::HandleSysEx(const TrackState* trkSt, const MidiEvent* midiEvt)
 			if (gmMode == 0x01)	// GM Level 1 On
 			{
 				InitializeChannels();
-				printf("SysEx: GM Reset\n");
+				vis_addstr("SysEx: GM Reset\n");
 			}
 			else if (gmMode == 0x03)	// GM Level 2 On
 			{
 				InitializeChannels();
-				printf("SysEx: GM2 Reset\n");
+				vis_addstr("SysEx: GM2 Reset\n");
 			}
 			
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GM)
@@ -1108,6 +1153,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.flags = 0x00;
 		chnSt.curIns = 0x00;
 		chnSt.insBank[0] = chnSt.insBank[1] = 0x00;
+		chnSt.userInsID = 0xFFFF;
 		chnSt.insMapOPtr = chnSt.insMapPPtr = NULL;
 		memset(&chnSt.ctrls[0], 0x00, 0x80);
 		

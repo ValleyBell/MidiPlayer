@@ -121,8 +121,8 @@ static UINT8 FindPortAddress(MIDIOUT_PORT* mop, UINT32 portID, snd_seq_addr_t* p
 			if ((~snd_seq_port_info_get_capability(pinfo) & (SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE)))
 				continue;
 			
-			if (snd_seq_port_info_get_client(pinfo) == 14)
-				continue;	// skip Midi Through
+			//if (snd_seq_port_info_get_client(pinfo) == 14)
+			//	continue;	// skip Midi Through
 			
 			//printf("Valid port %d:%d ...\n", client, snd_seq_port_info_get_port(pinfo));
 			if (curPort == portID)

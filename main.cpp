@@ -1,9 +1,9 @@
 // TODO:
 //	- "sound upgrade" option
-//	- send initial SYX file (for MT-32 stuff)
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <locale.h>
 #include <vector>
 #include <string>
 
@@ -13,9 +13,6 @@
 #else
 #include <unistd.h>
 #define Sleep(x)	usleep(x * 1000)
-//#define _getch		getchar
-//#define _kbhit()	false
-#include "getch_linux.h"
 #endif
 
 #include <stdtype.h>
@@ -24,6 +21,7 @@
 #include "MidiPlay.hpp"
 #include "MidiInsReader.h"
 #include "MidiBankScan.hpp"
+#include "vis.hpp"
 
 
 struct InstrumentSetCfg
@@ -64,6 +62,7 @@ static const char* MODNAMES_XG[] =
 
 
 static const char* INS_SET_PATH = "_MidiInsSets/";
+static std::string midFileName;
 static MidiFile CMidi;
 static MidiPlayer midPlay;
 
@@ -84,6 +83,7 @@ static const char* GetModuleTypeName(UINT8 modType);
 void PlayMidi(void);
 static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_t dataLen, const UINT8* data);
 static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT8>& syxData);
+static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 chnID);
 
 
 int main(int argc, char* argv[])
@@ -91,6 +91,8 @@ int main(int argc, char* argv[])
 	int argbase;
 	UINT8 retVal;
 	size_t curInsBnk;
+	
+	setlocale(LC_ALL, "");	// enable UTF-8 support on Linux
 	
 	printf("MIDI Player\n");
 	printf("-----------\n");
@@ -107,13 +109,9 @@ int main(int argc, char* argv[])
 		printf("           0x00 = GM, 0x10..0x13 = SC-55/88/88Pro/8850,\n");
 		printf("           0x20..24 = MU50/80/90/100/128/1000, 0x70 = MT-32\n");
 		printf("    -m n - enforce playback on module with ID n\n");
+		printf("    -x   - send .syx file to all ports before playing the MIDI\n");
 		return 0;
 	}
-	
-#ifndef WIN32
-	tcgetattr(STDIN_FILENO, &oldterm);
-	termmode = false;
-#endif
 	
 	playerCfgFlags = PLROPTS_RESET | PLROPTS_STRICT | PLROPTS_ENABLE_CTF;
 	forceSrcType = 0xFF;
@@ -185,23 +183,18 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
-	printf("Opening %s ...\n", argv[argbase + 0]);
-	retVal = CMidi.LoadFile(argv[argbase + 0]);
+	midFileName = argv[argbase + 0];
+	printf("Opening %s ...\n", midFileName.c_str());
+	retVal = CMidi.LoadFile(midFileName.c_str());
 	if (retVal)
 	{
-		printf("Error opening %s\n", argv[argbase + 0]);
+		printf("Error opening %s\n", midFileName.c_str());
 		printf("Errorcode: %02X\n", retVal);
 		return retVal;
 	}
 	printf("File loaded.\n");
 	
-#ifndef WIN32
-	changemode(true);
-#endif
 	PlayMidi();
-#ifndef WIN32
-	changemode(false);
-#endif
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
 		FreeInstrumentBank(&insBanks[curInsBnk]);
@@ -439,25 +432,33 @@ void PlayMidi(void)
 	}
 	
 	midPlay.SetOutputPorts(mOuts);
+	midPlay.SetMidiFile(&CMidi);
+	vis_set_midi_file(midFileName.c_str(), &CMidi);
+	vis_set_midi_player(&midPlay);
+	printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	Sleep(100);
+	
+	vis_init();
 	
 	if (! syxData.empty())
 	{
-		printf("Sending SYX data ...\n");
+		vis_addstr("Sending SYX data ...");
 		SendSyxData(mOuts, syxData);
 	}
 	
-	midPlay.SetMidiFile(&CMidi);
-	printf("Song length: %.3f s\n", midPlay.GetSongLength());
-	
+	midPlay.SetEventCallback(&MidiEventCallback, &midPlay);
 	midPlay.Start();
+	vis_new_song();
 	while(midPlay.GetState() & 0x01)
 	{
-		midPlay.DoPlaybackStep();
+		int inkey;
 		
-		if (_kbhit())
+		midPlay.DoPlaybackStep();
+		vis_update();
+		
+		inkey = vis_getch();
+		if (inkey)
 		{
-			int inkey = _getch();
 			if (isalpha(inkey))
 				inkey = toupper(inkey);
 			
@@ -474,6 +475,7 @@ void PlayMidi(void)
 		Sleep(1);
 	}
 	midPlay.Stop();
+	vis_deinit();
 	
 	//Sleep(500);
 	printf("Cleaning ...\n");
@@ -532,5 +534,38 @@ static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::v
 	if (syxStart != (size_t)-1)
 		SendSyxDataToPorts(outPorts, curPos - syxStart, &syxData[syxStart]);
 	
+	return;
+}
+
+static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 chnID)
+{
+	switch(midiEvt->evtType & 0xF0)
+	{
+	case 0x80:
+		vis_do_note(chnID, midiEvt->evtValA, 0x00);
+		break;
+	case 0x90:
+		if (! midiEvt->evtValB)
+			vis_do_note(chnID, midiEvt->evtValA, 0x00);
+		else
+			vis_do_note(chnID, midiEvt->evtValA, 0x01);
+		break;
+	case 0xB0:
+		break;
+	case 0xC0:
+		vis_do_ins_change(chnID);
+		break;
+	case 0xF0:
+		switch(midiEvt->evtType)
+		{
+		case 0xFF:
+			if (midiEvt->evtData.empty())
+				vis_print_meta(chnID, midiEvt->evtValA, 0, NULL);
+			else
+				vis_print_meta(chnID, midiEvt->evtValA, midiEvt->evtData.size(), (const char*)&midiEvt->evtData[0x00]);
+			break;
+		}
+		break;
+	}
 	return;
 }
