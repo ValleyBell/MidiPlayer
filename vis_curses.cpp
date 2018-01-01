@@ -293,7 +293,7 @@ static void str_padding(char* str, size_t padlen, char padchar)
 	return;
 }
 
-void vis_do_note(UINT16 chn, UINT8 note, UINT8 state)
+void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
 	int posX = calc_note_posx(note);
@@ -307,7 +307,7 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 state)
 	std::map<int, int>::iterator noteIt;
 	
 	noteIt = chnDisp.find(posX);
-	if (! (state & 0x01))
+	if (! volume)
 	{
 		if (noteIt == chnDisp.end())
 			return;
@@ -322,13 +322,17 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 state)
 	if (chnSt->flags & 0x80)
 	{
 		// show drum name
-		// C# (crash cym 1) || D# (ride cym 1) || F (ride bell) ||
-		// G (splash cym) || A (crash cym 2) || B (ride cym 2)
-		if (note == 0x31 || note == 0x33 || note == 0x35 ||
-			note == 0x37 || note == 0x39 || note == 0x3B)
+		// C# (crash cym 1) || G (splash cym) || A (crash cym 2)
+		if (note == 0x31 || note == 0x37 || note == 0x39)
 		{
 			strcpy(noteName, "cym");
 			forcedDurat = 600;
+		}
+		// D# (ride cym 1) || F (ride bell) || B (ride cym 2)
+		else if (note == 0x33 || note == 0x35 || note == 0x3B)
+		{
+			strcpy(noteName, "cym");
+			forcedDurat = 300;
 		}
 		else if (note == 0x2A || note == 0x2C || note == 0x2E)	// hi-hats
 		{
@@ -366,9 +370,10 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 state)
 	chnDisp[posX] = forcedDurat;
 	
 	str_padding(noteName, 3, ' ');
-	attron(A_BOLD | COLOR_PAIR(color));
+	attron(COLOR_PAIR(color));
+	if (volume >= 0x30)
+		attron(A_BOLD);
 	mvaddstr(posY, posX, noteName);
-	// then add to note list
 	attroff(A_BOLD | COLOR_PAIR(color));
 	
 	return;
@@ -378,37 +383,36 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 {
 	std::string text(data, &data[dataLen]);
 	
-	if (curYline >= LINES)
-		curYline = TEXT_BASE_LINE;
+	move(curYline, 0);	clrtoeol();
 	attron(COLOR_PAIR(metaType % 8));
 	switch(metaType)
 	{
 	case 0x01:	// Text
-		mvprintw(curYline, 0, "Text: %s", text.c_str());
+		printw("Text: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x02:	// Copyright Notice
-		mvprintw(curYline, 0, "Copyright: %s", text.c_str());
+		printw("Copyright: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x03:	// Sequence/Track Name
 		if (trk == 0 || midFile->GetMidiFormat() == 2)
 		{
 			attron(A_BOLD);
-			mvprintw(curYline, 0, "Title: %s", text.c_str());
+			printw("Title: %s", text.c_str());
 			attroff(A_BOLD);
 			curYline ++;
 		}
 		break;
 	case 0x04:	// Insrument Name
-		mvprintw(curYline, 0, "Instrument Name: %s", text.c_str());
+		printw("Instrument Name: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x05:	// Lyric
 		// don't print for now
 		break;
 	case 0x06:	// Marker
-		mvprintw(curYline, 0, "Marker: %s", text.c_str());
+		printw("Marker: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x51:	// Tempo
@@ -419,6 +423,9 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		break;
 	}
 	attroff(COLOR_PAIR(metaType % 8));
+	if (curYline >= LINES)
+		curYline = TEXT_BASE_LINE;
+	move(curYline, 0);	clrtoeol();
 	
 	return;
 }

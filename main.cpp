@@ -548,10 +548,7 @@ static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 c
 		vis_do_note(chnID, midiEvt->evtValA, 0x00);
 		break;
 	case 0x90:
-		if (! midiEvt->evtValB)
-			vis_do_note(chnID, midiEvt->evtValA, 0x00);
-		else
-			vis_do_note(chnID, midiEvt->evtValA, 0x01);
+		vis_do_note(chnID, midiEvt->evtValA, midiEvt->evtValB);
 		break;
 	case 0xB0:
 		vis_do_ctrl_change(chnID, midiEvt->evtValA, midiEvt->evtValB);
