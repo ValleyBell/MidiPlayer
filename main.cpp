@@ -1,5 +1,3 @@
-// TODO:
-//	- "sound upgrade" option
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -436,7 +434,6 @@ void PlayMidi(void)
 	vis_set_midi_file(midFileName.c_str(), &CMidi);
 	vis_set_midi_player(&midPlay);
 	printf("Song length: %.3f s\n", midPlay.GetSongLength());
-	Sleep(100);
 	
 	vis_init();
 	
@@ -449,6 +446,8 @@ void PlayMidi(void)
 	midPlay.SetEventCallback(&MidiEventCallback, &midPlay);
 	midPlay.Start();
 	vis_new_song();
+	Sleep(100);
+	
 	while(midPlay.GetState() & 0x01)
 	{
 		int inkey;
@@ -459,7 +458,7 @@ void PlayMidi(void)
 		inkey = vis_getch();
 		if (inkey)
 		{
-			if (isalpha(inkey))
+			if (inkey < 0x100 && isalpha(inkey))
 				inkey = toupper(inkey);
 			
 			if (inkey == 0x1B || inkey == 'Q')
@@ -541,6 +540,10 @@ static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 c
 {
 	switch(midiEvt->evtType & 0xF0)
 	{
+	case 0x00:	// general events
+		if (midiEvt->evtType == 0x01)
+			vis_do_channel_event(chnID, midiEvt->evtValA, midiEvt->evtValB);
+		break;
 	case 0x80:
 		vis_do_note(chnID, midiEvt->evtValA, 0x00);
 		break;
@@ -551,6 +554,7 @@ static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 c
 			vis_do_note(chnID, midiEvt->evtValA, 0x01);
 		break;
 	case 0xB0:
+		vis_do_ctrl_change(chnID, midiEvt->evtValA, midiEvt->evtValB);
 		break;
 	case 0xC0:
 		vis_do_ins_change(chnID);

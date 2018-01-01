@@ -2,7 +2,10 @@ CC = gcc
 CPP = g++
 CFLAGS = -I.
 CPPFLAGS = -std=c++98 -Wno-psabi
-LDFLAGS = `ncursesw5-config --libs`
+LDFLAGS = 
+
+CURSES_LIBS_WIN = `ncursesw5-config --libs`
+CURSES_LIBS_LINUX = `ncursesw5-config --libs`
 
 SRC = .
 OBJ = obj
@@ -26,11 +29,11 @@ default:	linux
 
 win:	$(OBJ) $(OBJ_ALL) $(OBJ_WIN)
 	@echo "Linking ..."
-	@$(CPP) $(LDFLAGS) $(OBJ_ALL) $(OBJ_WIN) $(LDFLAGS) -lwinmm -o midiplayer
+	@$(CPP) $(LDFLAGS) $(OBJ_ALL) $(OBJ_WIN) $(CURSES_LIBS_WIN) $(LDFLAGS) -lwinmm -o midiplayer
 
 linux:	$(OBJ) $(OBJ_ALL) $(OBJ_LINUX)
 	@echo "Linking ..."
-	@$(CPP) $(LDFLAGS) $(OBJ_ALL) $(OBJ_LINUX) $(LDFLAGS) -lasound -o midiplayer
+	@$(CPP) $(LDFLAGS) $(OBJ_ALL) $(OBJ_LINUX) $(CURSES_LIBS_LINUX) $(LDFLAGS) -lasound -o midiplayer
 
 $(OBJ)/%.o: $(SRC)/%.cpp
 	@echo "Compiling $< ..."

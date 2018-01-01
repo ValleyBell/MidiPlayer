@@ -345,7 +345,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	case 0xF0:
 	case 0xF7:
 		{
-			if (HandleSysEx(trkState, midiEvt))
+			if (HandleSysExMessage(trkState, midiEvt))
 				break;
 			
 			std::vector<UINT8> msgData(0x01 + midiEvt->evtData.size());
@@ -591,6 +591,14 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	case 0x7B:	// All Notes Off
 		chnSt->notes.clear();
+		if (_evtCbFunc != NULL)
+		{
+			MidiEvent noteEvt;
+			noteEvt.evtType = 0x01;
+			noteEvt.evtValA = 0x7B;
+			noteEvt.evtValB = 0x00;
+			_evtCbFunc(_evtCbData, &noteEvt, chnSt - &_chnStates[0]);
+		}
 		break;
 	}
 	
@@ -907,93 +915,30 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	return true;
 }
 
-bool MidiPlayer::HandleSysEx(const TrackState* trkSt, const MidiEvent* midiEvt)
+bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
-	UINT32 addr;
-	UINT8 evtChn;
-	ChannelState* chnSt = NULL;
-	
 	switch(midiEvt->evtData[0x00])
 	{
 	case 0x41:	// Roland ID
 		// Data[0x01] == 0x1n - Device Number n
-		// Data[0x02] == Model ID(MT-32 = 0x16, GS = 0x42)
+		// Data[0x02] == Model ID (MT-32 = 0x16, GS = 0x42)
 		// Data[0x03] == Command ID (reqest data RQ1 = 0x11, data set DT1 = 0x12)
 		if (midiEvt->evtData[0x03] != 0x12)
 			break;
-		if (midiEvt->evtData[0x02] == 0x42)
-		{
-			// Data[0x04]	Address High
-			// Data[0x05]	Address Mid
-			// Data[0x06]	Address Low
-			addr =	(midiEvt->evtData[0x04] << 16) |
-					(midiEvt->evtData[0x05] <<  8) |
-					(midiEvt->evtData[0x06] <<  0);
-			
-			switch(addr & 0xFF0000)	// Address High
-			{
-			case 0x000000:	// System
-				switch(addr)
-				{
-				case 0x00007F:	// SC-88 System Mode Set
-					InitializeChannels();
-					vis_addstr("SysEx: SC-88 System Mode Set\n");
-					break;
-				}
-				break;
-			case 0x400000:	// Patch (port A)
-			case 0x500000:	// Patch (port B)
-				if ((addr & 0x00F000) >= 0x001000)
-				{
-					addr &= ~0x000F00;	// remove channel ID
-					evtChn = PART_ORDER[midiEvt->evtData[0x05] & 0x0F];
-					chnSt = &_chnStates[(trkSt->portID << 4) | evtChn];
-				}
-				switch(addr)
-				{
-				case 0x40007F:	// GS reset
-					// F0 41 10 42 12 40 00 7F 00 41 F7
-					InitializeChannels();
-					vis_addstr("SysEx: GS Reset\n");
-					break;
-				case 0x401015:	// use Rhythm Part (-> drum channel)
-					// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
-					if (midiEvt->evtData[0x07])
-						chnSt->flags |= 0x80;	// drum mode on
-					else
-						chnSt->flags &= ~0x80;	// drum mode off
-					break;
-				case 0x401016:	// Pitch Key Shift
-					break;
-				}
-				break;
-			case 0x410000:	// Drum Setup (port A)
-			case 0x510000:	// Drum Setup (port B)
-				break;
-			}
-		}
+		if (midiEvt->evtData[0x02] == 0x16)
+			return HandleSysEx_MT32(trkSt, midiEvt);
+		else if (midiEvt->evtData[0x02] == 0x42)
+			return HandleSysEx_GS(trkSt, midiEvt);
 		break;
 	case 0x43:	// YAMAHA ID
 		// Data[0x01] == 0x1n - Device Number n
 		if (midiEvt->evtData[0x02] == 0x4C)
-		{
-			addr =	(midiEvt->evtData[0x03] << 16) |
-					(midiEvt->evtData[0x04] <<  8) |
-					(midiEvt->evtData[0x05] <<  0);
-			switch(addr)
-			{
-			case 0x00007E:	// XG System On
-				// XG Reset: F0 43 10 4C 00 00 7E 00 F7
-				InitializeChannels();
-				vis_addstr("SysEx: XG Reset\n");
-				break;
-			}
-		}
+			return HandleSysEx_XG(trkSt, midiEvt);
 		break;
 	case 0x7E:
 		// GM Lvl 1 On:  F0 7E 7F 09 01 F7
 		// GM Lvl 1 Off: F0 7E 7F 09 00 F7
-		// GM Lvl 2 On:  F0 7E 7F 09 03? F7
+		// GM Lvl 2 On:  F0 7E 7F 09 03 F7
 		if (midiEvt->evtData[0x01] == 0x7F && midiEvt->evtData[0x02] == 0x09)
 		{
 			UINT8 gmMode = midiEvt->evtData[0x03];
@@ -1011,6 +956,178 @@ bool MidiPlayer::HandleSysEx(const TrackState* trkSt, const MidiEvent* midiEvt)
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GM)
 				return true;	// prevent GM reset on GS/XG devices
 		}
+		break;
+	}
+	
+	return false;
+}
+
+bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midiEvt)
+{
+	UINT32 addr;
+	const UINT8* dataPtr;
+	
+	// Data[0x04]	Address High
+	// Data[0x05]	Address Mid
+	// Data[0x06]	Address Low
+	addr =	(midiEvt->evtData[0x04] << 16) |
+			(midiEvt->evtData[0x05] <<  8) |
+			(midiEvt->evtData[0x06] <<  0);
+	switch(addr & 0xFF0000)	// Address High
+	{
+	case 0x030000:	// Patch Temporary Area
+		if ((addr & 0x0F) > 0x00)
+			break;	// Right now we can only handle bulk writes.
+		dataPtr = &midiEvt->evtData[0x07];
+		if (addr < 0x030110)
+		{
+			UINT8 evtChn;
+			ChannelState* chnSt = NULL;
+			UINT8 newIns;
+			
+			evtChn = 1 + ((addr & 0x0000F0) >> 4);
+			chnSt = &_chnStates[(trkSt->portID << 4) | evtChn];
+			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
+			if (newIns < 0x80)
+			{
+				const INS_BANK* insBank;
+				UINT8 mapModType;
+				
+				chnSt->curIns = newIns;
+				chnSt->userInsID = 0xFFFF;
+				insBank = SelectInsMap(_options.dstType, &mapModType);
+				chnSt->insMapPPtr = GetExactInstrument(insBank, chnSt, mapModType, 0x03);
+			}
+			else
+			{
+				chnSt->curIns = 0xFF;
+				chnSt->userInsID = newIns & 0x7F;
+				chnSt->insMapPPtr = NULL;
+			}
+			chnSt->pbRange = dataPtr[0x04];
+			if (true)
+			{
+				char msgStr[0x80];
+				
+				sprintf(msgStr, "MT-32 SysEx: Set Ch %u instrument = %u", evtChn, newIns);
+				vis_addstr(msgStr);
+			}
+			if (_evtCbFunc != NULL)
+			{
+				MidiEvent insEvt;
+				
+				insEvt.evtType = 0xC0 | evtChn;
+				insEvt.evtValA = chnSt->curIns;
+				_evtCbFunc(_evtCbData, &insEvt, (trkSt->portID << 4) | evtChn);
+			}
+			break;
+		}
+		break;
+	case 0x040000:	// Timbre Temporary Area
+		break;
+	case 0x050000:	// Patch Memory
+		break;
+	case 0x080000:	// Timbre Memory
+		{
+			UINT8 timID = (addr & 0x007E00) >> 9;
+			dataPtr = &midiEvt->evtData[0x07];
+		}
+		break;
+	case 0x100000:	// System area
+		break;
+	case 0x200000:	// Display
+		if (addr < 0x200100)
+		{
+			std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
+			char msgStr[0x80];
+			
+			sprintf(msgStr, "MT-32 SysEx: Display = \"%s\"", dispMsg.c_str());
+			vis_addstr(msgStr);
+		}
+		else if (addr == 0x200100)
+		{
+			vis_addstr("MT-32 SysEx: Display Reset");
+		}
+		break;
+	case 0x7F0000:	//All parameters reset
+		InitializeChannels();
+		vis_addstr("SysEx: MT-32 Reset\n");
+		break;
+	}
+	
+	return false;
+}
+
+bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEvt)
+{
+	UINT32 addr;
+	UINT8 evtChn;
+	ChannelState* chnSt = NULL;
+	
+	// Data[0x04]	Address High
+	// Data[0x05]	Address Mid
+	// Data[0x06]	Address Low
+	addr =	(midiEvt->evtData[0x04] << 16) |
+			(midiEvt->evtData[0x05] <<  8) |
+			(midiEvt->evtData[0x06] <<  0);
+	switch(addr & 0xFF0000)	// Address High
+	{
+	case 0x000000:	// System
+		switch(addr)
+		{
+		case 0x00007F:	// SC-88 System Mode Set
+			InitializeChannels();
+			vis_addstr("SysEx: SC-88 System Mode Set\n");
+			break;
+		}
+		break;
+	case 0x400000:	// Patch (port A)
+	case 0x500000:	// Patch (port B)
+		if ((addr & 0x00F000) >= 0x001000)
+		{
+			addr &= ~0x000F00;	// remove channel ID
+			evtChn = PART_ORDER[midiEvt->evtData[0x05] & 0x0F];
+			chnSt = &_chnStates[(trkSt->portID << 4) | evtChn];
+		}
+		switch(addr)
+		{
+		case 0x40007F:	// GS reset
+			// F0 41 10 42 12 40 00 7F 00 41 F7
+			InitializeChannels();
+			vis_addstr("SysEx: GS Reset\n");
+			break;
+		case 0x401015:	// use Rhythm Part (-> drum channel)
+			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
+			if (midiEvt->evtData[0x07])
+				chnSt->flags |= 0x80;	// drum mode on
+			else
+				chnSt->flags &= ~0x80;	// drum mode off
+			break;
+		case 0x401016:	// Pitch Key Shift
+			break;
+		}
+		break;
+	case 0x410000:	// Drum Setup (port A)
+	case 0x510000:	// Drum Setup (port B)
+		break;
+	}
+	
+	return false;
+}
+
+bool MidiPlayer::HandleSysEx_XG(const TrackState* trkSt, const MidiEvent* midiEvt)
+{
+	UINT32 addr;
+	
+	addr =	(midiEvt->evtData[0x03] << 16) |
+			(midiEvt->evtData[0x04] <<  8) |
+			(midiEvt->evtData[0x05] <<  0);
+	switch(addr)
+	{
+	case 0x00007E:	// XG System On
+		// XG Reset: F0 43 10 4C 00 00 7E 00 F7
+		InitializeChannels();
+		vis_addstr("SysEx: XG Reset\n");
 		break;
 	}
 	

@@ -1,16 +1,17 @@
 // Note: The general view and layout is heavily inspired by "Playmidi" by Nathan Laredo.
 //       In fact, I copied the colour scheme and note placement algorithm from Playmidi.
 #include <stddef.h>
-#include <string>
 #include <math.h>
+#include <string.h>
+#include <string>
+#include <vector>
+#include <map>
 #include <curses.h>
 
 #include <stdtype.h>
 #include "MidiLib.hpp"
 #include "MidiPlay.hpp"
 #include "vis.hpp"
-#include <vector>
-#include <map>
 
 static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "B#", "B"};
@@ -100,10 +101,12 @@ int vis_getch_wait(void)
 
 void vis_addstr(const char* text)
 {
+	move(curYline, 0);	clrtoeol();
+	addstr(text);
+	curYline ++;
 	if (curYline >= LINES)
 		curYline = TEXT_BASE_LINE;
-	mvaddstr(curYline, 0, text);
-	curYline ++;
+	move(curYline, 0);	clrtoeol();
 	
 	return;
 }
@@ -140,7 +143,7 @@ void vis_new_song(void)
 	mvprintw(0, 32, "Now Playing: ");
 	titlePosX = getcurx(stdscr);
 	mvprintw(1, 32, "[Q]uit [ ]Pause [B]Previous [N]ext");
-	mvprintw(1, 0, "00:00.0 - 00:00.0, %u %s", nTrks, (nTrks == 1) ? "track" : "tracks");
+	mvprintw(1, 0, "00:00.0 / 00:00.0, %u %s", nTrks, (nTrks == 1) ? "track" : "tracks");
 	if (midPlay != NULL)
 		vis_mvprintms(1, 10, midPlay->GetSongLength());
 	
@@ -149,10 +152,10 @@ void vis_new_song(void)
 	{
 		sprintf(chnNameStr, "Channel %2u", 1 + (curChn & 0x0F));
 		mvprintw(curYline, 0, "%-*.*s", INS_COL_SIZE, INS_COL_SIZE, chnNameStr);
-		mvaddch(curYline, INS_COL_SIZE, ACS_VLINE);
+		mvaddch(curYline, NOTE_BASE_COL - 1, ACS_VLINE);
 	}
-	mvhline(curYline, 0, ACS_HLINE, INS_COL_SIZE);
-	mvaddch(curYline, INS_COL_SIZE, ACS_LRCORNER);
+	mvhline(curYline, 0, ACS_HLINE, NOTE_BASE_COL - 1);
+	mvaddch(curYline, NOTE_BASE_COL - 1, ACS_LRCORNER);
 	curYline ++;
 	TEXT_BASE_LINE = curYline;
 	
@@ -168,9 +171,43 @@ void vis_new_song(void)
 	mvaddch(1, 49, 'B');
 	mvaddch(1, 61, 'N');
 	attroff(A_BOLD);
+	move(curYline, 0);
 	refresh();
 	
 	lastUpdateTime = 0;
+	
+	return;
+}
+
+void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data)
+{
+	int posY = CHN_BASE_LINE + chn;
+	std::map<int, int>& chnDisp = dispNotes[chn];
+	std::map<int, int>::iterator noteIt;
+	
+	switch(action)
+	{
+	case 0x01:	// redraw all notes:
+		for (noteIt = chnDisp.begin(); noteIt != chnDisp.end(); ++noteIt)
+		{
+			// TODO
+		}
+		break;
+	case 0x7B:	// stop all notes
+		for (noteIt = chnDisp.begin(); noteIt != chnDisp.end(); )
+		{
+			if (noteIt->second == 0)
+			{
+				std::map<int, int>::iterator remIt = noteIt;
+				++noteIt;
+				mvaddstr(posY, remIt->first, "   ");
+				chnDisp.erase(remIt);
+				continue;
+			}
+			++noteIt;
+		}
+		break;
+	}
 	
 	return;
 }
@@ -201,6 +238,29 @@ void vis_do_ins_change(UINT16 chn)
 	attron(A_BOLD | COLOR_PAIR(color));
 	mvprintw(posY, 0, "%-*.*s", INS_COL_SIZE, INS_COL_SIZE, insName);
 	attroff(A_BOLD | COLOR_PAIR(color));
+	
+	return;
+}
+
+void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
+{
+	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
+	int posY = CHN_BASE_LINE + chn;
+	int color = (chn % 6) + 1;
+	
+	switch(ctrl)
+	{
+	case 0x0A:	// Pan
+		attron(A_BOLD | COLOR_PAIR(color));
+		if (value < 0x2B)
+			mvaddch(posY, NOTE_BASE_COL - 2, '<');
+		else if (value > 0x55)
+			mvaddch(posY, NOTE_BASE_COL - 2, '>');
+		else
+			mvaddch(posY, NOTE_BASE_COL - 2, ' ');
+		attroff(A_BOLD | COLOR_PAIR(color));
+		break;
+	}
 	
 	return;
 }

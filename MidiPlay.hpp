@@ -97,7 +97,10 @@ private:
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
-	bool HandleSysEx(const TrackState* trkSt, const MidiEvent* midiEvt);
+	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
+	bool HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midiEvt);
+	bool HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEvt);
+	bool HandleSysEx_XG(const TrackState* trkSt, const MidiEvent* midiEvt);
 	void AllNotesStop(void);
 	void AllNotesRestart(void);
 	

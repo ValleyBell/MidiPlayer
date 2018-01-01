@@ -58,12 +58,14 @@ UINT8 MidiTrack::ReadFromFile(FILE* infile)
 	LastEvt = 0x00;
 	CurTick = 0;
 	// read events
-	while((UINT32)ftell(infile) < TrkEnd)
+	while(! feof(infile) && (UINT32)ftell(infile) < TrkEnd)
 	{
 		MidiEvent* newEvt;
 		bool rsUse;
 		
 		CurTick += ReadMidiValue(infile);
+		if (feof(infile))
+			break;
 		
 		fread(&CurEvt, 0x01, 1, infile);
 		if (CurEvt < 0x80)
@@ -715,11 +717,14 @@ static UINT32 ReadMidiValue(FILE* infile)
 {
 	UINT8 TempByt;
 	UINT32 ResVal;
+	size_t readBytes;
 	
 	ResVal = 0x00;
 	do
 	{
-		fread(&TempByt, 0x01, 1, infile);
+		readBytes = fread(&TempByt, 0x01, 1, infile);
+		if (! readBytes)
+			break;
 		ResVal <<= 7;
 		ResVal |= (TempByt & 0x7F);
 	} while(TempByt & 0x80);
