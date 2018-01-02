@@ -14,7 +14,7 @@
 #include "vis.hpp"
 
 static const char* notes[12] =
-	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "B#", "B"};
+	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
 struct ChnNoteDisp
 {
@@ -368,10 +368,12 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 		forcedDurat = 0;
 	}
 	chnDisp[posX] = forcedDurat;
+	if (volume < 16)	// treat very-low-velocity notes as "note off"
+		noteName[0] = '\0';
 	
 	str_padding(noteName, 3, ' ');
 	attron(COLOR_PAIR(color));
-	if (volume >= 0x30)
+	if (volume > 50)
 		attron(A_BOLD);
 	mvaddstr(posY, posX, noteName);
 	attroff(A_BOLD | COLOR_PAIR(color));

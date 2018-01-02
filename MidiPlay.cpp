@@ -515,8 +515,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		if ((_options.flags & PLROPTS_STRICT) && (_options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B))
 		{
 			// enforce Bank LSB == 0 for GS/SC-55
-			chnSt->ctrls[midiEvt->evtValA] = 0x00;
-			chnSt->insBank[1] = chnSt->ctrls[0x20];
+			chnSt->insBank[1] = 0x00;
 			MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, midiEvt->evtValA, chnSt->insBank[1]);
 			return true;
 		}
@@ -714,9 +713,9 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	didPatch = false;
 	bankIgnore = 0x00;
 	
-	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 	{
-		if (MMASK_MOD(_options.dstType) >= MTGS_SC88 && MMASK_MOD(_options.dstType) != MTGS_TG300B)
+		if (MMASK_MOD(_options.srcType) >= MTGS_SC88 && MMASK_MOD(_options.srcType) != MTGS_TG300B)
 		{
 			if (chnSt->curIns == (0x80|0x40) || chnSt->curIns == (0x80|0x41))
 				chnSt->userInsID = 0x8000 | (chnSt->curIns & 0x01);
@@ -724,18 +723,19 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 				chnSt->userInsID = ((chnSt->insBank[0] & 0x01) << 7) | (chnSt->curIns & 0x7F);
 		}
 	}
-	else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
 	{
 		if (chnSt->insBank[0] == 0x3F)
 			chnSt->userInsID = (chnSt->curIns & 0x7F);
-	}
-	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
-	{
 		if (chnSt->insBank[0] >= 0x7E)	// MSB 7E/7F = drum kits
 			chnSt->flags |= 0x80;
 		else
 			chnSt->flags &= ~0x80;
 		chnSt->curIns = (chnSt->curIns & 0x7F) | (chnSt->flags & 0x80);
+	}
+	else if (_options.srcType == MODULE_GM_1)
+	{
+		bankIgnore = 0x03;	// GM Level 1 doesn't support Bank MSB/LSB
 	}
 	else if (_options.srcType == MODULE_MT32)
 	{
@@ -795,15 +795,36 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			chnSt->insBank[0] = (chnSt->flags & 0x80) ? 0x7F : 0x00;
 		}
 	}
-	else //if (! (_options.flags & PLROPTS_STRICT))
+	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 	{
-		// restore actual Bank MSB/LSB settings
-		chnSt->insBank[0] = chnSt->ctrls[0x00];
-		chnSt->insBank[1] = chnSt->ctrls[0x20];
+		if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS || chnSt->insBank[1] == 0x00)
+		{
+			// GS song: use bank that is optimal for the song
+			// GM song: use "native" bank for device
+			if (MMASK_MOD(_options.srcType) >= MT_UNKNOWN)
+				bankIgnore |= 0x02;
+			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
+			else
+				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+		}
 	}
 	
+	// try to choose a fitting instrument for the destination device
+	// (the XG patch above had to be done first)
 	insBank = SelectInsMap(_options.dstType, &mapModType);
-	if (! isUserIns && (~bankIgnore & 0x03) && (_options.flags & PLROPTS_ENABLE_CTF))
+	chnSt->insMapPPtr = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore);
+	
+	if (! (_options.flags & PLROPTS_STRICT))
+	{
+		// restore actual Bank MSB/LSB settings, for non-strict mode
+		chnSt->insBank[0] = chnSt->ctrls[0x00];
+		chnSt->insBank[1] = chnSt->ctrls[0x20];
+		if (chnSt->insMapPPtr != NULL && chnSt->insMapOPtr != NULL)
+			chnSt->insMapPPtr = chnSt->insMapOPtr;
+	}
+	
+	if (chnSt->insMapPPtr == NULL && ! isUserIns && (~bankIgnore & 0x03) && (_options.flags & PLROPTS_ENABLE_CTF))
 	{
 		const INS_DATA* insData;
 		
@@ -813,6 +834,10 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			// try General MIDI fallback
 			chnSt->insBank[0] = 0x00;
 			chnSt->insBank[1] = 0x00;
+			// on GS devices, keep a fitting Bank LSB type
+			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
+			
 			if (chnSt->flags & 0x80)
 			{
 				// handle drum mode fallback
@@ -853,8 +878,6 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		}
 		chnSt->insMapPPtr = insData;
 	}
-	if (chnSt->insMapPPtr == NULL)
-		chnSt->insMapPPtr = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore);
 	if (chnSt->insMapPPtr == NULL && MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 	{
 		if (! chnSt->insBank[1] || _options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B)
@@ -879,8 +902,9 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x00, chnSt->insBank[0]);
 		if (oldLSB != chnSt->insBank[1])
 			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x20, chnSt->insBank[1]);
-		didPatch = true;
 	}
+	if (chnSt->insBank[0] != chnSt->ctrls[0x00] || chnSt->insBank[1] != chnSt->ctrls[0x20])
+		didPatch = true;
 	
 	if (true)
 	{
@@ -923,15 +947,20 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		// Data[0x01] == 0x1n - Device Number n
 		// Data[0x02] == Model ID (MT-32 = 0x16, GS = 0x42)
 		// Data[0x03] == Command ID (reqest data RQ1 = 0x11, data set DT1 = 0x12)
-		if (midiEvt->evtData[0x03] != 0x12)
-			break;
-		if (midiEvt->evtData[0x02] == 0x16)
-			return HandleSysEx_MT32(trkSt, midiEvt);
-		else if (midiEvt->evtData[0x02] == 0x42)
-			return HandleSysEx_GS(trkSt, midiEvt);
+		if (midiEvt->evtData[0x03] == 0x12)
+		{
+			if (midiEvt->evtData.size() < 0x08)
+				break;	// We need enough bytes for a full address.
+			if (midiEvt->evtData[0x02] == 0x16)
+				return HandleSysEx_MT32(trkSt, midiEvt);
+			else if (midiEvt->evtData[0x02] == 0x42)
+				return HandleSysEx_GS(trkSt, midiEvt);
+		}
 		break;
 	case 0x43:	// YAMAHA ID
 		// Data[0x01] == 0x1n - Device Number n
+		if (midiEvt->evtData.size() < 0x07)
+			break;	// We need enough bytes for a full address.
 		if (midiEvt->evtData[0x02] == 0x4C)
 			return HandleSysEx_XG(trkSt, midiEvt);
 		break;
@@ -1076,8 +1105,14 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		switch(addr)
 		{
 		case 0x00007F:	// SC-88 System Mode Set
-			InitializeChannels();
+			InitializeChannels();	// it completely resets the device
 			vis_addstr("SysEx: SC-88 System Mode Set\n");
+			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
+			{
+				// for devices that don't understand the message, send GS reset instead
+				MidiOutPort_SendLongMsg(_outPorts[trkSt->portID], sizeof(RESET_GS), RESET_GS);
+				return true;
+			}
 			break;
 		}
 		break;

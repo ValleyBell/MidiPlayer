@@ -218,6 +218,12 @@ static void LoadConfig(void)
 	}
 	{
 		InstrumentSetCfg isc;
+		isc.setType = MODULE_GM_1;
+		isc.pathName = std::string(INS_SET_PATH) + "general.ins";
+		insSetFiles.push_back(isc);
+	}
+	{
+		InstrumentSetCfg isc;
 		isc.setType = MODULE_GM_2;
 		isc.pathName = std::string(INS_SET_PATH) + "gml2.ins";
 		insSetFiles.push_back(isc);
