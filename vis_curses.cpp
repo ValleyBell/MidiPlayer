@@ -40,6 +40,8 @@ static int curYline = 0;
 static MidiFile* midFile = NULL;
 static const char* midFName = NULL;
 static MidiPlayer* midPlay = NULL;
+static const char* midFType = NULL;
+static const char* midDevType = NULL;
 
 // std::vector< Channel std::map< posX, remTime> >
 static std::vector< std::map<int, int> > dispNotes;
@@ -122,6 +124,21 @@ void vis_set_midi_player(MidiPlayer* mPlay)
 	midPlay = mPlay;
 }
 
+void vis_set_type_str(UINT8 key, const char* typeStr)
+{
+	switch(key)
+	{
+	case 0:
+		midDevType = typeStr;
+		break;
+	case 1:
+		midFType = typeStr;
+		break;
+	}
+	
+	return;
+}
+
 void vis_new_song(void)
 {
 	unsigned int nTrks;
@@ -143,9 +160,15 @@ void vis_new_song(void)
 	mvprintw(0, 32, "Now Playing: ");
 	titlePosX = getcurx(stdscr);
 	mvprintw(1, 32, "[Q]uit [ ]Pause [B]Previous [N]ext");
-	mvprintw(1, 0, "00:00.0 / 00:00.0, %u %s", nTrks, (nTrks == 1) ? "track" : "tracks");
+	//mvprintw(1, 0, "00:00.0 / 00:00.0, %u %s", nTrks, (nTrks == 1) ? "track" : "tracks");
+	mvprintw(1, 0, "00:00.0 / 00:00.0");
 	if (midPlay != NULL)
 		vis_mvprintms(1, 10, midPlay->GetSongLength());
+	
+	if (midDevType != NULL)
+		mvprintw(0, 16, "Dev: %s", midDevType);
+	if (midFType != NULL)
+		mvprintw(1, 20, "(%s)", midFType);
 	
 	curYline = CHN_BASE_LINE;
 	for (curChn = 0; curChn < chnCnt; curChn ++, curYline ++)
@@ -464,6 +487,8 @@ void vis_update(void)
 	size_t curChn;
 	
 	newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
+	if (newUpdateTime < lastUpdateTime)
+		lastUpdateTime = 0;	// fix looping
 	updateTicks = (int)(newUpdateTime - lastUpdateTime);
 	if (updateTicks < 20)
 		return;	// update with 50 Hz maximum

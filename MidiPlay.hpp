@@ -65,6 +65,12 @@ private:
 		UINT32 tempo;
 		UINT64 tmrTick;
 	};
+	struct LoopPoint
+	{
+		bool used;
+		UINT32 tick;
+		std::vector<midevt_const_it> trkEvtPos;	// evtPos of each track
+	};
 	
 public:
 	MidiPlayer();
@@ -103,6 +109,8 @@ private:
 	bool HandleSysEx_XG(const TrackState* trkSt, const MidiEvent* midiEvt);
 	void AllNotesStop(void);
 	void AllNotesRestart(void);
+	void SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk = NULL);
+	void RestoreLoopState(const LoopPoint& lp);
 	
 	bool _playing;
 	bool _paused;
@@ -120,6 +128,7 @@ private:
 	PlayerOpts _options;
 	MIDI_EVT_CB _evtCbFunc;
 	void* _evtCbData;
+	
 	std::vector<size_t> _portMap;	// MIDI track port -> ID of MIDIOUT_PORT object
 	std::vector<MIDIOUT_PORT*> _outPorts;
 	OS_TIMER* _osTimer;
@@ -128,8 +137,10 @@ private:
 	
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
+	LoopPoint _loopPt;
+	bool _breakMidiProc;
 	UINT32 _midiTempo;
-	UINT32 _lastEvtTick;
+	UINT32 _nextEvtTick;
 	UINT64 _curTickTime;	// time for 1 MIDI tick at current tempo
 };
 

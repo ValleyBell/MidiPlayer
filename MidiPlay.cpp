@@ -161,6 +161,7 @@ UINT8 MidiPlayer::Start(void)
 	
 	_chnStates.resize(_outPorts.size() * 0x10);
 	InitializeChannels();
+	_loopPt.used = false;
 	
 	_trkStates.clear();
 	for (curTrk = 0; curTrk < _cMidi->GetTrackCount(); curTrk ++)
@@ -178,7 +179,7 @@ UINT8 MidiPlayer::Start(void)
 	_midiTempo = 500000;	// default tempo
 	RefreshTickTime();
 	
-	_lastEvtTick = 0;
+	_nextEvtTick = 0;
 	_tmrStep = 0;
 	
 	if (_options.flags & PLROPTS_RESET)
@@ -280,12 +281,12 @@ double MidiPlayer::GetPlaybackPos(void) const
 	tmrTick = 0;
 	for (tempoIt = _tempoList.begin(); tempoIt != _tempoList.end(); ++tempoIt)
 	{
-		if (tempoIt->tick > _lastEvtTick)
+		if (tempoIt->tick > _nextEvtTick)
 			break;	// stop when going too far
 	}
 	--tempoIt;
 	// I just assume that _curTickTime is correct.
-	tmrTick = tempoIt->tmrTick + (_lastEvtTick - tempoIt->tick) * _curTickTime;
+	tmrTick = tempoIt->tmrTick + (_nextEvtTick - tempoIt->tick) * _curTickTime;
 	if (curTime < _tmrStep)
 		tmrTick -= (_tmrStep - curTime);
 	return (double)tmrTick / (double)_tmrFreq;
@@ -370,6 +371,16 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			{
 				std::string text(midiEvt->evtData.begin(), midiEvt->evtData.end());
 				//printf("Marker: %s\n", text.c_str());
+				if (text == "loopStart")
+				{
+					vis_addstr("loopStart found.");
+					SaveLoopState(_loopPt, trkState);
+				}
+				else if (text == "loopEnd")
+				{
+					_breakMidiProc = true;
+					RestoreLoopState(_loopPt);
+				}
 			}
 			break;
 		case 0x21:	// MIDI Port
@@ -427,14 +438,19 @@ void MidiPlayer::DoPlaybackStep(void)
 		}
 		if (minTStamp == (UINT32)-1)
 		{
+			if (_loopPt.used && _loopPt.tick < _nextEvtTick)
+			{
+				RestoreLoopState(_loopPt);
+				continue;
+			}
 			_playing = false;
 			break;
 		}
 		
-		if (minTStamp > _lastEvtTick)
+		if (minTStamp > _nextEvtTick)
 		{
-			_tmrStep += (minTStamp - _lastEvtTick) * _curTickTime;
-			_lastEvtTick = minTStamp;
+			_tmrStep += (minTStamp - _nextEvtTick) * _curTickTime;
+			_nextEvtTick = minTStamp;
 		}
 		
 		if (_tmrStep > curTime)
@@ -442,16 +458,19 @@ void MidiPlayer::DoPlaybackStep(void)
 		if (_tmrStep + _tmrFreq < curTime)
 			_tmrStep = curTime;	// reset time when lagging behind >= 1 second
 		
+		_breakMidiProc = false;
 		for (curTrk = 0; curTrk < _trkStates.size(); curTrk ++)
 		{
 			TrackState* mTS = &_trkStates[curTrk];
-			while(mTS->evtPos != mTS->endPos && mTS->evtPos->tick <= _lastEvtTick)
+			while(mTS->evtPos != mTS->endPos && mTS->evtPos->tick <= _nextEvtTick)
 			{
 				DoEvent(mTS, &*mTS->evtPos);
-				if (mTS->evtPos == mTS->endPos)
+				if (_breakMidiProc || mTS->evtPos == mTS->endPos)
 					break;
 				++mTS->evtPos;
 			}
+			if (_breakMidiProc)
+				break;
 		}
 	}
 	
@@ -574,6 +593,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	case 0x65:	// RPN MSB
 		chnSt->rpnCtrl[0] = 0x00 | midiEvt->evtValB;
+		break;
+	case 0x6F:	// RPG Maker loop controller
+		if (midiEvt->evtValB == 0 || midiEvt->evtValB == 111)
+		{
+			vis_addstr("Loop Point found.");
+			SaveLoopState(_loopPt, trkSt);
+		}
 		break;
 	case 0x79:	// Reset All Controllers
 		chnSt->ctrls[0x01] = 0x00;	// Modulation
@@ -759,7 +785,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	
 	// apply PLROPTS_STRICT filter now (regardless of the option),
 	// so that instrument lookup works
-	if (_options.srcType == MODULE_GM_1)
+	if (_options.srcType == MODULE_GM_1 || _options.srcType == MODULE_MT32)
 	{
 		chnSt->insBank[0] = 0x00;
 		chnSt->insBank[1] = 0x00;
@@ -1328,6 +1354,37 @@ void MidiPlayer::InitializeChannels(void)
 			drumChn.insBank[0] = 0x7F;
 		}
 	}
+	
+	return;
+}
+
+void MidiPlayer::SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk)
+{
+	size_t curTrk;
+	
+	lp.tick = _nextEvtTick;
+	lp.trkEvtPos.resize(_trkStates.size());
+	for (curTrk = 0; curTrk < lp.trkEvtPos.size(); curTrk ++)
+	{
+		lp.trkEvtPos[curTrk] = _trkStates[curTrk].evtPos;
+		if (&_trkStates[curTrk] == loopMarkTrk)
+			lp.trkEvtPos[curTrk] ++;	// skip loop event
+	}
+	lp.used = true;
+	
+	return;
+}
+
+void MidiPlayer::RestoreLoopState(const LoopPoint& lp)
+{
+	if (! lp.used)
+		return;
+	
+	size_t curTrk;
+	
+	_nextEvtTick = lp.tick;
+	for (curTrk = 0; curTrk < _loopPt.trkEvtPos.size(); curTrk ++)
+		_trkStates[curTrk].evtPos = _loopPt.trkEvtPos[curTrk];
 	
 	return;
 }
