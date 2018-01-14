@@ -523,8 +523,15 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 
 bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
-	chnSt->ctrls[midiEvt->evtValA] = midiEvt->evtValB;
-	switch(midiEvt->evtValA)
+	UINT8 ctrlID = midiEvt->evtValA;
+	
+	if (ctrlID == chnSt->idCC[0])
+		ctrlID = 0x10;
+	else if (ctrlID == chnSt->idCC[1])
+		ctrlID = 0x11;
+	
+	chnSt->ctrls[ctrlID] = midiEvt->evtValB;
+	switch(ctrlID)
 	{
 	case 0x00:	// Bank MSB
 		chnSt->insBank[0] = chnSt->ctrls[0x00];
@@ -535,7 +542,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		{
 			// enforce Bank LSB == 0 for GS/SC-55
 			chnSt->insBank[1] = 0x00;
-			MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, midiEvt->evtValA, chnSt->insBank[1]);
+			MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, ctrlID, chnSt->insBank[1]);
 			return true;
 		}
 		break;
@@ -626,6 +633,9 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		break;
 	}
+	
+	if (ctrlID != midiEvt->evtValA)
+		MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, ctrlID, midiEvt->evtValB);
 	
 	return false;
 }
@@ -1216,6 +1226,31 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			break;
 		case 0x401016:	// Pitch Key Shift
 			break;
+		case 0x40101F:	// CC1 Controller Number
+		case 0x401020:	// CC2 Controller Number
+			if (_options.dstType == MODULE_SC8850)
+			{
+				char msgStr[0x40];
+				UINT8 ccNo;
+				
+				// On the SC-8820, CC1/CC2 number reprogramming is broken.
+				// It's best to ignore the message and manually remap the controllers to CC#16/CC#17.
+				ccNo = addr - 0x40101F;
+				if (midiEvt->evtData[0x07] < 0x0C)
+				{
+					sprintf(msgStr, "Warning: Channel %u: CC%u reprogramming to CC#%u might not work!",
+							1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
+					vis_addstr(msgStr);
+					break;	// ignore stuff like Modulation
+				}
+				chnSt->idCC[ccNo] = midiEvt->evtData[0x07];
+				
+				sprintf(msgStr, "Warning: Channel %u: Ignoring CC%u reprogramming to CC#%u!",
+						1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
+				vis_addstr(msgStr);
+				return true;
+			}
+			break;
 		}
 		break;
 	case 0x410000:	// Drum Setup (port A)
@@ -1384,6 +1419,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.userInsID = 0xFFFF;
 		chnSt.insMapOPtr = chnSt.insMapPPtr = NULL;
 		memset(&chnSt.ctrls[0], 0x00, 0x80);
+		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0xFF;
 		chnSt.pbRange = 2;

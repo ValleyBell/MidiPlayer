@@ -42,6 +42,7 @@ public:
 		const INS_DATA* insMapOPtr;	// original instrument
 		const INS_DATA* insMapPPtr;	// patched instrument
 		UINT8 ctrls[0x80];
+		UINT8 idCC[2];	// for SC-8820 CC1/CC2 remapping
 		
 		UINT8 rpnCtrl[2];	// [0] = MSB, [1] = LSB, 00..7F = RPN, 80..FF = NRPN
 		UINT8 pbRange;
