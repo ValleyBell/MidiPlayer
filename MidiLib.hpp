@@ -41,28 +41,28 @@ public:
 	
 	// create MIDI events
 	static MidiEvent CreateEvent_Std(UINT8 Event, UINT8 Val1, UINT8 Val2);
-	static MidiEvent CreateEvent_SysEx(UINT32 DataLen, void* Data);
-	static MidiEvent CreateEvent_Meta(UINT8 Type, UINT32 DataLen, void* Data);
+	static MidiEvent CreateEvent_SysEx(UINT32 DataLen, const void* Data);
+	static MidiEvent CreateEvent_Meta(UINT8 Type, UINT32 DataLen, const void* Data);
 	
 	// append with delay to last event
 	void AppendEvent(const MidiEvent& Event);
 	void AppendEvent(UINT32 Delay, MidiEvent Event);
 	void AppendEvent(UINT32 Delay, UINT8 Event, UINT8 Val1, UINT8 Val2);
-	void AppendSysEx(UINT32 Delay, UINT32 DataLen, void* Data);
-	void AppendMetaEvent(UINT32 Delay, UINT8 Type, UINT32 DataLen, void* Data);
+	void AppendSysEx(UINT32 Delay, UINT32 DataLen, const void* Data);
+	void AppendMetaEvent(UINT32 Delay, UINT8 Type, UINT32 DataLen, const void* Data);
 	
 	// insert with absolute tick
 	void InsertEventT(const MidiEvent& Event);
 	void InsertEventT(UINT32 Tick, MidiEvent Event);
 	void InsertEventT(UINT32 Tick, UINT8 Event, UINT8 Val1, UINT8 Val2);
-	void InsertSysExT(UINT32 Tick, UINT32 DataLen, void* Data);
-	void InsertMetaEventT(UINT32 Tick, UINT8 Type, UINT32 DataLen, void* Data);
+	void InsertSysExT(UINT32 Tick, UINT32 DataLen, const void* Data);
+	void InsertMetaEventT(UINT32 Tick, UINT8 Type, UINT32 DataLen, const void* Data);
 	// insert with previous event and delay
 	void InsertEventD(midevt_iterator prevEvt, const MidiEvent& Event);
 	void InsertEventD(midevt_iterator prevEvt, UINT32 Delay, MidiEvent Event);
 	void InsertEventD(midevt_iterator prevEvt, UINT32 Delay, UINT8 Event, UINT8 Val1, UINT8 Val2);
-	void InsertSysExD(midevt_iterator prevEvt, UINT32 Delay, UINT32 DataLen, void* Data);
-	void InsertMetaEventD(midevt_iterator prevEvt, UINT32 Delay, UINT8 Type, UINT32 DataLen, void* Data);
+	void InsertSysExD(midevt_iterator prevEvt, UINT32 Delay, UINT32 DataLen, const void* Data);
+	void InsertMetaEventD(midevt_iterator prevEvt, UINT32 Delay, UINT8 Type, UINT32 DataLen, const void* Data);
 	
 	void RemoveEvent(midevt_iterator evtIt);
 	

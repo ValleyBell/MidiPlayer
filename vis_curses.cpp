@@ -47,6 +47,9 @@ static const char* midDevType = NULL;
 static std::vector< std::map<int, int> > dispNotes;
 static UINT64 lastUpdateTime = 0;
 
+static std::string lastMeta01;
+static std::string lastMeta03;
+
 void vis_init(void)
 {
 	initscr();
@@ -413,7 +416,11 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	switch(metaType)
 	{
 	case 0x01:	// Text
+		if (lastMeta01 == text)
+			break;
+		
 		printw("Text: %s", text.c_str());
+		lastMeta01 = text;
 		curYline ++;
 		break;
 	case 0x02:	// Copyright Notice
@@ -421,10 +428,14 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		curYline ++;
 		break;
 	case 0x03:	// Sequence/Track Name
+		if (lastMeta03 == text)
+			break;
+		
 		if (trk == 0 || midFile->GetMidiFormat() == 2)
 		{
 			attron(A_BOLD);
 			printw("Title: %s", text.c_str());
+			lastMeta03 = text;
 			attroff(A_BOLD);
 			curYline ++;
 		}

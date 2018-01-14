@@ -272,6 +272,8 @@ midevt_iterator MidiTrack::GetEventFromTick(UINT32 tick)
 {
 	MidiEvent newEvt;
 	
+	newEvt.tick = 0;
+	newEvt.rsUse = false;
 	newEvt.evtType = Event;
 	newEvt.evtValA = Val1;
 	newEvt.evtValB = Val2;
@@ -280,10 +282,12 @@ midevt_iterator MidiTrack::GetEventFromTick(UINT32 tick)
 	return newEvt;
 }
 
-/*static*/ MidiEvent MidiTrack::CreateEvent_SysEx(UINT32 DataLen, void* Data)
+/*static*/ MidiEvent MidiTrack::CreateEvent_SysEx(UINT32 DataLen, const void* Data)
 {
 	MidiEvent newEvt;
 	
+	newEvt.tick = 0;
+	newEvt.rsUse = false;
 	newEvt.evtType = 0xF0;
 	newEvt.evtValA = 0x00;
 	newEvt.evtValB = 0x00;
@@ -294,10 +298,12 @@ midevt_iterator MidiTrack::GetEventFromTick(UINT32 tick)
 	return newEvt;
 }
 
-/*static*/ MidiEvent MidiTrack::CreateEvent_Meta(UINT8 Type, UINT32 DataLen, void* Data)
+/*static*/ MidiEvent MidiTrack::CreateEvent_Meta(UINT8 Type, UINT32 DataLen, const void* Data)
 {
 	MidiEvent newEvt;
 	
+	newEvt.tick = 0;
+	newEvt.rsUse = false;
 	newEvt.evtType = 0xFF;
 	newEvt.evtValA = Type;
 	newEvt.evtValB = 0x00;
@@ -333,14 +339,14 @@ void MidiTrack::AppendEvent(UINT32 Delay, UINT8 Event, UINT8 Val1, UINT8 Val2)
 	return;
 }
 
-void MidiTrack::AppendSysEx(UINT32 Delay, UINT32 DataLen, void* Data)
+void MidiTrack::AppendSysEx(UINT32 Delay, UINT32 DataLen, const void* Data)
 {
 	AppendEvent(Delay, CreateEvent_SysEx(DataLen, Data));
 	
 	return;
 }
 
-void MidiTrack::AppendMetaEvent(UINT32 Delay, UINT8 Type, UINT32 DataLen, void* Data)
+void MidiTrack::AppendMetaEvent(UINT32 Delay, UINT8 Type, UINT32 DataLen, const void* Data)
 {
 	AppendEvent(Delay, CreateEvent_Meta(Type, DataLen, Data));
 	
@@ -373,14 +379,14 @@ void MidiTrack::InsertEventT(UINT32 tick, UINT8 Event, UINT8 Val1, UINT8 Val2)
 	return;
 }
 
-void MidiTrack::InsertSysExT(UINT32 tick, UINT32 DataLen, void* Data)
+void MidiTrack::InsertSysExT(UINT32 tick, UINT32 DataLen, const void* Data)
 {
 	InsertEventT(tick, CreateEvent_SysEx(DataLen, Data));
 	
 	return;
 }
 
-void MidiTrack::InsertMetaEventT(UINT32 tick, UINT8 Type, UINT32 DataLen, void* Data)
+void MidiTrack::InsertMetaEventT(UINT32 tick, UINT8 Type, UINT32 DataLen, const void* Data)
 {
 	InsertEventT(tick, CreateEvent_Meta(Type, DataLen, Data));
 	
@@ -437,14 +443,14 @@ void MidiTrack::InsertEventD(midevt_iterator prevEvt, UINT32 Delay, UINT8 Event,
 	return;
 }
 
-void MidiTrack::InsertSysExD(midevt_iterator prevEvt, UINT32 Delay, UINT32 DataLen, void* Data)
+void MidiTrack::InsertSysExD(midevt_iterator prevEvt, UINT32 Delay, UINT32 DataLen, const void* Data)
 {
 	InsertEventD(prevEvt, Delay, CreateEvent_SysEx(DataLen, Data));
 	
 	return;
 }
 
-void MidiTrack::InsertMetaEventD(midevt_iterator prevEvt, UINT32 Delay, UINT8 Type, UINT32 DataLen, void* Data)
+void MidiTrack::InsertMetaEventD(midevt_iterator prevEvt, UINT32 Delay, UINT8 Type, UINT32 DataLen, const void* Data)
 {
 	InsertEventD(prevEvt, Delay, CreateEvent_Meta(Type, DataLen, Data));
 	

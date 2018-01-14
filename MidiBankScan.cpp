@@ -306,7 +306,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							break;
 						if (evtIt->evtData[0x02] == 0x16)
 						{
-							syxReset = SYX_RESET_MT32;
+							if (syxReset == SYX_RESET_UNDEF)
+								syxReset = SYX_RESET_MT32;
 							break;
 						}
 						
@@ -323,6 +324,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							else if (evtIt->evtData[0x04] == 0x00 && evtIt->evtData[0x05] == 0x00 && evtIt->evtData[0x06] == 0x7F)
 							{
 								// SC-88 System Mode Set
+								syxReset = SYX_RESET_GS;
 								if (modChk.GS_Opt < 0x01)
 									modChk.GS_Opt = 0x01;
 							}
@@ -381,6 +383,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		}	// end for (evtIt)
 	}
 	
+	//if (syxReset = SYX_RESET_MT32 && modChk.GS_OptLSB > 0x00)
+	//	syxReset = SYX_RESET_UNDEF;
 	if (modChk.GS_OptLSB > 0x00)
 	{
 		UINT8 minGS;

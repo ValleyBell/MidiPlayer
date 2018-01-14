@@ -434,6 +434,12 @@ void PlayMidi(void)
 		printf("  OK, type: %s\n", GetModuleTypeName(mMod->modType));
 		mOuts.push_back(newPort);
 	}
+	if (mOuts.empty())
+	{
+		printf("Error opening MIDI ports!\n");
+		getchar();
+		return;
+	}
 	
 	midPlay.SetOutputPorts(mOuts);
 	midPlay.SetMidiFile(&CMidi);

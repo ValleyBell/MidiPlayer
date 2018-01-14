@@ -595,7 +595,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->rpnCtrl[0] = 0x00 | midiEvt->evtValB;
 		break;
 	case 0x6F:	// RPG Maker loop controller
-		if (midiEvt->evtValB == 0 || midiEvt->evtValB == 111)
+		if ((midiEvt->evtValB == 0 || midiEvt->evtValB == 111) && ! _loopPt.used)
 		{
 			vis_addstr("Loop Point found.");
 			SaveLoopState(_loopPt, trkSt);
@@ -862,13 +862,18 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			chnSt->insBank[1] = 0x00;
 			// on GS devices, keep a fitting Bank LSB type
 			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
+			{
+				if (MMASK_MOD(_options.srcType) <= MMASK_MOD(_options.dstType))
+					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
+				else
+					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+			}
 			
 			if (chnSt->flags & 0x80)
 			{
 				// handle drum mode fallback
 				chnSt->curIns &= 0x7F;
-				if (_options.srcType == MODULE_SC55)
+				if (_options.srcType == MODULE_SC55 || (true && MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS))
 				{
 					// SC-55 v1 style drum CTF
 					// see https://www.vogons.org/viewtopic.php?p=501038#p501038
@@ -895,12 +900,23 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 				}
 				chnSt->curIns |= 0x80;
 			}
+			insData = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore);
 			didPatch = true;
 		}
 		else
 		{
+			bool doLSB = true;
+			
+			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+			{
+				// PLROPTS_STRICT is enabled, insBank[1] will be >0
+				if (! chnSt->insBank[1] && insData->bankLSB == 0x01 + MMASK_MOD(_options.dstType))
+					doLSB = false;	// keep LSB where possible
+			}
+			
 			chnSt->insBank[0] = insData->bankMSB;
-			chnSt->insBank[1] = insData->bankLSB;
+			if (doLSB)
+				chnSt->insBank[1] = insData->bankLSB;
 		}
 		chnSt->insMapPPtr = insData;
 	}
@@ -965,6 +981,19 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	return true;
 }
 
+static void SanitizeSysExText(std::string& text)
+{
+	size_t curChr;
+	
+	for (curChr = 0; curChr < text.size(); curChr ++)
+	{
+		if (text[curChr] == '\0')
+			text[curChr] = ' ';
+	}
+	
+	return;
+}
+
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	switch(midiEvt->evtData[0x00])
@@ -981,6 +1010,26 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				return HandleSysEx_MT32(trkSt, midiEvt);
 			else if (midiEvt->evtData[0x02] == 0x42)
 				return HandleSysEx_GS(trkSt, midiEvt);
+			else if (midiEvt->evtData[0x02] == 0x45)
+			{
+				UINT32 addr;
+				addr =	(midiEvt->evtData[0x04] << 16) |
+						(midiEvt->evtData[0x05] <<  8) |
+						(midiEvt->evtData[0x06] <<  0);
+				switch (addr)
+				{
+				case 0x100000:	// Display
+				{
+					std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
+					char msgStr[0x80];
+					
+					SanitizeSysExText(dispMsg);
+					sprintf(msgStr, "SC SysEx: Display = \"%s\"", dispMsg.c_str());
+					vis_addstr(msgStr);
+				}
+					break;
+				}
+			}
 		}
 		break;
 	case 0x43:	// YAMAHA ID
@@ -1096,6 +1145,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 			std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
 			char msgStr[0x80];
 			
+			SanitizeSysExText(dispMsg);
 			sprintf(msgStr, "MT-32 SysEx: Display = \"%s\"", dispMsg.c_str());
 			vis_addstr(msgStr);
 		}
