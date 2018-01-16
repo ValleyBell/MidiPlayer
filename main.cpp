@@ -4,6 +4,9 @@
 #include <locale.h>
 #include <vector>
 #include <string>
+#include <map>
+#include <sstream>
+#include <algorithm>
 
 #ifdef _WIN32
 #include <conio.h>
@@ -12,6 +15,8 @@
 #include <unistd.h>
 #define Sleep(x)	usleep(x * 1000)
 #endif
+
+#include "inih/cpp/INIReader.h"	// https://github.com/benhoyt/inih
 
 #include <stdtype.h>
 #include "MidiLib.hpp"
@@ -67,7 +72,7 @@ static MidiPlayer midPlay;
 static bool keepPortsOpen;
 static UINT8 playerCfgFlags;	// see PlayerOpts::flags
 static UINT8 forceSrcType;
-static size_t forceModID;
+static UINT8 forceModID;
 static std::vector<InstrumentSetCfg> insSetFiles;
 static std::vector<MidiModule> midiModules;
 static std::vector<INS_BANK> insBanks;
@@ -75,7 +80,11 @@ static std::string syxFile;
 static std::vector<UINT8> syxData;
 
 
-static void LoadConfig(void);
+static bool is_no_space(char c);
+static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
+static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
+static void ReadPlayTypeList(const std::vector<std::string>& ptList, const std::map<std::string, UINT8>& nameLUT, std::vector<UINT8>& playTypes);
+static UINT8 LoadConfig(const std::string& cfgFile);
 static size_t GetOptimalModule(const BANKSCAN_RESULT* scanRes);
 static const char* GetModuleTypeName(UINT8 modType);
 void PlayMidi(void);
@@ -143,7 +152,7 @@ int main(int argc, char* argv[])
 			if (argbase >= argc)
 				break;
 			
-			forceModID = strtoul(argv[argbase], NULL, 0);
+			forceModID = (UINT8)strtoul(argv[argbase], NULL, 0);
 		}
 		else if (optChr == 'x')
 		{
@@ -165,7 +174,12 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	
-	LoadConfig();
+	retVal = LoadConfig("config.ini");
+	if (retVal)
+	{
+		printf("Error: No modules defined!\n");
+		return 0;
+	}
 	
 	insBanks.resize(insSetFiles.size());
 	for (curInsBnk = 0; curInsBnk < insSetFiles.size(); curInsBnk ++)
@@ -201,86 +215,185 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
-static void LoadConfig(void)
+static bool is_no_space(char c)
 {
+	return ! ::isspace((unsigned char)c);
+}
+
+static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector)
+{
+	valueVector.clear();
+	std::stringstream ss(valueStr);
+	std::string item;
+	
+	while(ss.good())
+	{
+		std::getline(ss, item, ',');
+		
+		// ltrim
+		item.erase(item.begin(), std::find_if(item.begin(), item.end(), &is_no_space));
+		// rtrim
+		item.erase(std::find_if(item.rbegin(), item.rend(), &is_no_space).base(), item.end());
+		
+		valueVector.push_back(item);
+	}
+	if (valueVector.size() == 1 && valueVector[0].empty())
+		valueVector.clear();
+	
+	return;
+}
+
+static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue)
+{
+	std::map<std::string, UINT8>::const_iterator nameIt;
+	char* endStr;
+	
+	nameIt = nameLUT.find(valStr);
+	if (nameIt != nameLUT.end())
+	{
+		retValue = nameIt->second;
+		return 1;
+	}
+	
+	retValue = (UINT8)strtoul(valStr.c_str(), &endStr, 0);
+	if (endStr == valStr.c_str())
+		return 0;	// not read
+	else if (endStr == valStr.c_str() + valStr.length())
+		return 1;	// fully read
+	else
+		return 2;	// partly read
+}
+
+static void ReadPlayTypeList(const std::vector<std::string>& ptList, const std::map<std::string, UINT8>& nameLUT, std::vector<UINT8>& playTypes)
+{
+	std::vector<std::string>::const_iterator typeIt;
+	char* endStr;
+	
+	playTypes.clear();
+	for (typeIt = ptList.begin(); typeIt != ptList.end(); ++typeIt)
+	{
+		UINT8 pType;
+		UINT8 retVal;
+		UINT8 curMod;
+		
+		retVal = GetIDFromNameOrNumber(*typeIt, nameLUT, pType);
+		if (retVal == 0)
+		{
+			if (*typeIt == "SC-xx")
+			{
+				for (curMod = 0x00; curMod < MT_UNKNOWN; curMod ++)
+					playTypes.push_back(MODULE_TYPE_GS | curMod);
+			}
+			else if (*typeIt == "MUxx")
+			{
+				for (curMod = 0x00; curMod < MT_UNKNOWN; curMod ++)
+					playTypes.push_back(MODULE_TYPE_XG | curMod);
+			}
+		}
+		else if (retVal == 1)
+		{
+			playTypes.push_back(pType);
+		}
+		else
+		{
+			pType = (UINT8)strtoul(typeIt->c_str(), &endStr, 0);
+			if (*endStr == '#')
+			{
+				pType <<= 4;
+				for (curMod = 0x00; curMod < MT_UNKNOWN; curMod ++)
+					playTypes.push_back(pType | curMod);
+			}
+		}
+	}
+	
+	return;
+}
+
+static UINT8 LoadConfig(const std::string& cfgFile)
+{
+	std::map<std::string, UINT8> INSSET_NAME_MAP;
+	std::map<std::string, UINT8> MODTYPE_NAME_MAP;
+	std::string insSetPath;
+	std::map<std::string, UINT8>::const_iterator nmIt;
+	std::vector<std::string> modList;
+	std::vector<std::string>::const_iterator mlIt;
+	
+	INSSET_NAME_MAP["GM"] = MODULE_GM_1;
+	INSSET_NAME_MAP["GM_L2"] = MODULE_GM_2;
+	INSSET_NAME_MAP["GS"] = MODULE_TYPE_GS;
+	INSSET_NAME_MAP["XG"] = MODULE_TYPE_XG;
+	INSSET_NAME_MAP["MT-32"] = MODULE_MT32;
+	MODTYPE_NAME_MAP["GM"] = MODULE_GM_1;
+	MODTYPE_NAME_MAP["GM_L2"] = MODULE_GM_2;
+	MODTYPE_NAME_MAP["SC-55"] = MODULE_SC55;
+	MODTYPE_NAME_MAP["SC-88"] = MODULE_SC88;
+	MODTYPE_NAME_MAP["SC-88Pro"] = MODULE_SC88PRO;
+	MODTYPE_NAME_MAP["SC-8850"] = MODULE_SC8850;
+	MODTYPE_NAME_MAP["TG300B"] = MODULE_TG300B;
+	MODTYPE_NAME_MAP["MU50"] = MODULE_MU50;
+	MODTYPE_NAME_MAP["MU80"] = MODULE_MU80;
+	MODTYPE_NAME_MAP["MU90"] = MODULE_MU90;
+	MODTYPE_NAME_MAP["MU100"] = MODULE_MU100;
+	MODTYPE_NAME_MAP["MU128"] = MODULE_MU128;
+	MODTYPE_NAME_MAP["MU1000"] = MODULE_MU1000;
+	MODTYPE_NAME_MAP["MT-32"] = MODULE_MT32;
+	
+	INIReader iniFile(cfgFile);
+	if (iniFile.ParseError())
+	{
+		printf("Error reading %s!\n", cfgFile.c_str());
+		return 0xFF;
+	}
+	
+	keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", true);
+	
 	insSetFiles.clear();
+	insSetPath = iniFile.Get("InstrumentSets", "DataPath", INS_SET_PATH);
+	for (nmIt = INSSET_NAME_MAP.begin(); nmIt != INSSET_NAME_MAP.end(); ++nmIt)
 	{
-		InstrumentSetCfg isc;
-		isc.setType = MODULE_TYPE_GS;
-		isc.pathName = std::string(INS_SET_PATH) + "gs.ins";
-		insSetFiles.push_back(isc);
-	}
-	{
-		InstrumentSetCfg isc;
-		isc.setType = MODULE_TYPE_XG;
-		isc.pathName = std::string(INS_SET_PATH) + "xg.ins";
-		insSetFiles.push_back(isc);
-	}
-	{
-		InstrumentSetCfg isc;
-		isc.setType = MODULE_GM_1;
-		isc.pathName = std::string(INS_SET_PATH) + "general.ins";
-		insSetFiles.push_back(isc);
-	}
-	{
-		InstrumentSetCfg isc;
-		isc.setType = MODULE_GM_2;
-		isc.pathName = std::string(INS_SET_PATH) + "gml2.ins";
-		insSetFiles.push_back(isc);
-	}
-	{
-		InstrumentSetCfg isc;
-		isc.setType = MODULE_MT32;
-		isc.pathName = std::string(INS_SET_PATH) + "mt32.ins";
-		insSetFiles.push_back(isc);
+		std::string fileName = iniFile.Get("InstrumentSets", nmIt->first, "");
+		if (! fileName.empty())
+		{
+			InstrumentSetCfg isc;
+			isc.setType = nmIt->second;
+			isc.pathName = insSetPath + fileName;
+			insSetFiles.push_back(isc);
+		}
 	}
 	
 	midiModules.clear();
+	CfgString2Vector(iniFile.Get("General", "Modules", ""), modList);
+	for (mlIt = modList.begin(); mlIt != modList.end(); ++mlIt)
 	{
 		MidiModule mMod;
-		const UINT8 ports[] = {0, 1};	// S-YXG50 A/B
-		const UINT8 playTypes[] = {MODULE_GM_1, MODULE_MU50, MODULE_MU80, MODULE_MU90, MODULE_MU100, MODULE_MU128, MODULE_MU1000};
-		mMod.name = "S-YXG";
-		mMod.modType = MODULE_MU50;
-		mMod.ports = std::vector<UINT8>(ports, ports + sizeof(ports));
-		mMod.playType = std::vector<UINT8>(playTypes, playTypes + sizeof(playTypes));
-		midiModules.push_back(mMod);
-	}
-	{
-		MidiModule mMod;
-		const UINT8 ports[] = {2, 3};	// MS GS, BASSMIDI A
-		const UINT8 playTypes[] = {MODULE_GM_1, MODULE_SC55};
-		mMod.name = "SC-55";
-		mMod.modType = MODULE_SC55;
-		mMod.ports = std::vector<UINT8>(ports, ports + sizeof(ports));
-		mMod.playType = std::vector<UINT8>(playTypes, playTypes + sizeof(playTypes));
-		midiModules.push_back(mMod);
-	}
-	{
-		MidiModule mMod;
-		const UINT8 ports[] = {0, 3};	// S-YXG50 A/BASSMIDI A
-		const UINT8 playTypes[] = {MODULE_SC55, MODULE_SC88, MODULE_SC88PRO, MODULE_SC8850};
-		mMod.name = "GenericGS";
-		//mMod.modType = MODULE_SC88;
-		mMod.modType = MODULE_TG300B;
-		mMod.ports = std::vector<UINT8>(ports, ports + sizeof(ports));
-		mMod.playType = std::vector<UINT8>(playTypes, playTypes + sizeof(playTypes));
-		midiModules.push_back(mMod);
-	}
-	{
-		MidiModule mMod;
-		const UINT8 ports[] = {5};	// Munt
-		const UINT8 playTypes[] = {MODULE_MT32};
-		mMod.name = "MT-32";
-		mMod.modType = MODULE_MT32;
-		mMod.ports = std::vector<UINT8>(ports, ports + sizeof(ports));
-		mMod.playType = std::vector<UINT8>(playTypes, playTypes + sizeof(playTypes));
+		std::vector<std::string> list;
+		size_t curItem;
+		
+		mMod.name = *mlIt;
+		
+		if (! GetIDFromNameOrNumber(iniFile.Get(mMod.name, "ModType", ""), MODTYPE_NAME_MAP, mMod.modType))
+			continue;
+		
+		CfgString2Vector(iniFile.Get(mMod.name, "Ports", ""), list);
+		for (curItem = 0; curItem < list.size(); curItem ++)
+		{
+			UINT8 port;
+			char* endStr;
+			
+			port = (UINT8)strtoul(list[curItem].c_str(), &endStr, 0);
+			if (endStr != list[curItem].c_str())
+				mMod.ports.push_back(port);
+		}
+		
+		CfgString2Vector(iniFile.Get(mMod.name, "PlayTypes", ""), list);
+		ReadPlayTypeList(list, MODTYPE_NAME_MAP, mMod.playType);
+		
 		midiModules.push_back(mMod);
 	}
 	
 	keepPortsOpen = true;
 	
-	return;
+	return 0x00;
 }
 
 // returns module type for optimal playback

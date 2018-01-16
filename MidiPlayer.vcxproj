@@ -80,6 +80,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="inih\cpp\INIReader.cpp" />
+    <ClCompile Include="inih\ini.c" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MidiBankScan.cpp" />
     <ClCompile Include="MidiInsReader.c" />
@@ -90,6 +92,8 @@
     <ClCompile Include="vis_curses.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="inih\cpp\INIReader.h" />
+    <ClInclude Include="inih\ini.h" />
     <ClInclude Include="MidiBankScan.hpp" />
     <ClInclude Include="MidiInsReader.h" />
     <ClInclude Include="MidiLib.hpp" />
