@@ -82,6 +82,7 @@
   <ItemGroup>
     <ClCompile Include="inih\cpp\INIReader.cpp" />
     <ClCompile Include="inih\ini.c" />
+    <ClCompile Include="m3uargparse.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MidiBankScan.cpp" />
     <ClCompile Include="MidiInsReader.c" />
@@ -94,6 +95,7 @@
   <ItemGroup>
     <ClInclude Include="inih\cpp\INIReader.h" />
     <ClInclude Include="inih\ini.h" />
+    <ClInclude Include="m3uargparse.hpp" />
     <ClInclude Include="MidiBankScan.hpp" />
     <ClInclude Include="MidiInsReader.h" />
     <ClInclude Include="MidiLib.hpp" />

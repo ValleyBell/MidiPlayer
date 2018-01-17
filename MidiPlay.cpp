@@ -26,6 +26,8 @@ static const UINT8 RESET_GM2[] = {0xF0, 0x7E, 0x7F, 0x09, 0x03, 0xF7};
 static const UINT8 RESET_GS[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7};
 static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7};
 
+extern UINT8 optShowInsChange;
+
 MidiPlayer::MidiPlayer() :
 	_cMidi(NULL), _songLength(0),
 	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL),
@@ -958,7 +960,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	if (chnSt->insBank[0] != chnSt->ctrls[0x00] || chnSt->insBank[1] != chnSt->ctrls[0x20])
 		didPatch = true;
 	
-	if (true)
+	if (optShowInsChange)
 	{
 		const char* oldName;
 		const char* newName;

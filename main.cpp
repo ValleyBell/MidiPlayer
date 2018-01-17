@@ -25,6 +25,7 @@
 #include "MidiInsReader.h"
 #include "MidiBankScan.hpp"
 #include "vis.hpp"
+#include "m3uargparse.hpp"
 
 
 struct InstrumentSetCfg
@@ -64,6 +65,19 @@ static const char* MODNAMES_XG[] =
 };
 
 
+static bool is_no_space(char c);
+static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
+static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
+static void ReadPlayTypeList(const std::vector<std::string>& ptList, const std::map<std::string, UINT8>& nameLUT, std::vector<UINT8>& playTypes);
+static UINT8 LoadConfig(const std::string& cfgFile);
+static size_t GetOptimalModule(const BANKSCAN_RESULT* scanRes);
+static const char* GetModuleTypeName(UINT8 modType);
+void PlayMidi(void);
+static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_t dataLen, const UINT8* data);
+static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT8>& syxData);
+static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 chnID);
+
+
 static const char* INS_SET_PATH = "_MidiInsSets/";
 static std::string midFileName;
 static MidiFile CMidi;
@@ -79,24 +93,20 @@ static std::vector<INS_BANK> insBanks;
 static std::string syxFile;
 static std::vector<UINT8> syxData;
 
+static std::vector<SongFileList> songList;
+static std::vector<std::string> plList;
+static int controlVal;
+static size_t curSong;
 
-static bool is_no_space(char c);
-static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
-static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
-static void ReadPlayTypeList(const std::vector<std::string>& ptList, const std::map<std::string, UINT8>& nameLUT, std::vector<UINT8>& playTypes);
-static UINT8 LoadConfig(const std::string& cfgFile);
-static size_t GetOptimalModule(const BANKSCAN_RESULT* scanRes);
-static const char* GetModuleTypeName(UINT8 modType);
-void PlayMidi(void);
-static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_t dataLen, const UINT8* data);
-static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT8>& syxData);
-static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 chnID);
+extern std::vector<UINT8> optShowMeta;
+extern UINT8 optShowInsChange;
 
 
 int main(int argc, char* argv[])
 {
 	int argbase;
 	UINT8 retVal;
+	int resVal;
 	size_t curInsBnk;
 	
 	setlocale(LC_ALL, "");	// enable UTF-8 support on Linux
@@ -124,6 +134,8 @@ int main(int argc, char* argv[])
 	forceSrcType = 0xFF;
 	forceModID = 0xFF;
 	syxFile = "";
+	optShowMeta.resize(9, 1);
+	optShowInsChange = 1;
 	
 	argbase = 1;
 	while(argbase < argc && argv[argbase][0] == '-')
@@ -181,6 +193,15 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	
+	retVal = ParseSongFiles(argc - argbase, argv + argbase, songList, plList);
+	if (retVal)
+		printf("One or more playlists couldn't be read!\n");
+	if (songList.empty())
+	{
+		printf("No songs to play.\n");
+		return 0;
+	}
+	
 	insBanks.resize(insSetFiles.size());
 	for (curInsBnk = 0; curInsBnk < insSetFiles.size(); curInsBnk ++)
 	{
@@ -195,18 +216,44 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
-	midFileName = argv[argbase + 0];
-	printf("Opening %s ...\n", midFileName.c_str());
-	retVal = CMidi.LoadFile(midFileName.c_str());
-	if (retVal)
-	{
-		printf("Error opening %s\n", midFileName.c_str());
-		printf("Errorcode: %02X\n", retVal);
-		return retVal;
-	}
-	printf("File loaded.\n");
+	vis_init();
 	
-	PlayMidi();
+	resVal = 0;
+	controlVal = +1;
+	for (curSong = 0; curSong < songList.size(); )
+	{
+		midFileName = songList[curSong].fileName;
+		//printf("Opening %s ...\n", midFileName.c_str());
+		retVal = CMidi.LoadFile(midFileName.c_str());
+		if (retVal)
+		{
+			vis_printf("Error opening %s\n", midFileName.c_str());
+			vis_printf("Errorcode: %02X\n", retVal);
+			resVal = 1;
+			continue;
+		}
+		//printf("File loaded.\n");
+		
+		controlVal = +1;	// default: next song
+		PlayMidi();
+		
+		// done in PlayMidi
+		//CMidi.ClearAll();
+		if (controlVal == +1)
+		{
+			curSong ++;
+		}
+		else if (controlVal == -1)
+		{
+			if (curSong > 0)
+				curSong --;
+		}
+		else if (controlVal == +9)
+		{
+			break;
+		}
+	}
+	vis_deinit();
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
 		FreeInstrumentBank(&insBanks[curInsBnk]);
@@ -347,6 +394,11 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	
 	keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", true);
 	
+	optShowInsChange = iniFile.GetBoolean("Display", "ShowInsChange", true);
+	optShowMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
+	optShowMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
+	optShowMeta[0] = iniFile.GetBoolean("Display", "ShowMetaOther", true);
+	
 	insSetFiles.clear();
 	insSetPath = iniFile.Get("InstrumentSets", "DataPath", INS_SET_PATH);
 	for (nmIt = INSSET_NAME_MAP.begin(); nmIt != INSSET_NAME_MAP.end(); ++nmIt)
@@ -470,17 +522,17 @@ void PlayMidi(void)
 		scanRes.modType = forceSrcType;
 	
 	{
-		printf("MIDI Scan Result: %s\n", GetModuleTypeName(scanRes.modType));
+		vis_printf("MIDI Scan Result: %s\n", GetModuleTypeName(scanRes.modType));
 		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_GS && scanRes.GS_Min < scanRes.GS_Opt)
-			printf("    - GS backwards compatible with %s\n", MODNAMES_GS[MMASK_MOD(scanRes.GS_Min)]);
+			vis_printf("    - GS backwards compatible with %s\n", MODNAMES_GS[MMASK_MOD(scanRes.GS_Min)]);
 		if (MMASK_TYPE(scanRes.modType) != MODULE_TYPE_XG && (scanRes.XG_Flags & 0x01))
-			printf("    - used XG drums\n");
+			vis_printf("    - used XG drums\n");
 		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_XG && (scanRes.XG_Flags & 0x80))
-			printf("    - unknown XG instruments found\n");
+			vis_printf("    - unknown XG instruments found\n");
 		if (scanRes.modType == 0xFF)
 		{
 			scanRes.modType = MODULE_GM_1;
-			printf("Falling back to %s mode ...\n", GetModuleTypeName(scanRes.modType));
+			vis_printf("Falling back to %s mode ...\n", GetModuleTypeName(scanRes.modType));
 		}
 	}
 	
@@ -490,11 +542,13 @@ void PlayMidi(void)
 		chosenModule = forceModID;
 	if (chosenModule == (size_t)-1 || chosenModule >= midiModules.size())
 	{
-		printf("Unable to find an appropriate MIDI module!\n");
+		vis_printf("Unable to find an appropriate MIDI module!\n");
+		vis_update();
 		return;
 	}
 	mMod = &midiModules[chosenModule];
-	printf("Using module %s.\n", mMod->name.c_str());
+	vis_printf("Using module %s.\n", mMod->name.c_str());
+	vis_update();
 	
 	if (! syxFile.empty())
 	{
@@ -526,7 +580,7 @@ void PlayMidi(void)
 	
 	if (scanRes.numPorts > mMod->ports.size())
 	{
-		printf("Warning: The module doesn't have enought ports defined for proper playback!\n");
+		vis_printf("Warning: The module doesn't have enought ports defined for proper playback!\n");
 		scanRes.numPorts = (UINT8)mMod->ports.size();
 	}
 	for (curPort = 0; curPort < scanRes.numPorts; curPort ++)
@@ -536,37 +590,43 @@ void PlayMidi(void)
 		newPort = MidiOutPort_Init();
 		if (newPort == NULL)
 			continue;
-		printf("Opening MIDI port %u ...", mMod->ports[curPort]);
+		vis_printf("Opening MIDI port %u ...", mMod->ports[curPort]);
 		retVal = MidiOutPort_OpenDevice(newPort, mMod->ports[curPort]);
 		if (retVal)
 		{
 			MidiOutPort_Deinit(newPort);
-			printf("  Error %02X\n", retVal);
+			vis_printf("  Error %02X\n", retVal);
 			continue;
 		}
-		printf("  OK, type: %s\n", GetModuleTypeName(mMod->modType));
+		vis_printf("  OK, type: %s\n", GetModuleTypeName(mMod->modType));
 		mOuts.push_back(newPort);
 	}
+	vis_update();
 	if (mOuts.empty())
 	{
-		printf("Error opening MIDI ports!\n");
-		getchar();
+		vis_printf("Error opening MIDI ports!\n");
+		vis_getch_wait();
 		return;
 	}
 	
 	midPlay.SetOutputPorts(mOuts);
 	midPlay.SetMidiFile(&CMidi);
-	vis_set_type_str(0, GetModuleTypeName(mMod->modType));
+	//vis_set_type_str(0, GetModuleTypeName(mMod->modType));
+	vis_set_type_str(0, mMod->name.c_str());
+	if (songList.size() > 1)
+	{
+		vis_set_track_number(1 + curSong);
+		vis_set_track_count(songList.size());
+	}
 	vis_set_midi_file(midFileName.c_str(), &CMidi);
 	vis_set_midi_player(&midPlay);
 	vis_set_type_str(1, GetModuleTypeName(scanRes.modType));
-	printf("Song length: %.3f s\n", midPlay.GetSongLength());
-	
-	vis_init();
+	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
 	if (! syxData.empty())
 	{
 		vis_addstr("Sending SYX data ...");
+		vis_update();
 		SendSyxData(mOuts, syxData);
 	}
 	
@@ -589,7 +649,10 @@ void PlayMidi(void)
 				inkey = toupper(inkey);
 			
 			if (inkey == 0x1B || inkey == 'Q')
+			{
+				controlVal = 9;
 				break;
+			}
 			else if (inkey == ' ')
 			{
 				if (midPlay.GetState() & 0x02)
@@ -597,16 +660,33 @@ void PlayMidi(void)
 				else
 					midPlay.Pause();
 			}
+			else if (inkey == 'B')
+			{
+				controlVal = -1;
+				break;
+			}
+			else if (inkey == 'N')
+			{
+				controlVal = +1;
+				break;
+			}
+			else if (inkey == 'R')
+			{
+				midPlay.Stop();
+				midPlay.Start();
+				//vis_new_song();
+			}
 		}
 		Sleep(1);
 	}
 	midPlay.Stop();
-	vis_deinit();
 	
 	//Sleep(500);
-	printf("Cleaning ...\n");
+	vis_addstr("Cleaning ...");
+	vis_update();
 	CMidi.ClearAll();
-	printf("Done.\n");
+	vis_addstr("Done.");
+	vis_update();
 	
 	for (curPort = 0; curPort < mOuts.size(); curPort ++)
 	{

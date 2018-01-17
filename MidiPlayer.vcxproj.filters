@@ -48,6 +48,9 @@
     <ClCompile Include="inih\cpp\INIReader.cpp">
       <Filter>Libraries</Filter>
     </ClCompile>
+    <ClCompile Include="m3uargparse.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MidiLib.hpp">
@@ -76,6 +79,9 @@
     </ClInclude>
     <ClInclude Include="inih\ini.h">
       <Filter>Libraries</Filter>
+    </ClInclude>
+    <ClInclude Include="m3uargparse.hpp">
+      <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

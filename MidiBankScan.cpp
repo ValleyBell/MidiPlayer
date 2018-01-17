@@ -194,6 +194,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	UINT8 insBankBuf[16][2];
 	UINT8 insBank[16][3];
 	std::set<UINT8> portIDs;
+	UINT8 curPortID;
 	
 	MODULE_CHECK modChk;
 	
@@ -217,6 +218,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	modChk.GS_User = 0x00;
 	modChk.MaxDrumKit = 0x00;
 	
+	curPortID = 0x00;
 	drumChnMask = (1 << 9);
 	memset(insBank, 0x00, 16 * 3);
 	portIDs.clear();
@@ -374,6 +376,13 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 					{
 					case 0x21:	// MIDI Port
 						portIDs.insert(evtIt->evtData[0x00]);
+						if (evtIt->evtData[0x00] != curPortID)
+						{
+							// do a basic reset (TODO: improve port handling)
+							drumChnMask = (1 << 9);
+							memset(insBank, 0x00, 16 * 3);
+							curPortID = evtIt->evtData[0x00];
+						}
 						break;
 					}
 					break;

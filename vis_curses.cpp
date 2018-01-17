@@ -7,6 +7,7 @@
 #include <vector>
 #include <map>
 #include <curses.h>
+#include <stdarg.h>
 
 #include <stdtype.h>
 #include "MidiLib.hpp"
@@ -38,6 +39,8 @@ static int TEXT_BASE_LINE = 0;
 static int curYline = 0;
 
 static MidiFile* midFile = NULL;
+static UINT32 trackNo = 0;
+static UINT32 trackCnt = 0;
 static const char* midFName = NULL;
 static MidiPlayer* midPlay = NULL;
 static const char* midFType = NULL;
@@ -49,6 +52,8 @@ static UINT64 lastUpdateTime = 0;
 
 static std::string lastMeta01;
 static std::string lastMeta03;
+       std::vector<UINT8> optShowMeta;
+       UINT8 optShowInsChange;
 
 void vis_init(void)
 {
@@ -67,6 +72,9 @@ void vis_init(void)
 	init_pair(6, COLOR_CYAN, COLOR_BLACK);
 	init_pair(7, COLOR_WHITE, COLOR_BLACK);
 	attrset(A_NORMAL);
+	
+	TEXT_BASE_LINE = 0;
+	curYline = 0;
 	
 	return;
 }
@@ -114,6 +122,34 @@ void vis_addstr(const char* text)
 	move(curYline, 0);	clrtoeol();
 	
 	return;
+}
+
+void vis_printf(const char* format, ...)
+{
+	va_list args;
+	
+	move(curYline, 0);	clrtoeol();
+	
+	va_start(args, format);
+	vwprintw(stdscr, format, args);
+	va_end(args);
+	
+	curYline ++;
+	if (curYline >= LINES)
+		curYline = TEXT_BASE_LINE;
+	move(curYline, 0);	clrtoeol();
+	
+	return;
+}
+
+void vis_set_track_number(UINT32 trkNo)
+{
+	trackNo = trkNo;
+}
+
+void vis_set_track_count(UINT32 trkCnt)
+{
+	trackCnt = trkCnt;
 }
 
 void vis_set_midi_file(const char* fileName, MidiFile* mFile)
@@ -186,9 +222,15 @@ void vis_new_song(void)
 	TEXT_BASE_LINE = curYline;
 	
 	attron(A_BOLD);
-	maxTitleLen = COLS - titlePosX;
+	if (trackCnt > 0)
+	{
+		sprintf(textbuf, "%u / %u ", trackNo, trackCnt);
+		mvaddstr(0, titlePosX, textbuf);
+		titlePosX = getcurx(stdscr);
+	}
 	if (midFName != NULL)
 	{
+		maxTitleLen = COLS - titlePosX;
 		sprintf(textbuf, "%-*.*s", maxTitleLen, maxTitleLen, midFName);
 		mvaddstr(0, titlePosX, textbuf);
 	}
@@ -411,11 +453,16 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 {
 	std::string text(data, &data[dataLen]);
 	
+	if (! optShowMeta[0] && (metaType != 1 && metaType != 6))
+		return;
+	
 	move(curYline, 0);	clrtoeol();
 	attron(COLOR_PAIR(metaType % 8));
 	switch(metaType)
 	{
 	case 0x01:	// Text
+		if (! optShowMeta[1])
+			break;
 		if (lastMeta01 == text)
 			break;
 		
@@ -440,7 +487,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			curYline ++;
 		}
 		break;
-	case 0x04:	// Insrument Name
+	case 0x04:	// Instrument Name
 		printw("Instrument Name: %s", text.c_str());
 		curYline ++;
 		break;
@@ -448,6 +495,8 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		// don't print for now
 		break;
 	case 0x06:	// Marker
+		if (! optShowMeta[6])
+			break;
 		printw("Marker: %s", text.c_str());
 		curYline ++;
 		break;
@@ -496,6 +545,12 @@ void vis_update(void)
 	UINT64 newUpdateTime;
 	int updateTicks;
 	size_t curChn;
+	
+	if (midPlay == NULL)
+	{
+		refresh();
+		return;
+	}
 	
 	newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
 	if (newUpdateTime < lastUpdateTime)
