@@ -229,7 +229,11 @@ int main(int argc, char* argv[])
 		{
 			vis_printf("Error opening %s\n", midFileName.c_str());
 			vis_printf("Errorcode: %02X\n", retVal);
+			vis_update();
 			resVal = 1;
+			if (controlVal == -1 && curSong == 0)
+				controlVal = +1;
+			curSong += controlVal;
 			continue;
 		}
 		//printf("File loaded.\n");
@@ -662,13 +666,19 @@ void PlayMidi(void)
 			}
 			else if (inkey == 'B')
 			{
-				controlVal = -1;
-				break;
+				if (curSong > 0)
+				{
+					controlVal = -1;
+					break;
+				}
 			}
 			else if (inkey == 'N')
 			{
-				controlVal = +1;
-				break;
+				if (curSong  + 1 < songList.size())
+				{
+					controlVal = +1;
+					break;
+				}
 			}
 			else if (inkey == 'R')
 			{

@@ -1,7 +1,7 @@
 CC = gcc
 CPP = g++
 CFLAGS = -I.
-CPPFLAGS = -std=c++98 -Wno-psabi
+CPPFLAGS = -std=c++11 -Wno-psabi
 LDFLAGS = 
 
 CURSES_LIBS_WIN = `ncursesw5-config --libs`
@@ -15,7 +15,10 @@ OBJ_ALL = \
 	$(OBJ)/MidiLib.o \
 	$(OBJ)/MidiPlay.o \
 	$(OBJ)/MidiBankScan.o \
-	$(OBJ)/MidiInsReader.o
+	$(OBJ)/MidiInsReader.o \
+	$(OBJ)/m3uargparse.o \
+	$(OBJ)/inih/ini.o \
+	$(OBJ)/inih/cpp/INIReader.o
 OBJ_WIN = \
 	$(OBJ)/OSTimer_Win.o \
 	$(OBJ)/MidiOut_WinMM.o
@@ -44,7 +47,8 @@ $(OBJ)/%.o: $(SRC)/%.c
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJ):
-	@mkdir $(OBJ)
+	@mkdir -p $(OBJ)
+	@mkdir -p $(OBJ)/inih/cpp
 
 clean:
 	rm -f $(OBJ)/*.o

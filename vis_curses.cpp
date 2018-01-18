@@ -34,13 +34,14 @@ static void vis_mvprintms(int row, int col, double time);
 #define NOTE_BASE_COL	16
 #define NOTE_NAME_SPACE	3	// number of characters reserved for note names
 #define CENTER_NOTE		60	// middle C
-static char textbuf[1024];
+//static char textbuf[1024];
 static int TEXT_BASE_LINE = 0;
 static int curYline = 0;
 
 static MidiFile* midFile = NULL;
 static UINT32 trackNo = 0;
 static UINT32 trackCnt = 0;
+static UINT32 trackNoDigits = 1;
 static const char* midFName = NULL;
 static MidiPlayer* midPlay = NULL;
 static const char* midFType = NULL;
@@ -150,6 +151,15 @@ void vis_set_track_number(UINT32 trkNo)
 void vis_set_track_count(UINT32 trkCnt)
 {
 	trackCnt = trkCnt;
+	
+	trackNoDigits = 0;
+	do
+	{
+		trkCnt /= 10;
+		trackNoDigits ++;
+	} while(trkCnt > 0);
+	
+	return;
 }
 
 void vis_set_midi_file(const char* fileName, MidiFile* mFile)
@@ -224,15 +234,13 @@ void vis_new_song(void)
 	attron(A_BOLD);
 	if (trackCnt > 0)
 	{
-		sprintf(textbuf, "%u / %u ", trackNo, trackCnt);
-		mvaddstr(0, titlePosX, textbuf);
+		mvprintw(0, titlePosX, "%0*u / %u ", trackNoDigits, trackNo, trackCnt);
 		titlePosX = getcurx(stdscr);
 	}
 	if (midFName != NULL)
 	{
 		maxTitleLen = COLS - titlePosX;
-		sprintf(textbuf, "%-*.*s", maxTitleLen, maxTitleLen, midFName);
-		mvaddstr(0, titlePosX, textbuf);
+		mvprintw(0, titlePosX, "%-*.*s", maxTitleLen, maxTitleLen, midFName);
 	}
 	mvaddch(1, 33, 'Q');
 	mvaddch(1, 40, ' ');

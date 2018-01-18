@@ -107,7 +107,7 @@ static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& son
 		std::getline(hFile, tempStr);
 		lineNo ++;
 		
-		while(! tempStr.empty() && tempStr.back() < 0x20)
+		while(! tempStr.empty() && iscntrl((unsigned char)tempStr.back()))
 			tempStr.pop_back();	// remove NewLine-Characters
 		if (tempStr.empty())
 			continue;
