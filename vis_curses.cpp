@@ -53,6 +53,7 @@ static UINT64 lastUpdateTime = 0;
 
 static std::string lastMeta01;
 static std::string lastMeta03;
+static std::string lastMeta04;
        std::vector<UINT8> optShowMeta;
        UINT8 optShowInsChange;
 
@@ -249,6 +250,10 @@ void vis_new_song(void)
 	attroff(A_BOLD);
 	move(curYline, 0);
 	refresh();
+	
+	lastMeta01 = "";
+	lastMeta03 = "";
+	lastMeta04 = "";
 	
 	lastUpdateTime = 0;
 	
@@ -496,7 +501,11 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		}
 		break;
 	case 0x04:	// Instrument Name
+		if (lastMeta04 == text)
+			break;
+		
 		printw("Instrument Name: %s", text.c_str());
+		lastMeta04 = text;
 		curYline ++;
 		break;
 	case 0x05:	// Lyric

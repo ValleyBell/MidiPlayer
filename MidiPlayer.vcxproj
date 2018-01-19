@@ -90,6 +90,7 @@
     <ClCompile Include="MidiOut_WinMM.c" />
     <ClCompile Include="MidiPlay.cpp" />
     <ClCompile Include="OSTimer_Win.c" />
+    <ClCompile Include="utils.cpp" />
     <ClCompile Include="vis_curses.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -102,6 +103,7 @@
     <ClInclude Include="MidiOut.h" />
     <ClInclude Include="MidiPlay.hpp" />
     <ClInclude Include="OSTimer.h" />
+    <ClCompile Include="utils.hpp" />
     <ClInclude Include="vis.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

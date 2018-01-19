@@ -14,6 +14,7 @@
 #else
 #include <unistd.h>
 #define Sleep(x)	usleep(x * 1000)
+#include <limits.h>	// for PATH_MAX
 #endif
 
 #include "inih/cpp/INIReader.h"	// https://github.com/benhoyt/inih
@@ -25,6 +26,7 @@
 #include "MidiInsReader.h"
 #include "MidiBankScan.hpp"
 #include "vis.hpp"
+#include "utils.hpp"
 #include "m3uargparse.hpp"
 
 
@@ -65,6 +67,8 @@ static const char* MODNAMES_XG[] =
 };
 
 
+int main(int argc, char* argv[]);
+static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
 static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
@@ -100,6 +104,9 @@ static size_t curSong;
 
 extern std::vector<UINT8> optShowMeta;
 extern UINT8 optShowInsChange;
+
+static std::vector<std::string> appSearchPaths;
+static std::string cfgBasePath;
 
 
 int main(int argc, char* argv[])
@@ -186,7 +193,43 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	
-	retVal = LoadConfig("config.ini");
+	appSearchPaths.clear();
+	{
+		char* appPath;
+		const char* appTitle;
+		
+		// 1. actual application path (potentially resolved symlink)
+		appPath = GetAppFilePath();
+		appTitle = GetFileTitle(appPath);
+		if (appTitle != appPath)
+			appSearchPaths.push_back(std::string(appPath, appTitle - appPath));
+		free(appPath);
+		
+		// 2. called path
+		appPath = argv[0];
+		appTitle = GetFileTitle(argv[0]);
+		if (appTitle != appPath)
+			appSearchPaths.push_back(std::string(argv[0], appTitle - argv[0]));
+	}
+	// 3. current directory
+	appSearchPaths.push_back("./");
+	
+	std::string cfgFilePath = FindFile_Single("config.ini", appSearchPaths);
+	if (cfgFilePath.empty())
+	{
+		printf("config.ini not found!\n");
+		return 1;
+	}
+	
+	{
+		const char* startPtr = cfgFilePath.c_str();
+		const char* endPtr = GetFileTitle(startPtr);
+		cfgBasePath = std::string(startPtr, endPtr - startPtr);
+	}
+	printf("Config Path: %s\n", cfgFilePath.c_str());
+	printf("Config Base: %s\n", cfgBasePath.c_str());
+	
+	retVal = LoadConfig(cfgFilePath);
 	if (retVal)
 	{
 		printf("Error: No modules defined!\n");
@@ -257,6 +300,8 @@ int main(int argc, char* argv[])
 			break;
 		}
 	}
+	if (resVal)
+		vis_getch_wait();
 	vis_deinit();
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
@@ -264,6 +309,26 @@ int main(int argc, char* argv[])
 	insBanks.clear();
 	
 	return 0;
+}
+
+static char* GetAppFilePath(void)
+{
+	char* appPath;
+	int retVal;
+	
+#ifdef WIN32
+	appPath = (char*)malloc(MAX_PATH * sizeof(char));
+	retVal = GetModuleFileName(NULL, appPath, MAX_PATH);
+	if (! retVal)
+		appPath[0] = '\0';
+#else
+	appPath = (char*)malloc(PATH_MAX * sizeof(char));
+	retVal = readlink("/proc/self/exe", appPath, PATH_MAX);
+	if (retVal == -1)
+		appPath[0] = '\0';
+#endif
+	
+	return appPath;
 }
 
 static bool is_no_space(char c)
@@ -405,6 +470,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	
 	insSetFiles.clear();
 	insSetPath = iniFile.Get("InstrumentSets", "DataPath", INS_SET_PATH);
+	insSetPath = CombinePaths(cfgBasePath, insSetPath);
 	for (nmIt = INSSET_NAME_MAP.begin(); nmIt != INSSET_NAME_MAP.end(); ++nmIt)
 	{
 		std::string fileName = iniFile.Get("InstrumentSets", nmIt->first, "");
@@ -412,7 +478,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		{
 			InstrumentSetCfg isc;
 			isc.setType = nmIt->second;
-			isc.pathName = insSetPath + fileName;
+			isc.pathName = CombinePaths(insSetPath, fileName);
 			insSetFiles.push_back(isc);
 		}
 	}

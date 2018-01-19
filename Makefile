@@ -16,6 +16,7 @@ OBJ_ALL = \
 	$(OBJ)/MidiPlay.o \
 	$(OBJ)/MidiBankScan.o \
 	$(OBJ)/MidiInsReader.o \
+	$(OBJ)/utils.o \
 	$(OBJ)/m3uargparse.o \
 	$(OBJ)/inih/ini.o \
 	$(OBJ)/inih/cpp/INIReader.o

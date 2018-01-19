@@ -51,6 +51,9 @@
     <ClCompile Include="m3uargparse.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="utils.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MidiLib.hpp">
@@ -81,6 +84,9 @@
       <Filter>Libraries</Filter>
     </ClInclude>
     <ClInclude Include="m3uargparse.hpp">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="utils.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

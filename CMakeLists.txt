@@ -17,6 +17,7 @@ set(HEADERS
 		MidiPlay.hpp
 		MidiBankScan.hpp
 		MidiInsReader.h
+		utils.hpp
 		m3uargparse.hpp
 		OSTimer.h
 		MidiOut.h
@@ -31,6 +32,7 @@ set(SOURCES
 		MidiPlay.cpp
 		MidiBankScan.cpp
 		MidiInsReader.c
+		utils.cpp
 		m3uargparse.cpp
 		inih/ini.c
 		inih/cpp/INIReader.cpp
@@ -49,7 +51,7 @@ elseif(UNIX)
 		OSTimer_POSIX.c
 		MidiOut_ALSA.c
 		)
-	set(INCLUDES ${INCLUDES} ${ALSA_INCLUDE_DIR})
+	set(INCLUDES ${INCLUDES} ${ALSA_INCLUDE_DIRS})
 	set(LIBRARIES ${LIBRARIES} ${ALSA_LIBRARY})
 endif()
 
