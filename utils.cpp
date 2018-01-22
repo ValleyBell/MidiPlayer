@@ -15,7 +15,7 @@
 
 static const char* GetLastDirSeparator(const char* filePath);
 //const char* GetFileTitle(const char* filePath);
-//const char* GetFileExtention(const char* filePath);
+//const char* GetFileExtension(const char* filePath);
 //void StandardizeDirSeparators(std::string& filePath);
 static bool IsAbsolutePath(const char* filePath);
 //std::string CombinePaths(const std::string& basePath, const std::string& addPath);
@@ -41,7 +41,7 @@ const char* GetFileTitle(const char* filePath)
 	return (dirSepPos != NULL) ? &dirSepPos[1] : filePath;
 }
 
-const char* GetFileExtention(const char* filePath)
+const char* GetFileExtension(const char* filePath)
 {
 	const char* dirSepPos;
 	const char* extDotPos;
@@ -98,7 +98,6 @@ std::string CombinePaths(const std::string& basePath, const std::string& addPath
 
 std::string FindFile_List(const std::vector<std::string>& fileList, const std::vector<std::string>& pathList)
 {
-	size_t curFile;
 	std::vector<std::string>::const_reverse_iterator pathIt;
 	std::vector<std::string>::const_iterator fileIt;
 	std::string fullName;

@@ -330,7 +330,7 @@ static char* GetAppFilePath(void)
 	
 #ifdef WIN32
 	appPath = (char*)malloc(MAX_PATH * sizeof(char));
-	retVal = GetModuleFileName(NULL, appPath, MAX_PATH);
+	retVal = GetModuleFileNameA(NULL, appPath, MAX_PATH);
 	if (! retVal)
 		appPath[0] = '\0';
 #else

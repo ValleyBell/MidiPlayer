@@ -6,12 +6,15 @@
 
 #ifdef _WIN32
 typedef void* iconv_t;
+
+#undef GetFileTitle
+#undef GetFileExtension
 #else
 #include <iconv.h>	// for iconv_t
 #endif
 
 const char* GetFileTitle(const char* filePath);
-const char* GetFileExtention(const char* filePath);
+const char* GetFileExtension(const char* filePath);
 void StandardizeDirSeparators(std::string& filePath);
 std::string CombinePaths(const std::string& basePath, const std::string& addPath);
 std::string FindFile_List(const std::vector<std::string>& fileList, const std::vector<std::string>& pathList);

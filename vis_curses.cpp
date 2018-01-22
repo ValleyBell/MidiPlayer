@@ -247,12 +247,23 @@ void vis_new_song(void)
 	}
 	if (midFName != NULL)
 	{
+		size_t nameLen;
+		
 		move(0, titlePosX);
 		maxTitleLen = COLS - titlePosX;
-		if (strlen(midFName) <= maxTitleLen)
+		nameLen = strlen(midFName);
+		if (nameLen <= maxTitleLen)
+		{
 			addstr(midFName);
+		}
 		else
-			printw("...%-*.*s", maxTitleLen - 3, maxTitleLen - 3, midFName);
+		{
+			size_t startChr;
+			
+			maxTitleLen -= 3;	// for the 3 dots
+			startChr = nameLen - maxTitleLen;
+			printw("...%.*s", maxTitleLen, &midFName[startChr]);
+		}
 	}
 	mvaddch(1, 33, 'Q');
 	mvaddch(1, 40, ' ');

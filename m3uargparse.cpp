@@ -38,7 +38,7 @@ UINT8 ParseSongFiles(int argc, char* argv[], std::vector<SongFileList>& songList
 	for (curArg = 0; curArg < argc; curArg ++)
 	{
 		fileName = argv[curArg];
-		fileExt = GetFileExtention(fileName);
+		fileExt = GetFileExtension(fileName);
 		if (fileExt == NULL)
 			fileExt = "";
 		if (! stricmp(fileExt, "m3u") || ! stricmp(fileExt, "m3u8"))
