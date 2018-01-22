@@ -4,6 +4,12 @@
 #include <stdio.h>
 #include <vector>
 
+#ifdef _WIN32
+// TODO
+#else
+#include <iconv.h>
+#endif
+
 #include "utils.hpp"
 
 
@@ -122,4 +128,51 @@ std::string FindFile_Single(const std::string& fileName, const std::vector<std::
 	
 	fileList.push_back(fileName);
 	return FindFile_List(fileList, pathList);
+}
+
+char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inStr)
+{
+	if (inStr.empty())
+	{
+		outStr = inStr;
+		return 0x00;
+	}
+	
+#ifdef _WIN32
+	outStr = inStr;
+	return 0x01;
+#else
+	size_t remBytesIn;
+	size_t remBytesOut;
+	char* inPtr;
+	char* outPtr;
+	size_t wrtBytes;
+	
+	iconv(hIConv, NULL, NULL, NULL, NULL);	// reset conversion state
+	outStr.resize(inStr.length() * 3 / 2);
+	
+	remBytesIn = inStr.length();	inPtr = (char*)&inStr[0];
+	remBytesOut = outStr.length();	outPtr = &outStr[0];
+	wrtBytes = iconv(hIConv, &inPtr, &remBytesIn, &outPtr, &remBytesOut);
+	while(wrtBytes == (size_t)-1)
+	{
+		if (errno == EILSEQ || errno == EINVAL)
+		{
+			// invalid encoding - return original string
+			outStr = inStr;
+			return 0x01;
+		}
+		// errno == E2BIG
+		wrtBytes = outPtr - &outStr[0];
+		outStr.resize(outStr.length() + remBytesIn * 2);
+		
+		remBytesOut = outStr.length() - wrtBytes;
+		outPtr = &outStr[wrtBytes];
+		wrtBytes = iconv(hIConv, &inPtr, &remBytesIn, &outPtr, &remBytesOut);
+	}
+	
+	wrtBytes = outPtr - &outStr[0];
+	outStr.resize(wrtBytes);
+	return 0x00;
+#endif
 }

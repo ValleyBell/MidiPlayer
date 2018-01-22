@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <locale.h>
+#include <errno.h>
 #include <vector>
 #include <string>
 #include <map>
@@ -15,6 +16,7 @@
 #include <unistd.h>
 #define Sleep(x)	usleep(x * 1000)
 #include <limits.h>	// for PATH_MAX
+#include <iconv.h>
 #endif
 
 #include "inih/cpp/INIReader.h"	// https://github.com/benhoyt/inih
@@ -107,6 +109,8 @@ extern UINT8 optShowInsChange;
 
 static std::vector<std::string> appSearchPaths;
 static std::string cfgBasePath;
+
+static iconv_t hIConv;
 
 
 int main(int argc, char* argv[])
@@ -259,10 +263,16 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
+#ifdef _WIN32
+	hIConv = NULL;
+#else
+	hIConv = iconv_open("UTF-8", "SHIFT_JIS");
+#endif
 	vis_init();
+	vis_set_locale(&hIConv);
 	
 	resVal = 0;
-	controlVal = +1;
+	controlVal = +1;	// default: next song
 	for (curSong = 0; curSong < songList.size(); )
 	{
 		midFileName = songList[curSong].fileName;
@@ -281,7 +291,6 @@ int main(int argc, char* argv[])
 		}
 		//printf("File loaded.\n");
 		
-		controlVal = +1;	// default: next song
 		PlayMidi();
 		
 		// done in PlayMidi
@@ -303,6 +312,9 @@ int main(int argc, char* argv[])
 	if (resVal)
 		vis_getch_wait();
 	vis_deinit();
+#ifndef _WIN32
+	iconv_close(hIConv);
+#endif
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
 		FreeInstrumentBank(&insBanks[curInsBnk]);
@@ -613,7 +625,7 @@ void PlayMidi(void)
 	if (chosenModule == (size_t)-1 || chosenModule >= midiModules.size())
 	{
 		vis_printf("Unable to find an appropriate MIDI module!\n");
-		vis_update();
+		vis_getch_wait();
 		return;
 	}
 	mMod = &midiModules[chosenModule];
@@ -674,7 +686,7 @@ void PlayMidi(void)
 	vis_update();
 	if (mOuts.empty())
 	{
-		vis_printf("Error opening MIDI ports!\n");
+		vis_addstr("Error opening MIDI ports!");
 		vis_getch_wait();
 		return;
 	}
@@ -705,6 +717,7 @@ void PlayMidi(void)
 	vis_new_song();
 	Sleep(100);
 	
+	controlVal = +1;	// default: next song
 	while(midPlay.GetState() & 0x01)
 	{
 		int inkey;

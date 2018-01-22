@@ -11,6 +11,7 @@ int vis_getch(void);
 int vis_getch_wait(void);
 void vis_addstr(const char* text);
 void vis_printf(const char* format, ...);
+void vis_set_locale(void* localeObjPtr);
 void vis_set_track_number(UINT32 trkNo);
 void vis_set_track_count(UINT32 trkCnt);
 void vis_set_midi_file(const char* fileName, MidiFile* mFile);

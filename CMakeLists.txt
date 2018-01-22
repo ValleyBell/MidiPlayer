@@ -55,6 +55,7 @@ elseif(UNIX)
 	set(LIBRARIES ${LIBRARIES} ${ALSA_LIBRARY})
 endif()
 
+set(CURSES_NEED_WIDE TRUE)
 find_package(Curses REQUIRED)
 set(SOURCES ${SOURCES}
 	vis_curses.cpp

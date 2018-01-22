@@ -13,6 +13,7 @@
 #include "MidiLib.hpp"
 #include "MidiPlay.hpp"
 #include "vis.hpp"
+#include "utils.hpp"
 
 static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -39,6 +40,7 @@ static int TEXT_BASE_LINE = 0;
 static int curYline = 0;
 
 static MidiFile* midFile = NULL;
+static iconv_t* hLocale = NULL;
 static UINT32 trackNo = 0;
 static UINT32 trackCnt = 0;
 static UINT32 trackNoDigits = 1;
@@ -144,6 +146,11 @@ void vis_printf(const char* format, ...)
 	return;
 }
 
+void vis_set_locale(void* localeObjPtr)
+{
+	hLocale = (iconv_t*)localeObjPtr;
+}
+
 void vis_set_track_number(UINT32 trkNo)
 {
 	trackNo = trkNo;
@@ -240,8 +247,12 @@ void vis_new_song(void)
 	}
 	if (midFName != NULL)
 	{
+		move(0, titlePosX);
 		maxTitleLen = COLS - titlePosX;
-		mvprintw(0, titlePosX, "%-*.*s", maxTitleLen, maxTitleLen, midFName);
+		if (strlen(midFName) <= maxTitleLen)
+			addstr(midFName);
+		else
+			printw("...%-*.*s", maxTitleLen - 3, maxTitleLen - 3, midFName);
 	}
 	mvaddch(1, 33, 'Q');
 	mvaddch(1, 40, ' ');
@@ -462,6 +473,17 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 	return;
 }
 
+void str_locale_conv(std::string& text)
+{
+	if (hLocale != NULL)
+	{
+		std::string oldtxt(text);
+		StrCharsetConv(*hLocale, text, oldtxt);
+	}
+	
+	return;
+}
+
 void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data)
 {
 	std::string text(data, &data[dataLen]);
@@ -478,24 +500,27 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			break;
 		if (lastMeta01 == text)
 			break;
-		
-		printw("Text: %s", text.c_str());
 		lastMeta01 = text;
+		
+		str_locale_conv(text);
+		printw("Text: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x02:	// Copyright Notice
+		str_locale_conv(text);
 		printw("Copyright: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x03:	// Sequence/Track Name
 		if (lastMeta03 == text)
 			break;
+		lastMeta03 = text;
 		
 		if (trk == 0 || midFile->GetMidiFormat() == 2)
 		{
 			attron(A_BOLD);
+			str_locale_conv(text);
 			printw("Title: %s", text.c_str());
-			lastMeta03 = text;
 			attroff(A_BOLD);
 			curYline ++;
 		}
@@ -503,9 +528,10 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	case 0x04:	// Instrument Name
 		if (lastMeta04 == text)
 			break;
-		
-		printw("Instrument Name: %s", text.c_str());
 		lastMeta04 = text;
+		
+		str_locale_conv(text);
+		printw("Instrument Name: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x05:	// Lyric
@@ -514,6 +540,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	case 0x06:	// Marker
 		if (! optShowMeta[6])
 			break;
+		str_locale_conv(text);
 		printw("Marker: %s", text.c_str());
 		curYline ++;
 		break;
