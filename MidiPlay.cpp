@@ -1028,9 +1028,9 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				addr =	(midiEvt->evtData[0x04] << 16) |
 						(midiEvt->evtData[0x05] <<  8) |
 						(midiEvt->evtData[0x06] <<  0);
-				switch (addr)
+				switch(addr & 0xFFFF00)
 				{
-				case 0x100000:	// Display
+				case 0x100000:	// ASCII Display
 				{
 					std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
 					char msgStr[0x80];
@@ -1039,6 +1039,40 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 					sprintf(msgStr, "SC SysEx: Display = \"%s\"", dispMsg.c_str());
 					vis_addstr(msgStr);
 				}
+					break;
+				case 0x100100:	// Dot Display (page 1-10)
+				case 0x100200:
+				case 0x100300:
+				case 0x100400:
+				case 0x100500:
+				{
+					UINT8 pageID;
+					char msgStr[0x80];
+					
+					pageID = (((addr & 0x00FF00) >> 7) | ((addr & 0x000040) >> 6)) - 1;
+					sprintf(msgStr, "SC SysEx: Dot Display (Page %u)", pageID);
+					vis_addstr(msgStr);
+				}
+					break;
+				case 0x102000:
+					if (addr == 0x102000)	// Dot Display: show page
+					{
+						UINT8 pageID;
+						char msgStr[0x80];
+						
+						pageID = midiEvt->evtData[0x07];	// 00 = bar display, 01..0A = page 1..10
+						sprintf(msgStr, "SC SysEx: Dot Display (Page %u)", pageID);
+						vis_addstr(msgStr);
+					}
+					else if (addr == 0x102001)	// Dot Display: set display time
+					{
+						float dispTime;
+						char msgStr[0x80];
+						
+						dispTime = midiEvt->evtData[0x07] * 0.48f;
+						sprintf(msgStr, "SC SysEx: Dot Display: set display time = %.2f sec", dispTime);
+						vis_addstr(msgStr);
+					}
 					break;
 				}
 			}
