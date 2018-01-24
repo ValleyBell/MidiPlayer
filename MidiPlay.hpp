@@ -82,6 +82,7 @@ public:
 	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts);
 	void SetOutPortMapping(size_t numPorts, const size_t* outPorts);
 	void SetOptions(const PlayerOpts& plrOpts);
+	UINT32 _numLoops;
 	void SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);
 	UINT8 Start(void);
@@ -139,6 +140,7 @@ private:
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
 	LoopPoint _loopPt;
+	UINT32 _curLoop;
 	bool _breakMidiProc;
 	UINT32 _midiTempo;
 	UINT32 _nextEvtTick;

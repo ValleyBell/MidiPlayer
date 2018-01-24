@@ -92,6 +92,7 @@ static MidiFile CMidi;
 static MidiPlayer midPlay;
 
 static bool keepPortsOpen;
+static UINT32 numLoops;
 static UINT8 playerCfgFlags;	// see PlayerOpts::flags
 static UINT8 forceSrcType;
 static UINT8 forceModID;
@@ -142,13 +143,15 @@ int main(int argc, char* argv[])
 		printf("           0x20..24 = MU50/80/90/100/128/1000, 0x70 = MT-32\n");
 		printf("    -m n - enforce playback on module with ID n\n");
 		printf("    -x   - send .syx file to all ports before playing the MIDI\n");
+		printf("    -l n - play looping songs n times (default: 2) \n");
 #ifndef _WIN32
 		printf("    -I   - Ices2 PID (for Metadata refresh)\n");
 #endif
 		return 0;
 	}
 	
-	playerCfgFlags = PLROPTS_RESET | PLROPTS_STRICT | PLROPTS_ENABLE_CTF;
+	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
+	numLoops = 2;
 	forceSrcType = 0xFF;
 	forceModID = 0xFF;
 	syxFile = "";
@@ -185,6 +188,14 @@ int main(int argc, char* argv[])
 			
 			forceModID = (UINT8)strtoul(argv[argbase], NULL, 0);
 		}
+		else if (optChr == 'l')
+		{
+			argbase ++;
+			if (argbase >= argc)
+				break;
+			
+			numLoops = (UINT32)strtoul(argv[argbase], NULL, 0);
+		}
 		else if (optChr == 'x')
 		{
 			argbase ++;
@@ -199,7 +210,7 @@ int main(int argc, char* argv[])
 			if (argbase >= argc)
 				break;
 			
-			metaDataSignalPID = strtoul(argv[argbase], NULL, 0);
+			metaDataSignalPID = (int)strtol(argv[argbase], NULL, 0);
 		}
 		else
 		{
@@ -676,6 +687,7 @@ void PlayMidi(void)
 	if (scanRes.hasReset != 0xFF)
 		plrOpts.flags &= ~PLROPTS_RESET;
 	midPlay.SetOptions(plrOpts);
+	midPlay._numLoops = numLoops;
 	
 	if (scanRes.numPorts > mMod->ports.size())
 	{

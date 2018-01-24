@@ -164,6 +164,7 @@ UINT8 MidiPlayer::Start(void)
 	_chnStates.resize(_outPorts.size() * 0x10);
 	InitializeChannels();
 	_loopPt.used = false;
+	_curLoop = 0;
 	
 	_trkStates.clear();
 	for (curTrk = 0; curTrk < _cMidi->GetTrackCount(); curTrk ++)
@@ -442,8 +443,13 @@ void MidiPlayer::DoPlaybackStep(void)
 		{
 			if (_loopPt.used && _loopPt.tick < _nextEvtTick)
 			{
-				RestoreLoopState(_loopPt);
-				continue;
+				_curLoop ++;
+				if (! _numLoops || _curLoop < _numLoops)
+				{
+					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+					RestoreLoopState(_loopPt);
+					continue;
+				}
 			}
 			_playing = false;
 			break;
