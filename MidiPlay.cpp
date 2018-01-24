@@ -1259,6 +1259,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 				chnSt->flags |= 0x80;	// drum mode on
 			else
 				chnSt->flags &= ~0x80;	// drum mode off
+			// TODO: Refresh instrument
 			break;
 		case 0x401016:	// Pitch Key Shift
 			break;

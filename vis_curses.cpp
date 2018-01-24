@@ -24,8 +24,8 @@ struct ChnNoteDisp
 	int remTime;
 };
 
-static int calc_note_posx(UINT8 note);
-static void str_padding(char* str, size_t padlen, char padchar);
+static int calc_note_posx(UINT8 note, UINT8* inColPos = NULL);
+static void str_padding(char* str, size_t padlen, char padchar, UINT8 padleft);
 static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
 
@@ -368,30 +368,59 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
 	return;
 }
 
-static int calc_note_posx(UINT8 note)
+static int calc_note_posx(UINT8 note, UINT8* inColPos)
 {
 	int ncols;
+	int colpos;
 	int posX;
 	
 	ncols = (COLS - NOTE_BASE_COL) / NOTE_NAME_SPACE;
 #if 0
 	posX = NOTE_BASE_COL + ((note / 2) % ncols) * NOTE_NAME_SPACE;
+	colpos = note % 2;
 #else
 	// middle C = center of the screen (at ncols / 2)
-	posX = (note - CENTER_NOTE) / 2 + (ncols / 2);
+	colpos = (note - CENTER_NOTE) & 1;
+	posX = (note - colpos - CENTER_NOTE) / 2 + (ncols / 2);
 	posX += (CENTER_NOTE / ncols + 1) * ncols;	// prevent negative note values
 	posX = NOTE_BASE_COL + (posX % ncols) * NOTE_NAME_SPACE;
 #endif
+	if (inColPos != NULL)
+		*inColPos = (UINT8)colpos;
 	return posX;
 }
 
-static void str_padding(char* str, size_t padlen, char padchar)
+static void str_padding(char* str, size_t padlen, char padchar, UINT8 padleft)
 {
+	size_t slen;
 	size_t pos;
 	
+	slen = strlen(str);
+	if (! padleft)
+	{
+		// padding - right side
+		for (pos = slen; pos < padlen; pos ++)
+			str[pos] = padchar;
+	}
+	else
+	{
+		// padding - left side
+		if (slen < padlen)
+		{
+			pos = padlen - slen;
+			memmove(&str[pos], &str[0], slen);
+			while(pos > 0)
+			{
+				pos --;
+				str[pos] = padchar;
+			}
+		}
+		else
+		{
+			memmove(&str[0], &str[slen - padlen], padlen);
+		}
+	}
 	str[padlen] = '\0';
-	for (pos = strlen(str); pos < padlen; pos ++)
-		str[pos] = padchar;
 	
 	return;
 }
@@ -399,7 +428,8 @@ static void str_padding(char* str, size_t padlen, char padchar)
 void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
-	int posX = calc_note_posx(note);
+	UINT8 inColPos;
+	int posX = calc_note_posx(note, &inColPos);
 	int posY = CHN_BASE_LINE + chn;
 	int color = (chn % 6) + 1;
 	char noteName[8];
@@ -474,7 +504,7 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 	if (volume < 16)	// treat very-low-velocity notes as "note off"
 		noteName[0] = '\0';
 	
-	str_padding(noteName, 3, ' ');
+	str_padding(noteName, 3, ' ', inColPos);
 	attron(COLOR_PAIR(color));
 	if (volume > 50)
 		attron(A_BOLD);

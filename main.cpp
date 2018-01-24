@@ -17,6 +17,7 @@
 #define Sleep(x)	usleep(x * 1000)
 #include <limits.h>	// for PATH_MAX
 #include <iconv.h>
+#include <signal.h>	// for kill()
 #endif
 
 #include "inih/cpp/INIReader.h"	// https://github.com/benhoyt/inih
@@ -82,6 +83,7 @@ void PlayMidi(void);
 static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_t dataLen, const UINT8* data);
 static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT8>& syxData);
 static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 chnID);
+static std::string GetMidiSongTitle(MidiFile* cMidi);
 
 
 static const char* INS_SET_PATH = "_MidiInsSets/";
@@ -109,6 +111,8 @@ extern UINT8 optShowInsChange;
 
 static std::vector<std::string> appSearchPaths;
 static std::string cfgBasePath;
+static int metaDataSignalPID;
+static std::string metaDataFilePath;
 
 static iconv_t hIConv;
 
@@ -138,6 +142,9 @@ int main(int argc, char* argv[])
 		printf("           0x20..24 = MU50/80/90/100/128/1000, 0x70 = MT-32\n");
 		printf("    -m n - enforce playback on module with ID n\n");
 		printf("    -x   - send .syx file to all ports before playing the MIDI\n");
+#ifndef _WIN32
+		printf("    -I   - Ices2 PID (for Metadata refresh)\n");
+#endif
 		return 0;
 	}
 	
@@ -147,11 +154,12 @@ int main(int argc, char* argv[])
 	syxFile = "";
 	optShowMeta.resize(9, 1);
 	optShowInsChange = 1;
+	metaDataSignalPID = 0;
 	
 	argbase = 1;
 	while(argbase < argc && argv[argbase][0] == '-')
 	{
-		char optChr = tolower(argv[argbase][1]);
+		char optChr = argv[argbase][1];
 		
 		if (optChr == 'o')
 		{
@@ -184,6 +192,14 @@ int main(int argc, char* argv[])
 				break;
 			
 			syxFile = argv[argbase];
+		}
+		else if (optChr == 'I')
+		{
+			argbase ++;
+			if (argbase >= argc)
+				break;
+			
+			metaDataSignalPID = strtoul(argv[argbase], NULL, 0);
 		}
 		else
 		{
@@ -474,6 +490,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	}
 	
 	keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", true);
+	metaDataFilePath = iniFile.Get("General", "IcesMetadataFile", "");
 	
 	optShowInsChange = iniFile.GetBoolean("Display", "ShowInsChange", true);
 	optShowMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
@@ -705,6 +722,33 @@ void PlayMidi(void)
 	vis_set_type_str(1, GetModuleTypeName(scanRes.modType));
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
+#ifndef _WIN32
+	if (metaDataSignalPID && ! metaDataFilePath.empty())
+	{
+		FILE* hFile;
+		
+		hFile = fopen(metaDataFilePath.c_str(), "wt");
+		if (hFile != NULL)
+		{
+			const char* fileTitle;
+			std::string songTitle;
+			int retValI;
+			
+			fileTitle = GetFileTitle(midFileName.c_str());
+			songTitle = GetMidiSongTitle(&CMidi);
+			if (songTitle.empty())
+				fprintf(hFile, "TITLE=%s\n", fileTitle);
+			else
+				fprintf(hFile, "TITLE=%s: %s\n", fileTitle, songTitle.c_str());
+			fclose(hFile);
+			
+			retValI = kill(metaDataSignalPID, SIGUSR1);
+			if (retValI)
+				vis_addstr("Unable to send signal to Ices2!!\n");
+		}
+	}
+#endif
+	
 	if (! syxData.empty())
 	{
 		vis_addstr("Sending SYX data ...");
@@ -865,4 +909,31 @@ static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 c
 		break;
 	}
 	return;
+}
+
+static std::string GetMidiSongTitle(MidiFile* cMidi)
+{
+	UINT16 curTrk;
+	
+	if (cMidi->GetTrackCount() == 0)
+		return "";
+	
+	MidiTrack* mTrk = cMidi->GetTrack(0);
+	midevt_iterator evtIt;
+	
+	for (evtIt = mTrk->GetEventBegin(); evtIt != mTrk->GetEventEnd(); ++evtIt)
+	{
+		if (evtIt->tick > cMidi->GetMidiResolution())
+			break;
+		
+		if (evtIt->evtType == 0xFF && evtIt->evtValA == 0x03)	// FF 03 - Sequence Name
+		{
+			std::string evtText(evtIt->evtData.begin(), evtIt->evtData.end());
+			std::string convText;
+			StrCharsetConv(hIConv, convText, evtText);
+			return convText;
+		}
+	}
+	
+	return "";
 }
