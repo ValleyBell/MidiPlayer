@@ -34,6 +34,7 @@ static void vis_mvprintms(int row, int col, double time);
 #define INS_COL_SIZE	14
 #define NOTE_BASE_COL	16
 #define NOTE_NAME_SPACE	3	// number of characters reserved for note names
+#define NOTES_PER_COL	2	// number of notes that share the same column
 #define CENTER_NOTE		60	// middle C
 //static char textbuf[1024];
 static int TEXT_BASE_LINE = 0;
@@ -376,15 +377,20 @@ static int calc_note_posx(UINT8 note, UINT8* inColPos)
 	
 	ncols = (COLS - NOTE_BASE_COL) / NOTE_NAME_SPACE;
 #if 0
-	posX = NOTE_BASE_COL + ((note / 2) % ncols) * NOTE_NAME_SPACE;
-	colpos = note % 2;
+	colpos = note % NOTES_PER_COL;
+	posX = note / NOTES_PER_COL;
+	posX = posX % ncols;
 #else
+	ncols *= NOTES_PER_COL;
 	// middle C = center of the screen (at ncols / 2)
-	colpos = (note - CENTER_NOTE) & 1;
-	posX = (note - colpos - CENTER_NOTE) / 2 + (ncols / 2);
+	posX = note - CENTER_NOTE + (ncols / 2);
 	posX += (CENTER_NOTE / ncols + 1) * ncols;	// prevent negative note values
-	posX = NOTE_BASE_COL + (posX % ncols) * NOTE_NAME_SPACE;
+	// scale down notes to column slots
+	colpos = posX % NOTES_PER_COL;
+	posX = (posX % ncols) / NOTES_PER_COL;
 #endif
+	
+	posX = NOTE_BASE_COL + posX * NOTE_NAME_SPACE;
 	if (inColPos != NULL)
 		*inColPos = (UINT8)colpos;
 	return posX;
@@ -446,7 +452,7 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 			return;
 		if (noteIt->second > 0)
 			return;	// ignore Note Off for drum sounds
-		mvaddstr(posY, posX, "   ");
+		mvhline(posY, posX, ' ', NOTE_NAME_SPACE);
 		chnDisp.erase(noteIt);
 		return;
 	}
@@ -481,7 +487,7 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 				hhIt = chnDisp.find(calc_note_posx(hhNotes[curHH]));
 				if (hhIt != chnDisp.end())
 				{
-					mvaddstr(posY, hhIt->first, "   ");
+					mvhline(posY, posX, ' ', NOTE_NAME_SPACE);
 					chnDisp.erase(hhIt);
 				}
 			}
@@ -504,7 +510,7 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 	if (volume < 16)	// treat very-low-velocity notes as "note off"
 		noteName[0] = '\0';
 	
-	str_padding(noteName, 3, ' ', inColPos);
+	str_padding(noteName, NOTE_NAME_SPACE, ' ', inColPos);
 	attron(COLOR_PAIR(color));
 	if (volume > 50)
 		attron(A_BOLD);
@@ -660,7 +666,7 @@ void vis_update(void)
 				{
 					std::map<int, int>::iterator remIt = noteIt;
 					++noteIt;
-					mvaddstr(posY, remIt->first, "   ");
+					mvhline(posY, remIt->first, ' ', NOTE_NAME_SPACE);
 					chnDisp.erase(remIt);
 					continue;
 				}

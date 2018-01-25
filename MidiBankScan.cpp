@@ -495,7 +495,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		result->modType = MODULE_TYPE_XG | modChk.XG_Opt;
 	else
 	{
-		if (modChk.GS_Opt != MT_UNKNOWN)
+		if (modChk.GS_Opt != MT_UNKNOWN && ! xgDrum)
 			result->modType = MODULE_TYPE_GS | modChk.GS_Opt;
 		else if (modChk.XG_Opt != MT_UNKNOWN || xgDrum)
 			result->modType = MODULE_TYPE_XG | modChk.XG_Opt;

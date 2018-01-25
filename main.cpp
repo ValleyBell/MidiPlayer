@@ -12,6 +12,7 @@
 #ifdef _WIN32
 #include <conio.h>
 #include <Windows.h>
+#define unlink	_unlink
 #else
 #include <unistd.h>
 #define Sleep(x)	usleep(x * 1000)
@@ -342,6 +343,8 @@ int main(int argc, char* argv[])
 #ifndef _WIN32
 	iconv_close(hIConv);
 #endif
+	if (! metaDataFilePath.empty())
+		unlink(metaDataFilePath.c_str());
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
 		FreeInstrumentBank(&insBanks[curInsBnk]);
@@ -734,8 +737,7 @@ void PlayMidi(void)
 	vis_set_type_str(1, GetModuleTypeName(scanRes.modType));
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
-#ifndef _WIN32
-	if (metaDataSignalPID && ! metaDataFilePath.empty())
+	if (! metaDataFilePath.empty())
 	{
 		FILE* hFile;
 		
@@ -744,7 +746,6 @@ void PlayMidi(void)
 		{
 			const char* fileTitle;
 			std::string songTitle;
-			int retValI;
 			
 			fileTitle = GetFileTitle(midFileName.c_str());
 			songTitle = GetMidiSongTitle(&CMidi);
@@ -754,12 +755,16 @@ void PlayMidi(void)
 				fprintf(hFile, "TITLE=%s: %s\n", fileTitle, songTitle.c_str());
 			fclose(hFile);
 			
-			retValI = kill(metaDataSignalPID, SIGUSR1);
-			if (retValI)
-				vis_addstr("Unable to send signal to Ices2!!\n");
+#ifndef _WIN32
+			if (metaDataSignalPID)
+			{
+				int retValI = kill(metaDataSignalPID, SIGUSR1);
+				if (retValI)
+					vis_addstr("Unable to send signal to Ices2!!\n");
+			}
+#endif
 		}
 	}
-#endif
 	
 	if (! syxData.empty())
 	{
@@ -925,8 +930,6 @@ static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 c
 
 static std::string GetMidiSongTitle(MidiFile* cMidi)
 {
-	UINT16 curTrk;
-	
 	if (cMidi->GetTrackCount() == 0)
 		return "";
 	

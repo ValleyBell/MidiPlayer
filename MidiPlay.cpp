@@ -978,17 +978,17 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		newName = (chnSt->insMapPPtr == NULL) ? "" : chnSt->insMapPPtr->insName;
 		if (didPatch)
 		{
-			sprintf(msgStr, "%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
+			sprintf(msgStr, "%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
 				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName);
 			vis_addstr(msgStr);
-			sprintf(msgStr, "       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
+			sprintf(msgStr, "       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
 			vis_addstr(msgStr);
 		}
 		else
 		{
-			sprintf(msgStr, "%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X %s\n",
+			sprintf(msgStr, "%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
 				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
 			vis_addstr(msgStr);
