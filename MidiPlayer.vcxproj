@@ -39,12 +39,12 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>D:\VStudio-Programme\VC2010\libs\pdcurs34;$(ProjectDir);$(IncludePath)</IncludePath>
+    <IncludePath>D:\VStudio-Programme\VC2010\libs\pdcurs34;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir);$(IncludePath)</IncludePath>
     <LibraryPath>D:\VStudio-Programme\VC2010\libs\pdcurs34\win32;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>D:\VStudio-Programme\VC2010\libs\pdcurs34;$(ProjectDir);$(IncludePath)</IncludePath>
+    <IncludePath>D:\VStudio-Programme\VC2010\libs\pdcurs34;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir);$(IncludePath)</IncludePath>
     <LibraryPath>D:\VStudio-Programme\VC2010\libs\pdcurs34\win32;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -80,8 +80,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="inih\cpp\INIReader.cpp" />
-    <ClCompile Include="inih\ini.c" />
+    <ClCompile Include="libs\inih\cpp\INIReader.cpp" />
+    <ClCompile Include="libs\inih\ini.c" />
     <ClCompile Include="m3uargparse.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MidiBankScan.cpp" />
@@ -94,8 +94,8 @@
     <ClCompile Include="vis_curses.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="inih\cpp\INIReader.h" />
-    <ClInclude Include="inih\ini.h" />
+    <ClInclude Include="libs\inih\cpp\INIReader.h" />
+    <ClInclude Include="libs\inih\ini.h" />
     <ClInclude Include="m3uargparse.hpp" />
     <ClInclude Include="MidiBankScan.hpp" />
     <ClInclude Include="MidiInsReader.h" />
@@ -103,7 +103,7 @@
     <ClInclude Include="MidiOut.h" />
     <ClInclude Include="MidiPlay.hpp" />
     <ClInclude Include="OSTimer.h" />
-    <ClCompile Include="utils.hpp" />
+    <ClInclude Include="utils.hpp" />
     <ClInclude Include="vis.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -1,6 +1,8 @@
 #ifndef __M3UARGPARSE_HPP__
 #define __M3UARGPARSE_HPP__
 
+#include <string>
+#include <vector>
 #include <stdtype.h>
 
 struct SongFileList

@@ -42,10 +42,10 @@
     <ClCompile Include="vis_curses.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
-    <ClCompile Include="inih\ini.c">
+    <ClCompile Include="libs\inih\ini.c">
       <Filter>Libraries</Filter>
     </ClCompile>
-    <ClCompile Include="inih\cpp\INIReader.cpp">
+    <ClCompile Include="libs\inih\cpp\INIReader.cpp">
       <Filter>Libraries</Filter>
     </ClCompile>
     <ClCompile Include="m3uargparse.cpp">
@@ -77,10 +77,10 @@
     <ClInclude Include="vis.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
-    <ClInclude Include="inih\cpp\INIReader.h">
+    <ClInclude Include="libs\inih\cpp\INIReader.h">
       <Filter>Libraries</Filter>
     </ClInclude>
-    <ClInclude Include="inih\ini.h">
+    <ClInclude Include="libs\inih\ini.h">
       <Filter>Libraries</Filter>
     </ClInclude>
     <ClInclude Include="m3uargparse.hpp">
