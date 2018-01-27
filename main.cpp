@@ -294,7 +294,8 @@ int main(int argc, char* argv[])
 #ifdef _WIN32
 	hIConv = NULL;
 #else
-	hIConv = iconv_open("UTF-8", "SHIFT_JIS");
+	//hIConv = iconv_open("UTF-8", "SHIFT_JIS");
+	hIConv = iconv_open("UTF-8", "CP932");	// Shift-JIS version used by Windows
 #endif
 	vis_init();
 	vis_set_locale(&hIConv);

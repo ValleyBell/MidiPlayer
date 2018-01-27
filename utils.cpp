@@ -158,6 +158,23 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 		if (errno == EILSEQ || errno == EINVAL)
 		{
 			// invalid encoding - return original string
+#if 0
+			*outPtr = '\0';
+			printf("iconv error:\n\r\tInput:\t%s (stopped at char %zu, left: %zu)\n\r\tOutput: %s\n\r",
+					inStr.c_str(), inPtr - &inStr[0], remBytesIn, outStr.c_str());
+			FILE* hFile = fopen("/tmp/iconv-fail.txt", "wt");
+			if (hFile != NULL)
+			{
+				fputs(inStr.c_str(), hFile);
+				fclose(hFile);
+			}
+#endif
+			if (errno == EINVAL && remBytesIn <= 1)
+			{
+				// assume that the string got truncated (happens in ICY.MID from MIDI Power Pro 3)
+				iconv(hIConv, NULL, NULL, &outPtr, &remBytesOut);
+				break;	// assume a broken
+			}
 			outStr = inStr;
 			return 0x01;
 		}
