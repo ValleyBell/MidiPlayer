@@ -22,8 +22,6 @@ set(HEADERS
 		OSTimer.h
 		MidiOut.h
 		vis.hpp
-		inih/ini.h
-		inih/cpp/INIReader.h
 		)
 
 set(SOURCES
@@ -34,9 +32,22 @@ set(SOURCES
 		MidiInsReader.c
 		utils.cpp
 		m3uargparse.cpp
-		inih/ini.c
-		inih/cpp/INIReader.cpp
 		)
+
+# --- INI library ---
+set(INIH_DIR libs/inih)
+set(HEADERS ${HEADERS}
+		${INIH_DIR}/ini.h
+		${INIH_DIR}/cpp/INIReader.h
+	)
+set(SOURCES ${SOURCES}
+		${INIH_DIR}/ini.c
+		${INIH_DIR}/cpp/INIReader.cpp
+	)
+set(INCLUDES ${INCLUDES}
+	${INIH_DIR}
+	${INIH_DIR}/cpp
+	)
 
 if(WIN32)
 	set(SOURCES ${SOURCES}

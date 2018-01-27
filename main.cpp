@@ -21,7 +21,7 @@
 #include <signal.h>	// for kill()
 #endif
 
-#include "inih/cpp/INIReader.h"	// https://github.com/benhoyt/inih
+#include <INIReader.h>
 
 #include <stdtype.h>
 #include "MidiLib.hpp"
