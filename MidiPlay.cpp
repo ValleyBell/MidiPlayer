@@ -633,10 +633,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->notes.clear();
 		if (_evtCbFunc != NULL)
 		{
-			MidiEvent noteEvt;
-			noteEvt.evtType = 0x01;
-			noteEvt.evtValA = 0x7B;
-			noteEvt.evtValB = 0x00;
+			MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x7B, 0x00);
 			_evtCbFunc(_evtCbData, &noteEvt, chnSt - &_chnStates[0]);
 		}
 		break;
@@ -1170,10 +1167,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 			}
 			if (_evtCbFunc != NULL)
 			{
-				MidiEvent insEvt;
-				
-				insEvt.evtType = 0xC0 | evtChn;
-				insEvt.evtValA = chnSt->curIns;
+				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 				_evtCbFunc(_evtCbData, &insEvt, (trkSt->portID << 4) | evtChn);
 			}
 			break;
@@ -1452,6 +1446,7 @@ void MidiPlayer::PrepareMidi(void)
 void MidiPlayer::InitializeChannels(void)
 {
 	size_t curChn;
+	MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x7B, 0x00);
 	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
@@ -1471,6 +1466,9 @@ void MidiPlayer::InitializeChannels(void)
 		
 		chnSt.notes.clear();
 		chnSt.outPort = _outPorts[curChn / 0x10];
+		
+		if (_evtCbFunc != NULL)
+			_evtCbFunc(_evtCbData, &noteEvt, curChn);
 	}
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
 	{

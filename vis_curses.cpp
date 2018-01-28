@@ -286,6 +286,8 @@ void vis_new_song(void)
 void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data)
 {
 	int posY = CHN_BASE_LINE + chn;
+	if (chn >= dispNotes.size())
+		return;
 	std::map<int, int>& chnDisp = dispNotes[chn];
 	std::map<int, int>::iterator noteIt;
 	
@@ -487,7 +489,7 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 				hhIt = chnDisp.find(calc_note_posx(hhNotes[curHH]));
 				if (hhIt != chnDisp.end())
 				{
-					mvhline(posY, posX, ' ', NOTE_NAME_SPACE);
+					mvhline(posY, hhIt->first, ' ', NOTE_NAME_SPACE);
 					chnDisp.erase(hhIt);
 				}
 			}
