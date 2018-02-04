@@ -137,10 +137,12 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	char* inPtr;
 	char* outPtr;
 	size_t wrtBytes;
+	char resVal;
 	
 	iconv(hIConv, NULL, NULL, NULL, NULL);	// reset conversion state
 	outStr.resize(inStr.length() * 3 / 2);
 	
+	resVal = 0x00;
 	remBytesIn = inStr.length();	inPtr = (char*)&inStr[0];
 	remBytesOut = outStr.length();	outPtr = &outStr[0];
 	wrtBytes = iconv(hIConv, &inPtr, &remBytesIn, &outPtr, &remBytesOut);
@@ -160,14 +162,14 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 				fclose(hFile);
 			}
 #endif
+			resVal = 0x80;
 			if (errno == EINVAL && remBytesIn <= 1)
 			{
 				// assume that the string got truncated (happens in ICY.MID from MIDI Power Pro 3)
 				iconv(hIConv, NULL, NULL, &outPtr, &remBytesOut);
-				break;	// assume a broken
+				resVal = 0x01;
 			}
-			outStr = inStr;
-			return 0x01;
+			break;
 		}
 		// errno == E2BIG
 		wrtBytes = outPtr - &outStr[0];
@@ -180,5 +182,5 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	
 	wrtBytes = outPtr - &outStr[0];
 	outStr.resize(wrtBytes);
-	return 0x00;
+	return resVal;
 }

@@ -612,16 +612,26 @@ UINT8 MidiFile::DeleteTrack(UINT16 trackID)
 UINT8 MidiFile::LoadFile(const char* fileName)
 {
 	FILE* infile;
+	UINT8 retVal;
+	
+	infile = fopen(fileName, "rb");
+	if (infile == NULL)
+		return 0xFF;
+	
+	retVal = LoadFile(infile);
+	fclose(infile);
+	
+	return retVal;
+}
+
+UINT8 MidiFile::LoadFile(FILE* infile)
+{
 	UINT32 TempLng;
 	UINT32 HdrPos;
 	UINT32 HdrEnd;
 	UINT16 trkCnt;
 	UINT16 CurTrk;
 	UINT8 RetVal;
-	
-	infile = fopen(fileName, "rb");
-	if (infile == NULL)
-		return 0xFF;
 	
 //	fseek(infile, 0, SEEK_END);
 //	file_size = ftell(infile);
@@ -655,23 +665,31 @@ UINT8 MidiFile::LoadFile(const char* fileName)
 		Track_Append(newTrk);
 	}
 	
-	fclose(infile);
-	
 	return RetVal;
 }
 
 UINT8 MidiFile::SaveFile(const char* fileName)
 {
 	FILE* outfile;
+	UINT8 retVal;
+	
+	outfile = fopen(fileName, "wb");
+	if (outfile == NULL)
+		return 0xFF;
+	
+	retVal = SaveFile(outfile);
+	fclose(outfile);
+	
+	return retVal;
+}
+
+UINT8 MidiFile::SaveFile(FILE* outfile)
+{
 	UINT32 TempLng;
 	UINT32 HdrPos;
 	UINT32 HdrEnd;
 	UINT8 RetVal;
 	std::vector<MidiTrack*>::const_iterator trkIt;
-	
-	outfile = fopen(fileName, "wb");
-	if (outfile == NULL)
-		return 0xFF;
 	
 	TempLng = FCC_MTHD;
 	fwrite(&TempLng, 0x04, 1, outfile);
@@ -696,8 +714,6 @@ UINT8 MidiFile::SaveFile(const char* fileName)
 		if (RetVal)
 			break;
 	}
-	
-	fclose(outfile);
 	
 	return RetVal;
 }

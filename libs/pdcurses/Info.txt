@@ -4,7 +4,7 @@ http://pdcurses.sourceforge.net/
 Compiled using Visual Studio 2010, Static Library, Release Mode, Multithreaded-DLL runtime, with Unicode support
 CFLAGS		= /O2 /Oi /Oy- /MD /Gy
 
-nmake -f vcwin32.mak WIDE=Y
+nmake -f vcwin32.mak WIDE=Y UTF8=Y
 
 Files:
 	include/curses.h

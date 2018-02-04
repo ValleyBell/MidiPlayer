@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <istream>
+#include <Windows.h>
+#include <iconv.h>
 
 #include <stdtype.h>
 #include "utils.hpp"
@@ -20,11 +22,12 @@ static const char* M3UV2_META = "#EXTINF:";
 static const UINT8 UTF8_SIG[] = {0xEF, 0xBB, 0xBF};
 
 
-//UINT8 ParseSongFiles(int argc, char* argv[], std::vector<SongFileList>& songList, std::vector<std::string>& playlistList);
-static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& songList);
+//UINT8 ParseSongFiles(const std::vector<std::string> args, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList);
+static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& songList, bool isM3Uu8);
+static std::string WinStr2UTF8(const std::string& str);
 
 
-UINT8 ParseSongFiles(int argc, char* argv[], std::vector<SongFileList>& songList, std::vector<std::string>& playlistList)
+UINT8 ParseSongFiles(const std::vector<std::string> args, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList)
 {
 	int curArg;
 	const char* fileName;
@@ -35,9 +38,9 @@ UINT8 ParseSongFiles(int argc, char* argv[], std::vector<SongFileList>& songList
 	songList.clear();
 	playlistList.clear();
 	resVal = 0x00;
-	for (curArg = 0; curArg < argc; curArg ++)
+	for (curArg = 0; curArg < args.size(); curArg ++)
 	{
-		fileName = argv[curArg];
+		fileName = args[curArg].c_str();
 		fileExt = GetFileExtension(fileName);
 		if (fileExt == NULL)
 			fileExt = "";
@@ -45,7 +48,7 @@ UINT8 ParseSongFiles(int argc, char* argv[], std::vector<SongFileList>& songList
 		{
 			size_t plSong = songList.size();
 			
-			retValB = ReadM3UPlaylist(fileName, songList);
+			retValB = ReadM3UPlaylist(fileName, songList, ! stricmp(fileExt, "m3u8"));
 			if (! retValB)
 			{
 				resVal |= 0x01;
@@ -68,7 +71,7 @@ UINT8 ParseSongFiles(int argc, char* argv[], std::vector<SongFileList>& songList
 	return 0x00;
 }
 
-static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& songList)
+static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& songList, bool isM3Uu8)
 {
 	std::ifstream hFile;
 	std::string baseDir;
@@ -80,7 +83,14 @@ static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& son
 	UINT32 lineNo;
 	std::string tempStr;
 	
+#ifdef WIN32
+	std::wstring fileNameW;
+	fileNameW.resize(MultiByteToWideChar(CP_UTF8, 0, fileName, -1, NULL, 0) - 1);
+	MultiByteToWideChar(CP_UTF8, 0, fileName, -1, &fileNameW[0], fileNameW.size() + 1);
+	hFile.open(fileNameW);
+#else
 	hFile.open(fileName);
+#endif
 	if (! hFile.is_open())
 		return false;
 	
@@ -90,7 +100,9 @@ static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& son
 	memset(fileSig, 0x00, 3);
 	hFile.read(fileSig, 3);
 	isUTF8 = ! memcmp(fileSig, UTF8_SIG, 3);
-	hFile.seekg(0, std::ios_base::beg);
+	if (! isUTF8)
+		hFile.seekg(0, std::ios_base::beg);
+	isUTF8 |= isM3Uu8;
 	
 	isV2Fmt = false;
 	METASTR_LEN = strlen(M3UV2_META);
@@ -117,6 +129,10 @@ static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& son
 			continue;
 		}
 		
+		if (! isUTF8)
+			tempStr = WinStr2UTF8(tempStr);
+		// at this point, we should have UTF-8 file names
+		
 		SongFileList sfl;
 		sfl.fileName = CombinePaths(baseDir, tempStr);
 		StandardizeDirSeparators(sfl.fileName);
@@ -126,4 +142,23 @@ static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& son
 	hFile.close();
 	
 	return true;
+}
+
+static std::string WinStr2UTF8(const std::string& str)
+{
+#ifdef _WIN32
+	std::wstring wtemp;
+	std::string out;
+	
+	wtemp.resize(MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0) - 1);
+	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wtemp[0], wtemp.size() + 1);
+	
+	out.resize(WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, NULL, 0, NULL, NULL) - 1);
+	WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, &out[0], out.size() + 1, NULL, NULL);
+	
+	return out;
+#else
+	// TODO: handle Windows codepages
+	return str;
+#endif
 }

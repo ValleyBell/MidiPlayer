@@ -13,6 +13,8 @@
 #include <conio.h>
 #include <Windows.h>
 #define unlink	_unlink
+
+#define USE_WMAIN
 #else
 #include <unistd.h>
 #define Sleep(x)	usleep(x * 1000)
@@ -71,7 +73,7 @@ static const char* MODNAMES_XG[] =
 };
 
 
-int main(int argc, char* argv[]);
+//int main(int argc, char* argv[]);
 static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
@@ -116,11 +118,17 @@ static std::string cfgBasePath;
 static int metaDataSignalPID;
 static std::string metaDataFilePath;
 
-static iconv_t hIConv;
+static iconv_t hCurIConv;
 
 
+#ifdef USE_WMAIN
+int wmain(int argc, wchar_t* wargv[])
+{
+	char** argv;
+#else
 int main(int argc, char* argv[])
 {
+#endif
 	int argbase;
 	UINT8 retVal;
 	int resVal;
@@ -150,6 +158,16 @@ int main(int argc, char* argv[])
 #endif
 		return 0;
 	}
+	
+#ifdef USE_WMAIN
+	argv = (char**)malloc(argc * sizeof(char*));
+	for (argbase = 0; argbase < argc; argbase ++)
+	{
+		int bufSize = WideCharToMultiByte(CP_UTF8, 0, wargv[argbase], -1, NULL, 0, NULL, NULL);
+		argv[argbase] = (char*)malloc(bufSize);
+		WideCharToMultiByte(CP_UTF8, 0, wargv[argbase], -1, argv[argbase], bufSize, NULL, NULL);
+	}
+#endif
 	
 	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
 	numLoops = 2;
@@ -268,7 +286,7 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	
-	retVal = ParseSongFiles(argc - argbase, argv + argbase, songList, plList);
+	retVal = ParseSongFiles(std::vector<std::string>(argv + argbase, argv + argc), songList, plList);
 	if (retVal)
 		printf("One or more playlists couldn't be read!\n");
 	if (songList.empty())
@@ -291,18 +309,36 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
-	//hIConv = iconv_open("UTF-8", "SHIFT_JIS");
-	hIConv = iconv_open("UTF-8", "CP932");	// Shift-JIS version used by Windows
+	//hCurIConv = iconv_open("UTF-8", "SHIFT_JIS");
+	hCurIConv = iconv_open("UTF-8", "CP932");	// Shift-JIS version used by Windows
 	vis_init();
-	vis_set_locale(&hIConv);
+	vis_set_locale(&hCurIConv);
 	
 	resVal = 0;
 	controlVal = +1;	// default: next song
 	for (curSong = 0; curSong < songList.size(); )
 	{
+		FILE* hFile;
+		
 		midFileName = songList[curSong].fileName;
 		//printf("Opening %s ...\n", midFileName.c_str());
-		retVal = CMidi.LoadFile(midFileName.c_str());
+#ifdef WIN32
+		std::wstring fileNameW;
+		fileNameW.resize(MultiByteToWideChar(CP_UTF8, 0, midFileName.c_str(), -1, NULL, 0) - 1);
+		MultiByteToWideChar(CP_UTF8, 0, midFileName.c_str(), -1, &fileNameW[0], fileNameW.size() + 1);
+		hFile = _wfopen(fileNameW.c_str(), L"rb");
+#else
+		hFile = fopen(midFileName.c_str(), "rb");
+#endif
+		if (hFile == NULL)
+		{
+			retVal = 0xFF;
+		}
+		else
+		{
+			retVal = CMidi.LoadFile(hFile);
+			fclose(hFile);
+		}
 		if (retVal)
 		{
 			vis_printf("Error opening %s\n", midFileName.c_str());
@@ -337,8 +373,8 @@ int main(int argc, char* argv[])
 	if (resVal)
 		vis_getch_wait();
 	vis_deinit();
-	if (hIConv != NULL)
-		iconv_close(hIConv);
+	if (hCurIConv != NULL)
+		iconv_close(hCurIConv);
 	if (! metaDataFilePath.empty())
 		unlink(metaDataFilePath.c_str());
 	
@@ -354,11 +390,25 @@ static char* GetAppFilePath(void)
 	char* appPath;
 	int retVal;
 	
-#ifdef WIN32
+#ifdef _WIN32
+#ifdef USE_WMAIN
+	wchar_t* appPathW;
+	
+	appPathW = (wchar_t*)malloc(MAX_PATH * sizeof(wchar_t));
+	retVal = GetModuleFileNameW(NULL, appPathW, MAX_PATH);
+	if (! retVal)
+		appPathW[0] = L'\0';
+	
+	retVal = WideCharToMultiByte(CP_UTF8, 0, appPathW, -1, NULL, 0, NULL, NULL);
+	appPath = (char*)malloc(retVal);
+	WideCharToMultiByte(CP_UTF8, 0, appPathW, -1, appPath, retVal, NULL, NULL);
+	free(appPathW);
+#else
 	appPath = (char*)malloc(MAX_PATH * sizeof(char));
 	retVal = GetModuleFileNameA(NULL, appPath, MAX_PATH);
 	if (! retVal)
 		appPath[0] = '\0';
+#endif
 #else
 	appPath = (char*)malloc(PATH_MAX * sizeof(char));
 	retVal = readlink("/proc/self/exe", appPath, PATH_MAX);
@@ -941,8 +991,11 @@ static std::string GetMidiSongTitle(MidiFile* cMidi)
 		{
 			std::string evtText(evtIt->evtData.begin(), evtIt->evtData.end());
 			std::string convText;
-			StrCharsetConv(hIConv, convText, evtText);
-			return convText;
+			char retVal = StrCharsetConv(hCurIConv, convText, evtText);
+			if (! (retVal & 0x80))
+				return convText;
+			// unable to convert - just return original text for now
+			return evtText;
 		}
 	}
 	

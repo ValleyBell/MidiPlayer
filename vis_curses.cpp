@@ -526,8 +526,10 @@ void str_locale_conv(std::string& text)
 {
 	if (hLocale != NULL)
 	{
-		std::string oldtxt(text);
-		StrCharsetConv(*hLocale, text, oldtxt);
+		std::string newtxt;
+		char retVal = StrCharsetConv(*hLocale, newtxt, text);
+		if (! (retVal & 0x80))
+			text = newtxt;
 	}
 	
 	return;

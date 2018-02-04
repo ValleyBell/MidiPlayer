@@ -95,9 +95,11 @@ public:
 	void ClearAll(void);
 	
 	UINT8 LoadFile(const char* fileName);
+	UINT8 LoadFile(FILE* infile);
 	//UINT8 LoadFile(UINT32 FileLen, UINT8* FileData);
 	
 	UINT8 SaveFile(const char* fileName);
+	UINT8 SaveFile(FILE* outfile);
 	//UINT8 SaveFile(UINT32* RetFileSize, UINT8** RetFileData);
 	
 	UINT16 GetMidiFormat(void) const;
