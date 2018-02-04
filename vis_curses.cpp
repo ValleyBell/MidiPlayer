@@ -41,7 +41,7 @@ static int TEXT_BASE_LINE = 0;
 static int curYline = 0;
 
 static MidiFile* midFile = NULL;
-static iconv_t* hLocale = NULL;
+static std::vector<iconv_t> hLocales;
 static UINT32 trackNo = 0;
 static UINT32 trackCnt = 0;
 static UINT32 trackNoDigits = 1;
@@ -147,9 +147,16 @@ void vis_printf(const char* format, ...)
 	return;
 }
 
-void vis_set_locale(void* localeObjPtr)
+void vis_set_locales(size_t numLocales, void* localeArrPtr)
 {
-	hLocale = (iconv_t*)localeObjPtr;
+	iconv_t* localeObjPtr = (iconv_t*)localeArrPtr;
+	size_t curLoc;
+	
+	hLocales.resize(numLocales);
+	for (curLoc = 0; curLoc < numLocales; curLoc ++)
+		hLocales[curLoc] = localeObjPtr[curLoc];
+	
+	return;
 }
 
 void vis_set_track_number(UINT32 trkNo)
@@ -524,12 +531,18 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 
 void str_locale_conv(std::string& text)
 {
-	if (hLocale != NULL)
+	std::string newtxt;
+	size_t curLoc;
+	char retVal;
+	
+	for (curLoc = 0; curLoc < hLocales.size(); curLoc ++)
 	{
-		std::string newtxt;
-		char retVal = StrCharsetConv(*hLocale, newtxt, text);
+		retVal = StrCharsetConv(hLocales[curLoc], newtxt, text);
 		if (! (retVal & 0x80))
+		{
 			text = newtxt;
+			return;
+		}
 	}
 	
 	return;

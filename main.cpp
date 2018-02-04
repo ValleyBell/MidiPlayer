@@ -112,13 +112,14 @@ static size_t curSong;
 
 extern std::vector<UINT8> optShowMeta;
 extern UINT8 optShowInsChange;
+static std::string defCodepages[2];
 
 static std::vector<std::string> appSearchPaths;
 static std::string cfgBasePath;
 static int metaDataSignalPID;
 static std::string metaDataFilePath;
 
-static iconv_t hCurIConv;
+static iconv_t hCurIConv[2];
 
 
 #ifdef USE_WMAIN
@@ -133,6 +134,7 @@ int main(int argc, char* argv[])
 	UINT8 retVal;
 	int resVal;
 	size_t curInsBnk;
+	UINT8 curCP;
 	
 	setlocale(LC_ALL, "");	// enable UTF-8 support on Linux
 	
@@ -176,6 +178,8 @@ int main(int argc, char* argv[])
 	syxFile = "";
 	optShowMeta.resize(9, 1);
 	optShowInsChange = 1;
+	defCodepages[0] = "";
+	defCodepages[1] = "";
 	metaDataSignalPID = 0;
 	
 	argbase = 1;
@@ -309,10 +313,18 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
-	//hCurIConv = iconv_open("UTF-8", "SHIFT_JIS");
-	hCurIConv = iconv_open("UTF-8", "CP932");	// Shift-JIS version used by Windows
+	if (defCodepages[0].empty())
+		defCodepages[0] = "CP1252";
+	for (curCP = 0; curCP < 2; curCP ++)
+	{
+		// Printing is always done in UTF-8.
+		if (defCodepages[curCP].empty())
+			hCurIConv[curCP] = NULL;
+		else
+			hCurIConv[curCP] = iconv_open("UTF-8", defCodepages[curCP].c_str());
+	}
 	vis_init();
-	vis_set_locale(&hCurIConv);
+	vis_set_locales(2, hCurIConv);
 	
 	resVal = 0;
 	controlVal = +1;	// default: next song
@@ -373,8 +385,11 @@ int main(int argc, char* argv[])
 	if (resVal)
 		vis_getch_wait();
 	vis_deinit();
-	if (hCurIConv != NULL)
-		iconv_close(hCurIConv);
+	for (curCP = 0; curCP < 2; curCP ++)
+	{
+		if (hCurIConv[curCP] != NULL)
+			iconv_close(hCurIConv[curCP]);
+	}
 	if (! metaDataFilePath.empty())
 		unlink(metaDataFilePath.c_str());
 	
@@ -556,6 +571,9 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	optShowMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
 	optShowMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
 	optShowMeta[0] = iniFile.GetBoolean("Display", "ShowMetaOther", true);
+	
+	defCodepages[0] = iniFile.Get("Display", "DefaultCodepage", "");
+	defCodepages[1] = iniFile.Get("Display", "FallbackCodepage", "");
 	
 	insSetFiles.clear();
 	insSetPath = iniFile.Get("InstrumentSets", "DataPath", INS_SET_PATH);
@@ -991,9 +1009,15 @@ static std::string GetMidiSongTitle(MidiFile* cMidi)
 		{
 			std::string evtText(evtIt->evtData.begin(), evtIt->evtData.end());
 			std::string convText;
-			char retVal = StrCharsetConv(hCurIConv, convText, evtText);
-			if (! (retVal & 0x80))
-				return convText;
+			char retVal;
+			UINT8 curCP;
+			
+			for (curCP = 0; curCP < 2; curCP ++)
+			{
+				retVal = StrCharsetConv(hCurIConv[curCP], convText, evtText);
+				if (! (retVal & 0x80))
+					return convText;
+			}
 			// unable to convert - just return original text for now
 			return evtText;
 		}
