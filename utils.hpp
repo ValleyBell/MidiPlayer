@@ -3,14 +3,11 @@
 
 #include <vector>
 #include <string>
+#include <iconv.h>	// for iconv_t
 
 #ifdef _WIN32
-typedef void* iconv_t;
-
 #undef GetFileTitle
 #undef GetFileExtension
-#else
-#include <iconv.h>	// for iconv_t
 #endif
 
 const char* GetFileTitle(const char* filePath);

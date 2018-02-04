@@ -3,12 +3,7 @@
 #include <string>
 #include <stdio.h>
 #include <vector>
-
-#ifdef _WIN32
-// TODO
-#else
 #include <iconv.h>
-#endif
 
 #include "utils.hpp"
 
@@ -131,16 +126,12 @@ std::string FindFile_Single(const std::string& fileName, const std::vector<std::
 
 char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inStr)
 {
-	if (inStr.empty())
+	if (inStr.empty() || hIConv == NULL)
 	{
 		outStr = inStr;
 		return 0x00;
 	}
 	
-#ifdef _WIN32
-	outStr = inStr;
-	return 0x01;
-#else
 	size_t remBytesIn;
 	size_t remBytesOut;
 	char* inPtr;
@@ -190,5 +181,4 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	wrtBytes = outPtr - &outStr[0];
 	outStr.resize(wrtBytes);
 	return 0x00;
-#endif
 }

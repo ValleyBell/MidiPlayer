@@ -39,13 +39,13 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>D:\VStudio-Programme\VC2010\libs\pdcurs34;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir);$(IncludePath)</IncludePath>
-    <LibraryPath>D:\VStudio-Programme\VC2010\libs\pdcurs34\win32;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(ProjectDir)\libs\pdcurses\include;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir)\libs\iconv\include;$(ProjectDir);$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)\libs\pdcurses\lib;$(ProjectDir)\libs\iconv\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>D:\VStudio-Programme\VC2010\libs\pdcurs34;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir);$(IncludePath)</IncludePath>
-    <LibraryPath>D:\VStudio-Programme\VC2010\libs\pdcurs34\win32;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(ProjectDir)\libs\pdcurses\include;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir)\libs\iconv\include;$(ProjectDir);$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)\libs\pdcurses\lib;$(ProjectDir)\libs\iconv\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -53,12 +53,12 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;PDC_WIDE;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>pdcurses.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib</AdditionalDependencies>
+      <AdditionalDependencies>pdcurses_VC2010d.lib;libiconv.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -69,14 +69,14 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;PDC_WIDE;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>pdcurses.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib</AdditionalDependencies>
+      <AdditionalDependencies>pdcurses_VC2010.lib;libiconv.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

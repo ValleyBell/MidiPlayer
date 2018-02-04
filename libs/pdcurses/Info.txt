@@ -1,0 +1,14 @@
+PDCurses 3.4
+http://pdcurses.sourceforge.net/
+
+Compiled using Visual Studio 2010, Static Library, Release Mode, Multithreaded-DLL runtime, with Unicode support
+CFLAGS		= /O2 /Oi /Oy- /MD /Gy
+
+nmake -f vcwin32.mak WIDE=Y
+
+Files:
+	include/curses.h
+	include/panel.h
+	include/term.h
+	lib/pdcurses_VC2010.lib
+	lib/pdcurses_VC2010d.lib

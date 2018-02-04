@@ -17,9 +17,9 @@
 #include <unistd.h>
 #define Sleep(x)	usleep(x * 1000)
 #include <limits.h>	// for PATH_MAX
-#include <iconv.h>
 #include <signal.h>	// for kill()
 #endif
+#include <iconv.h>
 
 #include <INIReader.h>
 
@@ -291,12 +291,8 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
-#ifdef _WIN32
-	hIConv = NULL;
-#else
 	//hIConv = iconv_open("UTF-8", "SHIFT_JIS");
 	hIConv = iconv_open("UTF-8", "CP932");	// Shift-JIS version used by Windows
-#endif
 	vis_init();
 	vis_set_locale(&hIConv);
 	
@@ -341,9 +337,8 @@ int main(int argc, char* argv[])
 	if (resVal)
 		vis_getch_wait();
 	vis_deinit();
-#ifndef _WIN32
-	iconv_close(hIConv);
-#endif
+	if (hIConv != NULL)
+		iconv_close(hIConv);
 	if (! metaDataFilePath.empty())
 		unlink(metaDataFilePath.c_str());
 	
