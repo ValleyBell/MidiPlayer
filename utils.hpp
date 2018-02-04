@@ -17,5 +17,7 @@ std::string CombinePaths(const std::string& basePath, const std::string& addPath
 std::string FindFile_List(const std::vector<std::string>& fileList, const std::vector<std::string>& pathList);
 std::string FindFile_Single(const std::string& fileName, const std::vector<std::string>& pathList);
 char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inStr);
+size_t utf8strlen(const char* str);
+char* utf8strseek(const char* str, size_t numChars);
 
 #endif	// __UTILS_HPP__

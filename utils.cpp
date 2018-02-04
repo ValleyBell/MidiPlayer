@@ -14,6 +14,13 @@ static const char* GetLastDirSeparator(const char* filePath);
 //void StandardizeDirSeparators(std::string& filePath);
 static bool IsAbsolutePath(const char* filePath);
 //std::string CombinePaths(const std::string& basePath, const std::string& addPath);
+//std::string FindFile_List(const std::vector<std::string>& fileList, const std::vector<std::string>& pathList);
+//std::string FindFile_Single(const std::string& fileName, const std::vector<std::string>& pathList);
+//char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inStr);
+static size_t utf8_chrsize(const char* utf8chr);
+static bool utf8_advance(const char** str);
+//size_t utf8strlen(const char* str);
+//char* utf8strseek(const char* str, size_t numChars);
 
 
 static const char* GetLastDirSeparator(const char* filePath)
@@ -162,7 +169,7 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 				fclose(hFile);
 			}
 #endif
-			resVal = 0x80;
+			resVal = (char)0x80;
 			if (errno == EINVAL && remBytesIn <= 1)
 			{
 				// assume that the string got truncated (happens in ICY.MID from MIDI Power Pro 3)
@@ -183,4 +190,72 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	wrtBytes = outPtr - &outStr[0];
 	outStr.resize(wrtBytes);
 	return resVal;
+}
+
+static size_t utf8_chrsize(const char* utf8chr)
+{
+	unsigned char ctrl = (unsigned char)utf8chr[0];
+	
+	if (ctrl < 0x80)
+		return 1;
+	else if (ctrl < 0xC2)
+		return 0;	// invalid
+	else if (ctrl < 0xE0)
+		return 2;
+	else if (ctrl < 0xF0)
+		return 3;
+	else if (ctrl < 0xF8)
+		return 4;
+	else if (ctrl < 0xFC)
+		return 5;
+	else if (ctrl < 0xFE)
+		return 6;
+	else
+		return 0;	// invalid
+}
+
+static bool utf8_advance(const char** str)
+{
+	size_t chrBytes = utf8_chrsize(*str);
+	// return true -> byte sequence was valid
+	if (chrBytes <= 1)
+	{
+		// we advance by 1 byte for an invalid character
+		(*str) ++;
+		return (chrBytes == 1);
+	}
+	else
+	{
+		// we stop on the first invalid character
+		while(chrBytes > 0 && (**str & 0x80))
+		{
+			(*str) ++;
+			chrBytes --;
+		}
+		return (chrBytes == 0);
+	}
+}
+
+size_t utf8strlen(const char* str)
+{
+	size_t chrCount;
+	
+	for (chrCount = 0; *str != '\0'; chrCount ++)
+		utf8_advance(&str);
+	
+	return chrCount;
+}
+
+char* utf8strseek(const char* str, size_t numChars)
+{
+	size_t curChr;
+	
+	for (curChr = 0; curChr < numChars; curChr ++)
+	{
+		if (*str == '\0')
+			break;
+		utf8_advance(&str);
+	}
+	
+	return (char*)str;
 }

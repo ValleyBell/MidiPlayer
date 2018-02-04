@@ -29,7 +29,7 @@ static std::string WinStr2UTF8(const std::string& str);
 
 UINT8 ParseSongFiles(const std::vector<std::string> args, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList)
 {
-	int curArg;
+	size_t curArg;
 	const char* fileName;
 	const char* fileExt;
 	UINT8 resVal;

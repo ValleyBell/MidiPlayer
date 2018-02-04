@@ -210,7 +210,7 @@ void vis_new_song(void)
 	unsigned int chnCnt;
 	unsigned int curChn;
 	int titlePosX;
-	int maxTitleLen;
+	size_t maxTitleLen;
 	char chnNameStr[0x10];
 	
 	nTrks = (midFile != NULL) ? midFile->GetTrackCount() : 0;
@@ -259,7 +259,7 @@ void vis_new_song(void)
 		
 		move(0, titlePosX);
 		maxTitleLen = COLS - titlePosX;
-		nameLen = strlen(midFName);
+		nameLen = utf8strlen(midFName);
 		if (nameLen <= maxTitleLen)
 		{
 			addstr(midFName);
@@ -270,7 +270,7 @@ void vis_new_song(void)
 			
 			maxTitleLen -= 3;	// for the 3 dots
 			startChr = nameLen - maxTitleLen;
-			printw("...%.*s", maxTitleLen, &midFName[startChr]);
+			printw("...%s", utf8strseek(midFName, startChr));
 		}
 	}
 	mvaddch(1, 33, 'Q');
