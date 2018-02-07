@@ -116,8 +116,10 @@ static std::string defCodepages[2];
 
 static std::vector<std::string> appSearchPaths;
 static std::string cfgBasePath;
-static int metaDataSignalPID;
-static std::string metaDataFilePath;
+static std::string strmSrv_metaFile;
+static std::string strmSrv_pidFile;
+static int strmSrv_PIDopt;
+static int strmSrv_curPID;
 
 static iconv_t hCurIConv[2];
 
@@ -135,6 +137,7 @@ int main(int argc, char* argv[])
 	int resVal;
 	size_t curInsBnk;
 	UINT8 curCP;
+	size_t initSongID;
 	
 	setlocale(LC_ALL, "");	// enable UTF-8 support on Linux
 	
@@ -155,6 +158,7 @@ int main(int argc, char* argv[])
 		printf("    -m n - enforce playback on module with ID n\n");
 		printf("    -x   - send .syx file to all ports before playing the MIDI\n");
 		printf("    -l n - play looping songs n times (default: 2) \n");
+		printf("    -S n - begin playing at the n-th file\n");
 #ifndef _WIN32
 		printf("    -I   - Ices2 PID (for Metadata refresh)\n");
 #endif
@@ -180,7 +184,8 @@ int main(int argc, char* argv[])
 	optShowInsChange = 1;
 	defCodepages[0] = "";
 	defCodepages[1] = "";
-	metaDataSignalPID = 0;
+	strmSrv_PIDopt = 0;
+	initSongID = 0;
 	
 	argbase = 1;
 	while(argbase < argc && argv[argbase][0] == '-')
@@ -233,7 +238,15 @@ int main(int argc, char* argv[])
 			if (argbase >= argc)
 				break;
 			
-			metaDataSignalPID = (int)strtol(argv[argbase], NULL, 0);
+			strmSrv_PIDopt = (int)strtol(argv[argbase], NULL, 0);
+		}
+		else if (optChr == 'S')
+		{
+			argbase ++;
+			if (argbase >= argc)
+				break;
+			
+			initSongID = (size_t)strtol(argv[argbase], NULL, 0) - 1;
 		}
 		else
 		{
@@ -328,7 +341,7 @@ int main(int argc, char* argv[])
 	
 	resVal = 0;
 	controlVal = +1;	// default: next song
-	for (curSong = 0; curSong < songList.size(); )
+	for (curSong = initSongID; curSong < songList.size(); )
 	{
 		FILE* hFile;
 		
@@ -390,8 +403,8 @@ int main(int argc, char* argv[])
 		if (hCurIConv[curCP] != NULL)
 			iconv_close(hCurIConv[curCP]);
 	}
-	if (! metaDataFilePath.empty())
-		unlink(metaDataFilePath.c_str());
+	if (! strmSrv_metaFile.empty())
+		unlink(strmSrv_metaFile.c_str());
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
 		FreeInstrumentBank(&insBanks[curInsBnk]);
@@ -565,7 +578,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	}
 	
 	keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", true);
-	metaDataFilePath = iniFile.Get("General", "IcesMetadataFile", "");
+	strmSrv_pidFile = iniFile.Get("StreamServer", "PIDFile", "");
+	strmSrv_metaFile = iniFile.Get("StreamServer", "MetadataFile", "");
 	
 	optShowInsChange = iniFile.GetBoolean("Display", "ShowInsChange", true);
 	optShowMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
@@ -801,11 +815,26 @@ void PlayMidi(void)
 	vis_set_type_str(1, GetModuleTypeName(scanRes.modType));
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
-	if (! metaDataFilePath.empty())
+	if (! strmSrv_metaFile.empty())
 	{
 		FILE* hFile;
 		
-		hFile = fopen(metaDataFilePath.c_str(), "wt");
+		if (strmSrv_PIDopt)
+		{
+			strmSrv_curPID = strmSrv_PIDopt;
+		}
+		else
+		{
+			strmSrv_curPID = 0;
+			hFile = fopen(strmSrv_pidFile.c_str(), "rt");
+			if (hFile != NULL)
+			{
+				fscanf(hFile, "%d", &strmSrv_curPID);
+				fclose(hFile);
+			}
+		}
+		
+		hFile = fopen(strmSrv_metaFile.c_str(), "wt");
 		if (hFile != NULL)
 		{
 			const char* fileTitle;
@@ -820,11 +849,11 @@ void PlayMidi(void)
 			fclose(hFile);
 			
 #ifndef _WIN32
-			if (metaDataSignalPID)
+			if (strmSrv_curPID)
 			{
-				int retValI = kill(metaDataSignalPID, SIGUSR1);
+				int retValI = kill(strmSrv_curPID, SIGUSR1);
 				if (retValI)
-					vis_addstr("Unable to send signal to Ices2!!\n");
+					vis_printf("Unable to send signal to stream server!! (PID %d)\n", strmSrv_curPID);
 			}
 #endif
 		}

@@ -77,5 +77,5 @@ set(LIBRARIES ${LIBRARIES} ${CURSES_LIBRARIES})
 
 add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR} ${INCLUDES})
-target_link_libraries(${PROJECT_NAME} PUBLIC ${LIBRARIES})
+target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBRARIES})
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "bin")

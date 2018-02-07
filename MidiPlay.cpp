@@ -610,10 +610,14 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->rpnCtrl[0] = 0x00 | midiEvt->evtValB;
 		break;
 	case 0x6F:	// RPG Maker loop controller
-		if ((midiEvt->evtValB == 0 || midiEvt->evtValB == 111) && ! _loopPt.used)
+		if ((midiEvt->evtValB == 0 || midiEvt->evtValB == 111 || midiEvt->evtValB == 127) && ! _loopPt.used)
 		{
 			vis_addstr("Loop Point found.");
 			SaveLoopState(_loopPt, trkSt);
+		}
+		else
+		{
+			vis_printf("Ctrl 111, value %u.", midiEvt->evtValB);
 		}
 		break;
 	case 0x79:	// Reset All Controllers

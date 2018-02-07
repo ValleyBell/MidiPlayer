@@ -3,8 +3,11 @@
 #include <vector>
 #include <fstream>
 #include <istream>
+#ifdef _WIN32
 #include <Windows.h>
+#else
 #include <iconv.h>
+#endif
 
 #include <stdtype.h>
 #include "utils.hpp"
@@ -150,9 +153,11 @@ static std::string WinStr2UTF8(const std::string& str)
 	std::wstring wtemp;
 	std::string out;
 	
+	// char -> wchar_t using local ANSI codepage
 	wtemp.resize(MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0) - 1);
 	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wtemp[0], wtemp.size() + 1);
 	
+	// convert wchar_t to char UTF-8
 	out.resize(WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, NULL, 0, NULL, NULL) - 1);
 	WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, &out[0], out.size() + 1, NULL, NULL);
 	
