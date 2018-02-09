@@ -956,7 +956,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	}
 	
 	// resend Bank MSB/LSB
-	if (oldMSB != chnSt->insBank[0] || oldLSB != chnSt->insBank[1] && (~bankIgnore & 0x03))
+	if (oldMSB != chnSt->insBank[0] || oldLSB != chnSt->insBank[1] /*&& (~bankIgnore & 0x03)*/)
 	{
 		UINT8 evtType = 0xB0 | (midiEvt->evtType & 0x0F);
 		if (oldMSB != chnSt->insBank[0])

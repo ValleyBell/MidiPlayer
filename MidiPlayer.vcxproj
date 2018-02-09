@@ -87,6 +87,7 @@
     <ClCompile Include="MidiBankScan.cpp" />
     <ClCompile Include="MidiInsReader.c" />
     <ClCompile Include="MidiLib.cpp" />
+    <ClCompile Include="MidiModules.cpp" />
     <ClCompile Include="MidiOut_WinMM.c" />
     <ClCompile Include="MidiPlay.cpp" />
     <ClCompile Include="OSTimer_Win.c" />
@@ -100,6 +101,7 @@
     <ClInclude Include="MidiBankScan.hpp" />
     <ClInclude Include="MidiInsReader.h" />
     <ClInclude Include="MidiLib.hpp" />
+    <ClInclude Include="MidiModules.hpp" />
     <ClInclude Include="MidiOut.h" />
     <ClInclude Include="MidiPlay.hpp" />
     <ClInclude Include="OSTimer.h" />

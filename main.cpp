@@ -27,6 +27,7 @@
 
 #include <stdtype.h>
 #include "MidiLib.hpp"
+#include "MidiModules.hpp"
 #include "MidiOut.h"
 #include "MidiPlay.hpp"
 #include "MidiInsReader.h"
@@ -41,46 +42,13 @@ struct InstrumentSetCfg
 	UINT8 setType;
 	std::string pathName;
 };
-struct MidiModule
-{
-	std::string name;
-	UINT8 modType;	// module type
-	std::vector<UINT8> ports;
-	std::vector<UINT8> playType;	// supported types for playing
-};
-
-
-static const char* MODNAMES_GM[] =
-{
-	"GM",
-	"GM Level 2"
-};
-static const char* MODNAMES_GS[] =
-{
-	"SC-55",
-	"SC-88",
-	"SC-88Pro",
-	"SC-8850",
-};
-static const char* MODNAMES_XG[] =
-{
-	"MU50",
-	"MU80",
-	"MU90",
-	"MU100",
-	"MU128",
-	"MU1000/MU2000",
-};
 
 
 //int main(int argc, char* argv[]);
 static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
-static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
-static void ReadPlayTypeList(const std::vector<std::string>& ptList, const std::map<std::string, UINT8>& nameLUT, std::vector<UINT8>& playTypes);
 static UINT8 LoadConfig(const std::string& cfgFile);
-static size_t GetOptimalModule(const BANKSCAN_RESULT* scanRes);
 static const char* GetModuleTypeName(UINT8 modType);
 void PlayMidi(void);
 static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_t dataLen, const UINT8* data);
@@ -100,7 +68,7 @@ static UINT8 playerCfgFlags;	// see PlayerOpts::flags
 static UINT8 forceSrcType;
 static UINT8 forceModID;
 static std::vector<InstrumentSetCfg> insSetFiles;
-static std::vector<MidiModule> midiModules;
+static MidiModuleCollection midiModColl;
 static std::vector<INS_BANK> insBanks;
 static std::string syxFile;
 static std::vector<UINT8> syxData;
@@ -475,76 +443,9 @@ static void CfgString2Vector(const std::string& valueStr, std::vector<std::strin
 	return;
 }
 
-static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue)
-{
-	std::map<std::string, UINT8>::const_iterator nameIt;
-	char* endStr;
-	
-	nameIt = nameLUT.find(valStr);
-	if (nameIt != nameLUT.end())
-	{
-		retValue = nameIt->second;
-		return 1;
-	}
-	
-	retValue = (UINT8)strtoul(valStr.c_str(), &endStr, 0);
-	if (endStr == valStr.c_str())
-		return 0;	// not read
-	else if (endStr == valStr.c_str() + valStr.length())
-		return 1;	// fully read
-	else
-		return 2;	// partly read
-}
-
-static void ReadPlayTypeList(const std::vector<std::string>& ptList, const std::map<std::string, UINT8>& nameLUT, std::vector<UINT8>& playTypes)
-{
-	std::vector<std::string>::const_iterator typeIt;
-	char* endStr;
-	
-	playTypes.clear();
-	for (typeIt = ptList.begin(); typeIt != ptList.end(); ++typeIt)
-	{
-		UINT8 pType;
-		UINT8 retVal;
-		UINT8 curMod;
-		
-		retVal = GetIDFromNameOrNumber(*typeIt, nameLUT, pType);
-		if (retVal == 0)
-		{
-			if (*typeIt == "SC-xx")
-			{
-				for (curMod = 0x00; curMod < MT_UNKNOWN; curMod ++)
-					playTypes.push_back(MODULE_TYPE_GS | curMod);
-			}
-			else if (*typeIt == "MUxx")
-			{
-				for (curMod = 0x00; curMod < MT_UNKNOWN; curMod ++)
-					playTypes.push_back(MODULE_TYPE_XG | curMod);
-			}
-		}
-		else if (retVal == 1)
-		{
-			playTypes.push_back(pType);
-		}
-		else
-		{
-			pType = (UINT8)strtoul(typeIt->c_str(), &endStr, 0);
-			if (*endStr == '#')
-			{
-				pType <<= 4;
-				for (curMod = 0x00; curMod < MT_UNKNOWN; curMod ++)
-					playTypes.push_back(pType | curMod);
-			}
-		}
-	}
-	
-	return;
-}
-
 static UINT8 LoadConfig(const std::string& cfgFile)
 {
 	std::map<std::string, UINT8> INSSET_NAME_MAP;
-	std::map<std::string, UINT8> MODTYPE_NAME_MAP;
 	std::string insSetPath;
 	std::map<std::string, UINT8>::const_iterator nmIt;
 	std::vector<std::string> modList;
@@ -555,20 +456,6 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	INSSET_NAME_MAP["GS"] = MODULE_TYPE_GS;
 	INSSET_NAME_MAP["XG"] = MODULE_TYPE_XG;
 	INSSET_NAME_MAP["MT-32"] = MODULE_MT32;
-	MODTYPE_NAME_MAP["GM"] = MODULE_GM_1;
-	MODTYPE_NAME_MAP["GM_L2"] = MODULE_GM_2;
-	MODTYPE_NAME_MAP["SC-55"] = MODULE_SC55;
-	MODTYPE_NAME_MAP["SC-88"] = MODULE_SC88;
-	MODTYPE_NAME_MAP["SC-88Pro"] = MODULE_SC88PRO;
-	MODTYPE_NAME_MAP["SC-8850"] = MODULE_SC8850;
-	MODTYPE_NAME_MAP["TG300B"] = MODULE_TG300B;
-	MODTYPE_NAME_MAP["MU50"] = MODULE_MU50;
-	MODTYPE_NAME_MAP["MU80"] = MODULE_MU80;
-	MODTYPE_NAME_MAP["MU90"] = MODULE_MU90;
-	MODTYPE_NAME_MAP["MU100"] = MODULE_MU100;
-	MODTYPE_NAME_MAP["MU128"] = MODULE_MU128;
-	MODTYPE_NAME_MAP["MU1000"] = MODULE_MU1000;
-	MODTYPE_NAME_MAP["MT-32"] = MODULE_MT32;
 	
 	INIReader iniFile(cfgFile);
 	if (iniFile.ParseError())
@@ -604,34 +491,22 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		}
 	}
 	
-	midiModules.clear();
+	midiModColl.ClearModules();
 	CfgString2Vector(iniFile.Get("General", "Modules", ""), modList);
 	for (mlIt = modList.begin(); mlIt != modList.end(); ++mlIt)
 	{
-		MidiModule mMod;
+		UINT8 modType;
 		std::vector<std::string> list;
-		size_t curItem;
 		
-		mMod.name = *mlIt;
-		
-		if (! GetIDFromNameOrNumber(iniFile.Get(mMod.name, "ModType", ""), MODTYPE_NAME_MAP, mMod.modType))
+		if (! GetIDFromNameOrNumber(iniFile.Get(*mlIt, "ModType", ""), midiModColl.GetShortModNameLUT(), modType))
 			continue;
 		
+		MidiModule& mMod = midiModColl.AddModule(*mlIt, modType);
+		
 		CfgString2Vector(iniFile.Get(mMod.name, "Ports", ""), list);
-		for (curItem = 0; curItem < list.size(); curItem ++)
-		{
-			UINT8 port;
-			char* endStr;
-			
-			port = (UINT8)strtoul(list[curItem].c_str(), &endStr, 0);
-			if (endStr != list[curItem].c_str())
-				mMod.ports.push_back(port);
-		}
-		
+		mMod.SetPortList(list);
 		CfgString2Vector(iniFile.Get(mMod.name, "PlayTypes", ""), list);
-		ReadPlayTypeList(list, MODTYPE_NAME_MAP, mMod.playType);
-		
-		midiModules.push_back(mMod);
+		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
 	}
 	
 	keepPortsOpen = true;
@@ -639,62 +514,10 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	return 0x00;
 }
 
-// returns module type for optimal playback
-static size_t GetOptimalModule(const BANKSCAN_RESULT* scanRes)
-{
-	size_t curMod;
-	size_t curPT;
-	
-	// try for an exact match first
-	for (curMod = 0; curMod < midiModules.size(); curMod ++)
-	{
-		const MidiModule& mMod = midiModules[curMod];
-		
-		for (curPT = 0; curPT < mMod.playType.size(); curPT ++)
-		{
-			if (mMod.playType[curPT] == scanRes->modType)
-				return curMod;
-		}
-	}
-	// then search for approximate matches (GS on "any GS device", GM on GS/XG, etc.)
-	for (curMod = 0; curMod < midiModules.size(); curMod ++)
-	{
-		const MidiModule& mMod = midiModules[curMod];
-		
-		for (curPT = 0; curPT < mMod.playType.size(); curPT ++)
-		{
-			if (MMASK_TYPE(mMod.playType[curPT]) == MMASK_TYPE(scanRes->modType))
-				return curMod;
-			if (MMASK_TYPE(scanRes->modType) == MODULE_TYPE_GM)
-			{
-				if (MMASK_TYPE(mMod.playType[curPT]) == MODULE_TYPE_GS ||
-					MMASK_TYPE(mMod.playType[curPT]) == MODULE_TYPE_XG)
-					return curMod;
-			}
-		}
-	}
-	
-	return (size_t)-1;
-}
-
 static const char* GetModuleTypeName(UINT8 modType)
 {
-	if (modType == MODULE_MT32)
-		return "MT-32";
-	else if (modType == MODULE_TG300B)
-		return "TG300B";
-	else if (modType == (MODULE_TYPE_GS | MT_UNKNOWN))
-		return "GS/unknown";
-	else if (modType == (MODULE_TYPE_XG | MT_UNKNOWN))
-		return "XG/unknown";
-	else if (MMASK_TYPE(modType) == MODULE_TYPE_GM)
-		return MODNAMES_GM[MMASK_MOD(modType)];
-	else if (MMASK_TYPE(modType) == MODULE_TYPE_GS)
-		return MODNAMES_GS[MMASK_MOD(modType)];
-	else if (MMASK_TYPE(modType) == MODULE_TYPE_XG)
-		return MODNAMES_XG[MMASK_MOD(modType)];
-	else
-		return "unknown";
+	const std::string& modName = midiModColl.GetLongModName(modType);
+	return modName.empty() ? "unknown" : modName.c_str();
 }
 
 void PlayMidi(void)
@@ -715,7 +538,8 @@ void PlayMidi(void)
 	{
 		vis_printf("MIDI Scan Result: %s\n", GetModuleTypeName(scanRes.modType));
 		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_GS && scanRes.GS_Min < scanRes.GS_Opt)
-			vis_printf("    - GS backwards compatible with %s\n", MODNAMES_GS[MMASK_MOD(scanRes.GS_Min)]);
+			vis_printf("    - GS backwards compatible with %s\n",
+						GetModuleTypeName(MODULE_TYPE_GS | MMASK_MOD(scanRes.GS_Min)));
 		if (MMASK_TYPE(scanRes.modType) != MODULE_TYPE_XG && (scanRes.XG_Flags & 0x01))
 			vis_printf("    - used XG drums\n");
 		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_XG && (scanRes.XG_Flags & 0x80))
@@ -728,16 +552,16 @@ void PlayMidi(void)
 	}
 	
 	if (forceModID == 0xFF)
-		chosenModule = GetOptimalModule(&scanRes);
+		chosenModule = midiModColl.GetOptimalModuleID(scanRes.modType);
 	else
 		chosenModule = forceModID;
-	if (chosenModule == (size_t)-1 || chosenModule >= midiModules.size())
+	if (chosenModule == (size_t)-1 || chosenModule >= midiModColl.GetModuleCount())
 	{
 		vis_printf("Unable to find an appropriate MIDI module!\n");
 		vis_getch_wait();
 		return;
 	}
-	mMod = &midiModules[chosenModule];
+	mMod = &midiModColl.GetModule(chosenModule);
 	vis_printf("Using module %s.\n", mMod->name.c_str());
 	vis_update();
 	

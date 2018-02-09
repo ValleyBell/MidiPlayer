@@ -89,7 +89,7 @@ static bool ReadM3UPlaylist(const char* fileName, std::vector<SongFileList>& son
 #ifdef WIN32
 	std::wstring fileNameW;
 	fileNameW.resize(MultiByteToWideChar(CP_UTF8, 0, fileName, -1, NULL, 0) - 1);
-	MultiByteToWideChar(CP_UTF8, 0, fileName, -1, &fileNameW[0], fileNameW.size() + 1);
+	MultiByteToWideChar(CP_UTF8, 0, fileName, -1, &fileNameW[0], fileNameW.size());
 	hFile.open(fileNameW);
 #else
 	hFile.open(fileName);
@@ -155,11 +155,11 @@ static std::string WinStr2UTF8(const std::string& str)
 	
 	// char -> wchar_t using local ANSI codepage
 	wtemp.resize(MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0) - 1);
-	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wtemp[0], wtemp.size() + 1);
+	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wtemp[0], wtemp.size());
 	
 	// convert wchar_t to char UTF-8
 	out.resize(WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, NULL, 0, NULL, NULL) - 1);
-	WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, &out[0], out.size() + 1, NULL, NULL);
+	WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, &out[0], out.size(), NULL, NULL);
 	
 	return out;
 #else

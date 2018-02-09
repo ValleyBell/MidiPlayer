@@ -17,6 +17,7 @@ set(HEADERS
 		MidiPlay.hpp
 		MidiBankScan.hpp
 		MidiInsReader.h
+		MidiModules.hpp
 		utils.hpp
 		m3uargparse.hpp
 		OSTimer.h
@@ -30,6 +31,7 @@ set(SOURCES
 		MidiPlay.cpp
 		MidiBankScan.cpp
 		MidiInsReader.c
+		MidiModules.cpp
 		utils.cpp
 		m3uargparse.cpp
 		)
