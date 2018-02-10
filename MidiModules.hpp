@@ -23,8 +23,9 @@ struct MidiModule
 
 struct MidiOutPortList
 {
-	UINT8 state;
+	UINT8 state;	// 0 - closed, 1 - open, 2 - virtually closed (kept open)
 	std::vector<MIDIOUT_PORT*> mOuts;
+	MidiOutPortList();
 };
 
 class MidiModuleCollection
@@ -44,14 +45,15 @@ public:
 	MidiModule& AddModule(const std::string& name, UINT8 modType);
 	size_t GetOptimalModuleID(UINT8 playType) const;	// returns module for optimal playback
 	
-	UINT8 OpenModulePorts(size_t moduleID, size_t requiredPorts, MidiOutPortList** retMOuts);
-	UINT8 ClosePorts(const std::vector<MIDIOUT_PORT*>& mOuts);
+	UINT8 OpenModulePorts(size_t moduleID, size_t requiredPorts, MidiOutPortList** retPortList);
+	UINT8 ClosePorts(MidiOutPortList* portList, bool force = false);
 private:
 	std::vector<MidiModule> _modules;
 	std::vector<MidiOutPortList> _openPorts;	// open MIDI output ports (one list per module)
-	std::vector<size_t> _portOpenCount;
 	
 	std::map<std::string, UINT8> _MODTYPE_NAMES;	// module type name look-up table
+public:
+	bool _keepPortsOpen;
 };
 
 #endif	// __MIDIMODULES_HPP__

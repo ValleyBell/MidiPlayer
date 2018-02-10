@@ -142,13 +142,26 @@ void MidiModule::SetPlayTypes(const std::vector<std::string>& playTypeStrs, cons
 	return;
 }
 
-MidiModuleCollection::MidiModuleCollection()
+
+MidiOutPortList::MidiOutPortList() :
+	state(0x00)
+{
+}
+
+
+MidiModuleCollection::MidiModuleCollection() :
+	_keepPortsOpen(false)
 {
 	return;
 }
 
 MidiModuleCollection::~MidiModuleCollection()
 {
+	size_t curMod;
+	
+	for (curMod = 0; curMod < _openPorts.size(); curMod ++)
+		ClosePorts(&_openPorts[curMod], true);
+	
 	return;
 }
 
@@ -237,12 +250,89 @@ size_t MidiModuleCollection::GetOptimalModuleID(UINT8 playType) const
 	return (size_t)-1;
 }
 
-UINT8 MidiModuleCollection::OpenModulePorts(size_t moduleID, size_t requiredPorts, MidiOutPortList** retMOuts)
+UINT8 MidiModuleCollection::OpenModulePorts(size_t moduleID, size_t requiredPorts, MidiOutPortList** retPortList)
 {
-	return 0xFF;
+	if (moduleID >= _modules.size())
+		return 0xFF;	// invalid module ID
+	
+	size_t curPort;
+	UINT8 resVal;
+	
+	if (_openPorts.size() <= moduleID)
+		_openPorts.resize(moduleID + 1);
+	MidiModule& mMod = _modules[moduleID];
+	MidiOutPortList& portList = _openPorts[moduleID];
+	
+	if (portList.state == 1)
+		return 0xC0;	// module already opened
+	if (portList.state == 2)
+	{
+		// module is closed, but ports were kept open
+		portList.state = 0;
+		*retPortList = &portList;
+		return 0x00;
+	}
+	
+	resVal = 0x00;
+	if (requiredPorts > mMod.ports.size())
+	{
+		//vis_printf("Warning: The module doesn't have enough ports defined for proper playback!\n");
+		requiredPorts = mMod.ports.size();
+		resVal = 0x10;	// not enough ports available
+	}
+	for (curPort = 0; curPort < requiredPorts; curPort ++)
+	{
+		MIDIOUT_PORT* newPort;
+		UINT8 retVal;
+		
+		newPort = MidiOutPort_Init();
+		if (newPort == NULL)
+			continue;
+		//printf("Opening MIDI port %u ...", mMod.ports[curPort]);
+		retVal = MidiOutPort_OpenDevice(newPort, mMod.ports[curPort]);
+		if (retVal)
+		{
+			MidiOutPort_Deinit(newPort);
+			//printf("  Error %02X\n", retVal);
+			resVal |= 0x01;	// one or more ports failed to open
+			continue;
+		}
+		//printf("  OK, type: %s\n", GetModuleTypeName(mMod.modType));
+		portList.mOuts.push_back(newPort);
+	}
+	if (! portList.mOuts.empty())
+		portList.state = 1;
+	
+	*retPortList = &portList;
+	return resVal;
 }
 
-UINT8 MidiModuleCollection::ClosePorts(const std::vector<MIDIOUT_PORT*>& mOuts)
+UINT8 MidiModuleCollection::ClosePorts(MidiOutPortList* portList, bool force)
 {
-	return 0xFF;
+	size_t curPort;
+	UINT8 resVal;
+	
+	// the "force" parameter enforces closing regardless of state or _keepPortsOpen option
+	if (! force)
+	{
+		if (portList->state != 1)
+			return 0xC1;	// already closed
+		
+		if (_keepPortsOpen)
+		{
+			portList->state = 2;
+			return 0x00;
+		}
+	}
+	
+	for (curPort = 0; curPort < portList->mOuts.size(); curPort ++)
+	{
+		resVal = MidiOutPort_CloseDevice(portList->mOuts[curPort]);
+		MidiOutPort_Deinit(portList->mOuts[curPort]);
+		portList->mOuts[curPort] = NULL;
+	}
+	portList->mOuts.clear();
+	portList->state = 0;
+	
+	return 0x00;
 }
