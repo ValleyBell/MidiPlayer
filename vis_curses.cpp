@@ -231,9 +231,9 @@ void vis_new_song(void)
 		vis_mvprintms(1, 10, midPlay->GetSongLength());
 	
 	if (midDevType != NULL)
-		mvprintw(0, 16, "Dev: %s", midDevType);
+		mvprintw(0, 16, "Dev: %.10s", midDevType);
 	if (midFType != NULL)
-		mvprintw(1, 20, "(%s)", midFType);
+		mvprintw(1, 20, "(%.9s)", midFType);
 	
 	curYline = CHN_BASE_LINE;
 	for (curChn = 0; curChn < chnCnt; curChn ++, curYline ++)

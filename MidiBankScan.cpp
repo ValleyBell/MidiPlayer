@@ -31,8 +31,7 @@ static const char* MODNAMES_GS[] =
 	"SC-55", 
 	"SC-88",
 	"SC-88Pro",
-	"SC-8850",
-	//"SC-8820",
+	"SC-8820/SC-8850",
 };
 static const char* MODNAMES_XG[] =
 {	"GM",
@@ -400,9 +399,13 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		
 		if (modChk.GS_OptLSB == 0x01)
 			modChk.GS_DefLSB = 1;	// the SC-55 map is only explicitly used on the SC-88
+		else if (modChk.GS_OptLSB >= 0x04)
+			modChk.GS_DefLSB = 0;	// disable "prefer next higher model" for SC-8850
 		// If there is a "default map" instrument set used, assume that the MIDI
 		// was made with the "next higher" module in mind.
 		minGS = (modChk.GS_OptLSB - 0x01) + modChk.GS_DefLSB;
+		if (minGS > MTGS_SC8850)
+			minGS = MTGS_SC8850;
 		if (minGS > modChk.GS_Opt)
 			modChk.GS_Opt = minGS;
 	}

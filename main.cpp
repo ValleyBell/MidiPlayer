@@ -49,7 +49,9 @@ static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
 static UINT8 LoadConfig(const std::string& cfgFile);
-static const char* GetModuleTypeName(UINT8 modType);
+static const char* GetStr1or2(const std::string& str1, const std::string& str2);
+static const char* GetModuleTypeNameS(UINT8 modType);
+static const char* GetModuleTypeNameL(UINT8 modType);
 void PlayMidi(void);
 static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_t dataLen, const UINT8* data);
 static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT8>& syxData);
@@ -511,10 +513,19 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	return 0x00;
 }
 
-static const char* GetModuleTypeName(UINT8 modType)
+static const char* GetStr1or2(const std::string& str1, const std::string& str2)
 {
-	const std::string& modName = midiModColl.GetLongModName(modType);
-	return modName.empty() ? "unknown" : modName.c_str();
+	return (! str1.empty()) ? str1.c_str() : str2.c_str();
+}
+
+static const char* GetModuleTypeNameS(UINT8 modType)
+{
+	return GetStr1or2(midiModColl.GetShortModName(modType), "unknown");
+}
+
+static const char* GetModuleTypeNameL(UINT8 modType)
+{
+	return GetStr1or2(midiModColl.GetLongModName(modType), "unknown");
 }
 
 void PlayMidi(void)
@@ -532,10 +543,10 @@ void PlayMidi(void)
 		scanRes.modType = forceSrcType;
 	
 	{
-		vis_printf("MIDI Scan Result: %s\n", GetModuleTypeName(scanRes.modType));
+		vis_printf("MIDI Scan Result: %s\n", GetModuleTypeNameL(scanRes.modType));
 		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_GS && scanRes.GS_Min < scanRes.GS_Opt)
 			vis_printf("    - GS backwards compatible with %s\n",
-						GetModuleTypeName(MODULE_TYPE_GS | MMASK_MOD(scanRes.GS_Min)));
+						GetModuleTypeNameL(MODULE_TYPE_GS | MMASK_MOD(scanRes.GS_Min)));
 		if (MMASK_TYPE(scanRes.modType) != MODULE_TYPE_XG && (scanRes.XG_Flags & 0x01))
 			vis_printf("    - used XG drums\n");
 		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_XG && (scanRes.XG_Flags & 0x80))
@@ -543,7 +554,7 @@ void PlayMidi(void)
 		if (scanRes.modType == 0xFF)
 		{
 			scanRes.modType = MODULE_GM_1;
-			vis_printf("Falling back to %s mode ...\n", GetModuleTypeName(scanRes.modType));
+			vis_printf("Falling back to %s mode ...\n", GetModuleTypeNameL(scanRes.modType));
 		}
 	}
 	
@@ -606,7 +617,7 @@ void PlayMidi(void)
 	
 	midPlay.SetOutputPorts(mopList->mOuts);
 	midPlay.SetMidiFile(&CMidi);
-	//vis_set_type_str(0, GetModuleTypeName(mMod->modType));
+	//vis_set_type_str(0, GetModuleTypeNameS(mMod->modType));
 	vis_set_type_str(0, mMod->name.c_str());
 	if (songList.size() > 1)
 	{
@@ -615,7 +626,7 @@ void PlayMidi(void)
 	}
 	vis_set_midi_file(midFileName.c_str(), &CMidi);
 	vis_set_midi_player(&midPlay);
-	vis_set_type_str(1, GetModuleTypeName(scanRes.modType));
+	vis_set_type_str(1, GetModuleTypeNameS(scanRes.modType));
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
 	if (! strmSrv_metaFile.empty())

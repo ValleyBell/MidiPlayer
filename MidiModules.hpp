@@ -4,6 +4,7 @@
 #include <stdtype.h>
 #include <string>
 #include <vector>
+#include <set>
 #include <map>
 
 #include "MidiOut.h"
@@ -21,15 +22,30 @@ struct MidiModule
 	void SetPlayTypes(const std::vector<std::string>& playTypeStrs, const std::map<std::string, UINT8>& playTypeLUT);
 };
 
+// I still have no proper concept of how to handle the connection between MIDI modules and ports.
+// The current structure feels hackish and doesn't allow using multiple instances of the same module or port.
 struct MidiOutPortList
 {
-	UINT8 state;	// 0 - closed, 1 - open, 2 - virtually closed (kept open)
+	UINT8 state;	// 0 - closed, 1 - open
 	std::vector<MIDIOUT_PORT*> mOuts;
 	MidiOutPortList();
 };
 
 class MidiModuleCollection
 {
+private:
+	class PortState
+	{
+	public:
+		size_t _portID;
+		MIDIOUT_PORT* _hMOP;
+		std::set<size_t> _moduleIDs;	// list of modules that are using this port
+		
+		PortState();
+		~PortState();
+		UINT8 OpenPort(UINT32 portID);
+		UINT8 ClosePort(void);
+	};
 public:
 	MidiModuleCollection();
 	~MidiModuleCollection();
@@ -50,6 +66,7 @@ public:
 private:
 	std::vector<MidiModule> _modules;
 	std::vector<MidiOutPortList> _openPorts;	// open MIDI output ports (one list per module)
+	std::vector<PortState> _ports;
 	
 	std::map<std::string, UINT8> _MODTYPE_NAMES;	// module type name look-up table
 public:

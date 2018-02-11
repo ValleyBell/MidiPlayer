@@ -148,6 +148,50 @@ MidiOutPortList::MidiOutPortList() :
 {
 }
 
+MidiModuleCollection::PortState::PortState() :
+	_portID((size_t)-1),
+	_hMOP(NULL)
+{
+}
+
+MidiModuleCollection::PortState::~PortState()
+{
+	if (_hMOP != NULL)
+		ClosePort();
+}
+
+UINT8 MidiModuleCollection::PortState::OpenPort(UINT32 portID)
+{
+	if (_hMOP != NULL)
+		return 0x00;	// already open
+	
+	UINT8 retVal;
+	
+	_hMOP = MidiOutPort_Init();
+	if (_hMOP == NULL)
+		return 0xFF;
+	_portID = portID;
+	
+	retVal = MidiOutPort_OpenDevice(_hMOP, _portID);
+	if (retVal)
+	{
+		MidiOutPort_Deinit(_hMOP);	_hMOP = NULL;
+		return retVal;
+	}
+	return 0x00;
+}
+
+UINT8 MidiModuleCollection::PortState::ClosePort(void)
+{
+	UINT8 retVal;
+	
+	retVal = MidiOutPort_CloseDevice(_hMOP);
+	MidiOutPort_Deinit(_hMOP);	_hMOP = NULL;
+	_moduleIDs.clear();
+	
+	return retVal;
+}
+
 
 MidiModuleCollection::MidiModuleCollection() :
 	_keepPortsOpen(false)
@@ -157,10 +201,7 @@ MidiModuleCollection::MidiModuleCollection() :
 
 MidiModuleCollection::~MidiModuleCollection()
 {
-	size_t curMod;
-	
-	for (curMod = 0; curMod < _openPorts.size(); curMod ++)
-		ClosePorts(&_openPorts[curMod], true);
+	_ports.clear();
 	
 	return;
 }
@@ -265,13 +306,6 @@ UINT8 MidiModuleCollection::OpenModulePorts(size_t moduleID, size_t requiredPort
 	
 	if (portList.state == 1)
 		return 0xC0;	// module already opened
-	if (portList.state == 2)
-	{
-		// module is closed, but ports were kept open
-		portList.state = 0;
-		*retPortList = &portList;
-		return 0x00;
-	}
 	
 	resVal = 0x00;
 	if (requiredPorts > mMod.ports.size())
@@ -280,28 +314,50 @@ UINT8 MidiModuleCollection::OpenModulePorts(size_t moduleID, size_t requiredPort
 		requiredPorts = mMod.ports.size();
 		resVal = 0x10;	// not enough ports available
 	}
-	for (curPort = 0; curPort < requiredPorts; curPort ++)
+	for (curPort = 0; curPort < mMod.ports.size() && portList.mOuts.size() < requiredPorts; curPort ++)
 	{
-		MIDIOUT_PORT* newPort;
 		UINT8 retVal;
+		UINT8 portID;
 		
-		newPort = MidiOutPort_Init();
-		if (newPort == NULL)
-			continue;
-		//printf("Opening MIDI port %u ...", mMod.ports[curPort]);
-		retVal = MidiOutPort_OpenDevice(newPort, mMod.ports[curPort]);
-		if (retVal)
+		portID = mMod.ports[curPort];
+		if (portID >= _ports.size())
+			_ports.resize(portID + 1);
+		PortState& pState = _ports[portID];
+		
+		if (pState._hMOP != NULL)	// port already open?
 		{
-			MidiOutPort_Deinit(newPort);
-			//printf("  Error %02X\n", retVal);
-			resVal |= 0x01;	// one or more ports failed to open
-			continue;
+			if (pState._moduleIDs.find(moduleID) != pState._moduleIDs.end())
+			{
+				// can't open a port more than once per module
+				// so just try the next one
+				continue;
+			}
+			else
+			{
+				// reuse port opened by other module
+				pState._moduleIDs.insert(moduleID);
+				portList.mOuts.push_back(pState._hMOP);
+				continue;
+			}
 		}
-		//printf("  OK, type: %s\n", GetModuleTypeName(mMod.modType));
-		portList.mOuts.push_back(newPort);
+		else
+		{
+			//printf("Opening MIDI port %u ...", portID);
+			retVal = pState.OpenPort(portID);
+			if (retVal)
+			{
+				//printf("  Error %02X\n", retVal);
+				continue;
+			}
+			//printf("  OK, type: %s\n", GetModuleTypeName(mMod.modType));
+			pState._moduleIDs.insert(moduleID);
+			portList.mOuts.push_back(pState._hMOP);
+		}
 	}
 	if (! portList.mOuts.empty())
 		portList.state = 1;
+	else if (portList.mOuts.size() < requiredPorts)
+		resVal |= 0x01;	// one or more ports failed to open
 	
 	*retPortList = &portList;
 	return resVal;
@@ -309,27 +365,36 @@ UINT8 MidiModuleCollection::OpenModulePorts(size_t moduleID, size_t requiredPort
 
 UINT8 MidiModuleCollection::ClosePorts(MidiOutPortList* portList, bool force)
 {
-	size_t curPort;
-	UINT8 resVal;
-	
 	// the "force" parameter enforces closing regardless of state or _keepPortsOpen option
-	if (! force)
-	{
-		if (portList->state != 1)
-			return 0xC1;	// already closed
-		
-		if (_keepPortsOpen)
-		{
-			portList->state = 2;
-			return 0x00;
-		}
-	}
+	size_t moduleID;
+	size_t curOut;
+	size_t curPort;
 	
-	for (curPort = 0; curPort < portList->mOuts.size(); curPort ++)
+	if (portList->state != 1)
+		return 0xC1;	// already closed
+	
+	for (moduleID = 0; moduleID < _openPorts.size(); moduleID ++)
 	{
-		resVal = MidiOutPort_CloseDevice(portList->mOuts[curPort]);
-		MidiOutPort_Deinit(portList->mOuts[curPort]);
-		portList->mOuts[curPort] = NULL;
+		if (&_openPorts[moduleID] == portList)
+			break;
+	}
+	if (moduleID >= _openPorts.size())
+		return 0xC2;	// unable to find module for port list
+	
+	for (curOut = 0; curOut < portList->mOuts.size(); curOut ++)
+	{
+		for (curPort = 0; curPort < _ports.size(); curPort ++)
+		{
+			if (_ports[curPort]._hMOP == portList->mOuts[curOut])
+				break;
+		}
+		if (curPort >= _ports.size())
+			continue;
+		
+		PortState& pState = _ports[curPort];
+		pState._moduleIDs.erase(moduleID);
+		if (pState._moduleIDs.empty() && ! _keepPortsOpen)
+			pState.ClosePort();
 	}
 	portList->mOuts.clear();
 	portList->state = 0;
