@@ -156,8 +156,6 @@ MidiModuleCollection::PortState::PortState() :
 
 MidiModuleCollection::PortState::~PortState()
 {
-	if (_hMOP != NULL)
-		ClosePort();
 }
 
 UINT8 MidiModuleCollection::PortState::OpenPort(UINT32 portID)
@@ -183,6 +181,9 @@ UINT8 MidiModuleCollection::PortState::OpenPort(UINT32 portID)
 
 UINT8 MidiModuleCollection::PortState::ClosePort(void)
 {
+	if (_hMOP == NULL)
+		return 0x00;
+	
 	UINT8 retVal;
 	
 	retVal = MidiOutPort_CloseDevice(_hMOP);
@@ -201,6 +202,10 @@ MidiModuleCollection::MidiModuleCollection() :
 
 MidiModuleCollection::~MidiModuleCollection()
 {
+	size_t curPort;
+	
+	for (curPort = 0; curPort < _ports.size(); curPort ++)
+		_ports[curPort].ClosePort();
 	_ports.clear();
 	
 	return;

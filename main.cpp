@@ -49,7 +49,7 @@ static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
 static UINT8 LoadConfig(const std::string& cfgFile);
-static const char* GetStr1or2(const std::string& str1, const std::string& str2);
+static const char* GetStr1or2(const char* str1, const char* str2);
 static const char* GetModuleTypeNameS(UINT8 modType);
 static const char* GetModuleTypeNameL(UINT8 modType);
 void PlayMidi(void);
@@ -513,19 +513,19 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	return 0x00;
 }
 
-static const char* GetStr1or2(const std::string& str1, const std::string& str2)
+static const char* GetStr1or2(const char* str1, const char* str2)
 {
-	return (! str1.empty()) ? str1.c_str() : str2.c_str();
+	return (str1 == NULL || str1[0] == '\0') ? str2 : str1;
 }
 
 static const char* GetModuleTypeNameS(UINT8 modType)
 {
-	return GetStr1or2(midiModColl.GetShortModName(modType), "unknown");
+	return GetStr1or2(midiModColl.GetShortModName(modType).c_str(), "unknown");
 }
 
 static const char* GetModuleTypeNameL(UINT8 modType)
 {
-	return GetStr1or2(midiModColl.GetLongModName(modType), "unknown");
+	return GetStr1or2(midiModColl.GetLongModName(modType).c_str(), "unknown");
 }
 
 void PlayMidi(void)
