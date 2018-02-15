@@ -65,6 +65,7 @@ static MidiFile CMidi;
 static MidiPlayer midPlay;
 
 static UINT32 numLoops;
+static UINT32 defNumLoops;
 static UINT8 playerCfgFlags;	// see PlayerOpts::flags
 static UINT8 forceSrcType;
 static UINT8 forceModID;
@@ -145,7 +146,7 @@ int main(int argc, char* argv[])
 #endif
 	
 	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
-	numLoops = 2;
+	numLoops = 0;
 	forceSrcType = 0xFF;
 	forceModID = 0xFF;
 	syxFile = "";
@@ -466,6 +467,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	}
 	
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
+	defNumLoops = iniFile.GetInteger("General", "LoopCount", 2);
+	
 	strmSrv_pidFile = iniFile.Get("StreamServer", "PIDFile", "");
 	strmSrv_metaFile = iniFile.Get("StreamServer", "MetadataFile", "");
 	
@@ -613,7 +616,7 @@ void PlayMidi(void)
 	if (scanRes.hasReset != 0xFF)
 		plrOpts.flags &= ~PLROPTS_RESET;
 	midPlay.SetOptions(plrOpts);
-	midPlay._numLoops = numLoops;
+	midPlay._numLoops = numLoops ? numLoops : defNumLoops;
 	
 	midPlay.SetOutputPorts(mopList->mOuts);
 	midPlay.SetMidiFile(&CMidi);
@@ -656,10 +659,10 @@ void PlayMidi(void)
 			
 			fileTitle = GetFileTitle(midFileName.c_str());
 			songTitle = GetMidiSongTitle(&CMidi);
-			if (songTitle.empty())
-				fprintf(hFile, "TITLE=%s\n", fileTitle);
-			else
-				fprintf(hFile, "TITLE=%s: %s\n", fileTitle, songTitle.c_str());
+			fprintf(hFile, "TITLE=%s\n", fileTitle);
+			fprintf(hFile, " [%s]\n", GetModuleTypeNameS(scanRes.modType));
+			if (! songTitle.empty())
+				fprintf(hFile, ": %s\n", songTitle.c_str());
 			fclose(hFile);
 			
 #ifndef _WIN32

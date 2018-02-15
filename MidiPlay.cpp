@@ -610,10 +610,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->rpnCtrl[0] = 0x00 | midiEvt->evtValB;
 		break;
 	case 0x6F:	// RPG Maker loop controller
-		if ((midiEvt->evtValB == 0 || midiEvt->evtValB == 111 || midiEvt->evtValB == 127) && ! _loopPt.used)
+		if (midiEvt->evtValB == 0 || midiEvt->evtValB == 111 || midiEvt->evtValB == 127)
 		{
-			vis_addstr("Loop Point found.");
-			SaveLoopState(_loopPt, trkSt);
+			if (! _loopPt.used)
+			{
+				vis_addstr("Loop Point found.");
+				SaveLoopState(_loopPt, trkSt);
+			}
 		}
 		else
 		{
@@ -1256,6 +1259,16 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			// F0 41 10 42 12 40 00 7F 00 41 F7
 			InitializeChannels();
 			vis_addstr("SysEx: GS Reset\n");
+			break;
+		case 0x400100:	// main display
+		{
+			std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
+			char msgStr[0x80];
+			
+			SanitizeSysExText(dispMsg);
+			sprintf(msgStr, "SC SysEx: ALL Display = \"%s\"", dispMsg.c_str());
+			vis_addstr(msgStr);
+		}
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
 			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
