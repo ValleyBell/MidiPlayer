@@ -659,10 +659,12 @@ void PlayMidi(void)
 			
 			fileTitle = GetFileTitle(midFileName.c_str());
 			songTitle = GetMidiSongTitle(&CMidi);
-			fprintf(hFile, "TITLE=%s\n", fileTitle);
-			fprintf(hFile, " [%s]\n", GetModuleTypeNameS(scanRes.modType));
+			fprintf(hFile, "TITLE=%s", fileTitle);
+			if (1)
+				fprintf(hFile, " [%s]", GetModuleTypeNameS(scanRes.modType));
 			if (! songTitle.empty())
-				fprintf(hFile, ": %s\n", songTitle.c_str());
+				fprintf(hFile, ": %s", songTitle.c_str());
+			fputc('\n', hFile);
 			fclose(hFile);
 			
 #ifndef _WIN32

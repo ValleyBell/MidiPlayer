@@ -100,6 +100,7 @@ private:
 	static bool tempo_compare(const TempoChg& first, const TempoChg& second);
 	void PrepareMidi(void);
 	void InitializeChannels(void);
+	void InitializeChannels_Post(void);
 	void RefreshTickTime(void);
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
@@ -142,6 +143,7 @@ private:
 	LoopPoint _loopPt;
 	UINT32 _curLoop;
 	bool _breakMidiProc;
+	bool _initChnPost;
 	UINT32 _midiTempo;
 	UINT32 _nextEvtTick;
 	UINT64 _curTickTime;	// time for 1 MIDI tick at current tempo

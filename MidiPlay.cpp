@@ -162,7 +162,6 @@ UINT8 MidiPlayer::Start(void)
 	size_t curTrk;
 	
 	_chnStates.resize(_outPorts.size() * 0x10);
-	InitializeChannels();
 	_loopPt.used = false;
 	_curLoop = 0;
 	
@@ -185,6 +184,7 @@ UINT8 MidiPlayer::Start(void)
 	_nextEvtTick = 0;
 	_tmrStep = 0;
 	
+	InitializeChannels();
 	if (_options.flags & PLROPTS_RESET)
 	{
 		size_t curPort;
@@ -222,6 +222,7 @@ UINT8 MidiPlayer::Start(void)
 			}
 		}
 	}
+	InitializeChannels_Post();
 	_playing = true;
 	_paused = false;
 	
@@ -359,6 +360,8 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		}
 		if (_evtCbFunc != NULL)
 			_evtCbFunc(_evtCbData, midiEvt, (trkState->portID << 4) | 0x00);
+		if (_initChnPost)
+			InitializeChannels_Post();
 		break;
 	case 0xFF:
 		switch(midiEvt->evtValA)
@@ -381,8 +384,16 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 				}
 				else if (text == "loopEnd")
 				{
-					_breakMidiProc = true;
-					RestoreLoopState(_loopPt);
+					if (_loopPt.used && _loopPt.tick < _nextEvtTick)
+					{
+						_curLoop ++;
+						if (! _numLoops || _curLoop < _numLoops)
+						{
+							vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+							_breakMidiProc = true;
+							RestoreLoopState(_loopPt);
+						}
+					}
 				}
 			}
 			break;
@@ -829,7 +840,12 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
 			else
-				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+			{
+				if (_options.dstType == MODULE_SC8850)
+					chnSt->insBank[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
+				else
+					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+			}
 		}
 	}
 	insBank = SelectInsMap(_options.srcType, &mapModType);
@@ -854,7 +870,12 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
 			else
-				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+			{
+				if (_options.dstType == MODULE_SC8850)
+					chnSt->insBank[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
+				else
+					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+			}
 		}
 	}
 	
@@ -1095,7 +1116,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		if (midiEvt->evtData[0x02] == 0x4C)
 			return HandleSysEx_XG(trkSt, midiEvt);
 		break;
-	case 0x7E:
+	case 0x7E:	// Universal Non-Realtime Message
 		// GM Lvl 1 On:  F0 7E 7F 09 01 F7
 		// GM Lvl 1 Off: F0 7E 7F 09 00 F7
 		// GM Lvl 2 On:  F0 7E 7F 09 03 F7
@@ -1115,6 +1136,17 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GM)
 				return true;	// prevent GM reset on GS/XG devices
+		}
+		break;
+	case 0x7F:	// Universal Realtime Message
+		if (midiEvt->evtData[0x01] == 0x7F && midiEvt->evtData[0x02] == 0x04)
+		{
+			switch(midiEvt->evtData[0x03])
+			{
+			case 0x01:	// Master Volume
+				// F0 7F 7F 04 01 ll mm F7
+				break;
+			}
 		}
 		break;
 	}
@@ -1207,7 +1239,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 			vis_addstr("MT-32 SysEx: Display Reset");
 		}
 		break;
-	case 0x7F0000:	//All parameters reset
+	case 0x7F0000:	// All parameters reset
 		InitializeChannels();
 		vis_addstr("SysEx: MT-32 Reset\n");
 		break;
@@ -1255,12 +1287,14 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		}
 		switch(addr)
 		{
+		case 0x400004:	// Master Volume
+			break;
 		case 0x40007F:	// GS reset
 			// F0 41 10 42 12 40 00 7F 00 41 F7
 			InitializeChannels();
 			vis_addstr("SysEx: GS Reset\n");
 			break;
-		case 0x400100:	// main display
+		case 0x400100:	// Patch Name
 		{
 			std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
 			char msgStr[0x80];
@@ -1298,6 +1332,11 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 					break;	// ignore stuff like Modulation
 				}
 				chnSt->idCC[ccNo] = midiEvt->evtData[0x07];
+				if (chnSt->idCC[ccNo] == 0x10 + ccNo)
+				{
+					chnSt->idCC[ccNo] = 0xFF;
+					return true;	// for the defaults, silently drop the message
+				}
 				
 				sprintf(msgStr, "Warning: Channel %u: Ignoring CC%u reprogramming to CC#%u!",
 						1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
@@ -1498,6 +1537,36 @@ void MidiPlayer::InitializeChannels(void)
 			drumChn.insBank[0] = 0x7F;
 		}
 	}
+	_initChnPost = true;
+	
+	return;
+}
+
+void MidiPlayer::InitializeChannels_Post(void)
+{
+	size_t curChn;
+	
+	_initChnPost = false;
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
+	{
+		ChannelState& drumChn = _chnStates[curChn | 0x09];
+		
+		if (_options.flags & PLROPTS_STRICT)
+		{
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+			{
+				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
+					drumChn.insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
+				else if (_options.dstType == MODULE_SC8850)
+					drumChn.insBank[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
+				else
+					drumChn.insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x00, drumChn.insBank[0]);
+				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x20, drumChn.insBank[1]);
+				MidiOutPort_SendShortMsg(drumChn.outPort, 0xC9, 0x00, 0x00);
+			}
+		}
+	}
 	
 	return;
 }
@@ -1525,6 +1594,8 @@ void MidiPlayer::RestoreLoopState(const LoopPoint& lp)
 		return;
 	
 	size_t curTrk;
+	
+	AllNotesStop();	// prevent hanging notes
 	
 	_nextEvtTick = lp.tick;
 	for (curTrk = 0; curTrk < _loopPt.trkEvtPos.size(); curTrk ++)

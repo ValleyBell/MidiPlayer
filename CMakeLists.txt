@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(CMAKE_COMPILER_IS_GNUCC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-psabi")
 endif(CMAKE_COMPILER_IS_GNUCC)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake_modules/")
 
 
 set(INCLUDES)
@@ -51,6 +52,7 @@ set(INCLUDES ${INCLUDES}
 	${INIH_DIR}/cpp
 	)
 
+# --- MIDI output ---
 if(WIN32)
 	set(SOURCES ${SOURCES}
 		OSTimer_Win.c
@@ -67,6 +69,10 @@ elseif(UNIX)
 	set(INCLUDES ${INCLUDES} ${ALSA_INCLUDE_DIRS})
 	set(LIBRARIES ${LIBRARIES} ${ALSA_LIBRARY})
 endif()
+
+# --- character set conversion and graphical output ---
+find_package(Iconv REQUIRED)
+set(LIBRARIES ${LIBRARIES} Iconv::Iconv)
 
 set(CURSES_NEED_WIDE TRUE)
 find_package(Curses REQUIRED)
