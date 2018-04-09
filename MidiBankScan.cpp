@@ -17,6 +17,7 @@ typedef struct
 	UINT8 XG_Unknown;	// XG module: encountered unknown instrument
 	UINT8 GS_User;		// GS module: encountered user instruments
 	UINT8 MaxDrumKit;
+	UINT8 MaxDrumMSB;
 } MODULE_CHECK;
 // possible bonus: detect GM MIDIs with XG drums (i.e. not Bank MSB, except for MSB=127 on drum channel)
 //	-> XG (compatible with GM)
@@ -133,6 +134,11 @@ static void DoInstrumentCheck(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 
 		if ((ins & 0x7F) > modChk->MaxDrumKit)
 			modChk->MaxDrumKit = ins & 0x7F;
 	}
+	if (ins & 0x80)
+	{
+		if (modChk->MaxDrumMSB < msb)
+			modChk->MaxDrumMSB = msb;
+	}
 	
 	// check for GS map
 	gsMSB = (ins & 0x80) ? 0x00 : msb;
@@ -216,6 +222,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	modChk.XG_Unknown = 0;
 	modChk.GS_User = 0x00;
 	modChk.MaxDrumKit = 0x00;
+	modChk.MaxDrumMSB = 0x00;
 	
 	curPortID = 0x00;
 	drumChnMask = (1 << 9);
@@ -424,6 +431,14 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		gmDerive = ((syxReset == SYX_RESET_UNDEF) || (syxReset == SYX_RESET_GM));
 		
 		didPrint = 0;
+		if (gmDerive && modChk.MaxDrumMSB == 0x00 && highBankMSB == 0 && highBankLSB == 0)
+		{
+			// enforce GM detection for MIDIs with Bank MSB == 0 + DrumKit > 0 and no XG reset
+			modChk.MaxDrumKit = 0x00;
+			modChk.XG_Opt = 0;
+			if (modChk.GS_Opt == 0xFF)
+				modChk.GS_Opt = 0;	// required for GM detection
+		}
 		if (highBankMSB == 0 && highBankLSB == 0 && modChk.GS_Opt == 0 && modChk.XG_Opt == 0 && modChk.MaxDrumKit == 0x00)
 		{
 			//if (syxReset == SYX_RESET_GS || syxReset == SYX_RESET_XG)

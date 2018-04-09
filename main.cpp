@@ -614,7 +614,13 @@ void PlayMidi(void)
 	plrOpts.dstType = mMod->modType;
 	plrOpts.flags = playerCfgFlags;
 	if (scanRes.hasReset != 0xFF)
-		plrOpts.flags &= ~PLROPTS_RESET;
+	{
+		bool resetOff = true;
+		if (MMASK_TYPE(scanRes.hasReset) == MODULE_TYPE_GM && MMASK_TYPE(mMod->modType) != MODULE_TYPE_GM)
+			resetOff = false;	// disable GM reset
+		if (resetOff)
+			plrOpts.flags &= ~PLROPTS_RESET;
+	}
 	midPlay.SetOptions(plrOpts);
 	midPlay._numLoops = numLoops ? numLoops : defNumLoops;
 	
