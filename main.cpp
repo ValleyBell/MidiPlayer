@@ -618,6 +618,8 @@ void PlayMidi(void)
 		bool resetOff = true;
 		if (MMASK_TYPE(scanRes.hasReset) == MODULE_TYPE_GM && MMASK_TYPE(mMod->modType) != MODULE_TYPE_GM)
 			resetOff = false;	// disable GM reset
+		else if (MMASK_TYPE(scanRes.hasReset) != MMASK_TYPE(mMod->modType))
+			resetOff = false;	// enforce manual reset when MIDI and device types differ
 		if (resetOff)
 			plrOpts.flags &= ~PLROPTS_RESET;
 	}
@@ -684,16 +686,17 @@ void PlayMidi(void)
 		}
 	}
 	
+	midPlay.SetEventCallback(&MidiEventCallback, &midPlay);
+	midPlay.Start();
+	vis_new_song();
 	if (! syxData.empty())
 	{
 		vis_addstr("Sending SYX data ...");
 		vis_update();
+		midPlay.Pause();	// do pause/resume to fix initial timing
 		SendSyxData(mopList->mOuts, syxData);
+		midPlay.Resume();
 	}
-	
-	midPlay.SetEventCallback(&MidiEventCallback, &midPlay);
-	midPlay.Start();
-	vis_new_song();
 	Sleep(100);
 	
 	controlVal = +1;	// default: next song

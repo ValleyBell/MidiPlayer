@@ -24,6 +24,7 @@ static const UINT8 PART_ORDER[0x10] =
 static const UINT8 RESET_GM1[] = {0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7};
 static const UINT8 RESET_GM2[] = {0xF0, 0x7E, 0x7F, 0x09, 0x03, 0xF7};
 static const UINT8 RESET_GS[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7};
+//static const UINT8 RESET_SC[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x00, 0x00, 0x7F, 0x00, 0x01, 0xF7};
 static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7};
 
 extern UINT8 optShowInsChange;
@@ -673,6 +674,9 @@ static const INS_DATA* GetInsMapData(const INS_PRG_LST* insPrg, UINT8 ins, UINT8
 		insData = &insPrg->instruments[curIns];
 		if (msb == 0xFF || insData->bankMSB == msb)
 		{
+			// The Bank MSB check prevents it from accidentally selecting MT-32 sounds in GS instrument maps.
+			if (msb == 0xFF && insData->bankMSB >= 0x7E)
+				continue;
 			if (lsb == 0xFF || insData->bankLSB == lsb)
 			{
 				if (insData->moduleID == maxModuleID)
@@ -743,6 +747,12 @@ static const INS_DATA* GetClosestInstrument(const INS_BANK* insBank, const MidiP
 	insData = GetInsMapData(insPrg, chnSt->curIns, msb, lsb, maxModuleID);
 	if (insData != NULL)
 		return insData;
+	//insData = GetInsMapData(insPrg, chnSt->curIns, msb, 0x00, maxModuleID);
+	if (insData != NULL)
+		return insData;
+	//insData = GetInsMapData(insPrg, chnSt->curIns, 0x00, lsb, maxModuleID);
+	if (insData != NULL)
+		return insData;
 	insData = GetInsMapData(insPrg, chnSt->curIns, msb, 0xFF, maxModuleID);
 	if (insData != NULL)
 		return insData;
@@ -790,6 +800,13 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			chnSt->flags |= 0x80;
 		else
 			chnSt->flags &= ~0x80;
+		if ((midiEvt->evtType & 0x0F) == 0x09 && ! (chnSt->flags & 0x80))
+		{
+			// for now enforce drum mode on channel 9
+			// TODO: XG allows ch 9 to be melody - what are the exact conditions??
+			chnSt->flags |= 0x80;
+			vis_addstr("Keeping drum mode on ch 9!");
+		}
 		chnSt->curIns = (chnSt->curIns & 0x7F) | (chnSt->flags & 0x80);
 	}
 	else if (_options.srcType == MODULE_GM_1)
@@ -822,6 +839,8 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	{
 		chnSt->insBank[0] = 0x00;
 		chnSt->insBank[1] = 0x00;
+		if (chnSt->flags & 0x80)
+			chnSt->curIns = 0x00 | (chnSt->flags & 0x80);
 	}
 	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 	{
@@ -889,6 +908,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		// restore actual Bank MSB/LSB settings, for non-strict mode
 		chnSt->insBank[0] = chnSt->ctrls[0x00];
 		chnSt->insBank[1] = chnSt->ctrls[0x20];
+		chnSt->curIns = (midiEvt->evtValA & 0x7F) | (chnSt->flags & 0x80);
 		if (chnSt->insMapPPtr != NULL && chnSt->insMapOPtr != NULL)
 			chnSt->insMapPPtr = chnSt->insMapOPtr;
 	}
@@ -897,6 +917,8 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	{
 		const INS_DATA* insData;
 		
+		if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG && (chnSt->flags & 0x80))
+			chnSt->insBank[0] = 0x7F;	// search on drum bank first [TODO: remove and do properly]
 		insData = GetClosestInstrument(insBank, chnSt, mapModType, bankIgnore);
 		if (insData == NULL)
 		{
@@ -998,6 +1020,17 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		UINT8 ctrlEvt = 0xB0 | (midiEvt->evtType & 0x0F);
 		UINT8 insEvt = midiEvt->evtType;
 		char msgStr[0x80];
+		bool showOrgIns;
+		
+		showOrgIns = false;
+		if (didPatch && (_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+		{
+			if (chnSt->ctrls[0x20] == 0 && chnSt->ctrls[0x00] == chnSt->insBank[0] && midiEvt->evtValA == (chnSt->curIns & 0x7F))
+			{
+				didPatch = false;	// hide default instrument map strict mode
+				showOrgIns = true;
+			}
+		}
 		
 		oldName = (chnSt->insMapOPtr == NULL) ? "" : chnSt->insMapOPtr->insName;
 		newName = (chnSt->insMapPPtr == NULL) ? "" : chnSt->insMapPPtr->insName;
@@ -1011,11 +1044,18 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
 			vis_addstr(msgStr);
 		}
-		else
+		else if (! showOrgIns)
 		{
 			sprintf(msgStr, "%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
 				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
+			vis_addstr(msgStr);
+		}
+		else
+		{
+			sprintf(msgStr, "%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
+				(chnSt->flags & 0x80) ? "Drm" : "Ins",
+				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName);
 			vis_addstr(msgStr);
 		}
 	}
@@ -1293,6 +1333,8 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			// F0 41 10 42 12 40 00 7F 00 41 F7
 			InitializeChannels();
 			vis_addstr("SysEx: GS Reset\n");
+			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
+				return true;	// prevent GS reset on other devices
 			break;
 		case 0x400100:	// Patch Name
 		{
@@ -1367,6 +1409,8 @@ bool MidiPlayer::HandleSysEx_XG(const TrackState* trkSt, const MidiEvent* midiEv
 		// XG Reset: F0 43 10 4C 00 00 7E 00 F7
 		InitializeChannels();
 		vis_addstr("SysEx: XG Reset\n");
+		if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
+			return true;	// prevent XG reset on other devices
 		break;
 	}
 	

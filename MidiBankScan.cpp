@@ -408,6 +408,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			modChk.GS_DefLSB = 1;	// the SC-55 map is only explicitly used on the SC-88
 		else if (modChk.GS_OptLSB >= 0x04)
 			modChk.GS_DefLSB = 0;	// disable "prefer next higher model" for SC-8850
+		else if (modChk.GS_OptLSB == 0x03)
+			modChk.GS_DefLSB = 0;	// for now, don't go from SC-88Pro to SC-8850 by default
 		// If there is a "default map" instrument set used, assume that the MIDI
 		// was made with the "next higher" module in mind.
 		minGS = (modChk.GS_OptLSB - 0x01) + modChk.GS_DefLSB;
