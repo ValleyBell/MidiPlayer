@@ -436,7 +436,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		if (gmDerive && modChk.MaxDrumMSB == 0x00 && highBankMSB == 0 && highBankLSB == 0)
 		{
 			// enforce GM detection for MIDIs with Bank MSB == 0 + DrumKit > 0 and no XG reset
-			modChk.MaxDrumKit = 0x00;
+			if (modChk.GS_Opt != 0)	// make SC-55 drum kits disable GM detection
+				modChk.MaxDrumKit = 0x00;
 			modChk.XG_Opt = 0;
 			if (modChk.GS_Opt == 0xFF)
 				modChk.GS_Opt = 0;	// required for GM detection
@@ -450,7 +451,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 				modChk.GS_Opt = 0xFF;
 				modChk.GS_Min = 0xFF;
 			}
-			if (syxReset != SYX_RESET_XG)
+			if (syxReset != SYX_RESET_XG && ! xgDrum)
 			{
 				modChk.XG_Opt = 0xFF;
 			}

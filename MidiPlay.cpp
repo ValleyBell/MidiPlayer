@@ -1317,6 +1317,22 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			break;
 		}
 		break;
+	case 0x210000:	// User Drum-Set
+		evtChn = (addr & 0x001000) >> 12;
+		addr &= ~0x00F0FF;	// remove drum set ID (bits 12-15) and note number (bits 0-7)
+		switch(addr)
+		{
+		case 0x210000:	// Drum Set Name
+		{
+			std::string drmName(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
+			if (midiEvt->evtData[0x06] == 0x00 && drmName.length() > 1)
+				vis_printf("SC-88 SysEx: Set User Drum Set %u Name = \"%s\"\n", evtChn, midiEvt->evtData[0x06], drmName.c_str());
+			else
+				vis_printf("SC-88 SysEx: Set User Drum Set %u Name [%X] = \"%s\"\n", evtChn, midiEvt->evtData[0x06], drmName.c_str());
+		}
+			break;
+		}
+		break;
 	case 0x400000:	// Patch (port A)
 	case 0x500000:	// Patch (port B)
 		if ((addr & 0x00F000) >= 0x001000)
