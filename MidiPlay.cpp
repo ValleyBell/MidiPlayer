@@ -880,7 +880,21 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	}
 	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 	{
-		if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS || chnSt->insBank[1] == 0x00)
+		if (_options.srcType == MODULE_MT32)
+		{
+			chnSt->insBank[1] = 0x01 + MTGS_SC55;
+			if (chnSt->flags & 0x80)
+			{
+				chnSt->insBank[0] = 0x00;
+				chnSt->curIns = 0x7F | (chnSt->flags & 0x80);
+			}
+			else
+			{
+				// channels 1-10: MT-32/CM-32L, channels 11-16: CM-32P
+				chnSt->insBank[0] = ((midiEvt->evtType & 0x0F) <= 0x09) ? 0x7F : 0x7E;
+			}
+		}
+		else if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS || chnSt->insBank[1] == 0x00)
 		{
 			// GS song: use bank that is optimal for the song
 			// GM song: use "native" bank for device
@@ -1079,6 +1093,13 @@ static void SanitizeSysExText(std::string& text)
 
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
+	if (midiEvt->evtData[0x00] & 0x80)
+	{
+		vis_printf("Warning: Ignoring bad SysEx message! (begins with %02X %02X %02X %02X ...)\n",
+				midiEvt->evtType, midiEvt->evtData[0x00], midiEvt->evtData[0x01], midiEvt->evtData[0x02]);
+		return true;
+	}
+	
 	switch(midiEvt->evtData[0x00])
 	{
 	case 0x41:	// Roland ID
