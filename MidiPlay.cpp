@@ -163,6 +163,7 @@ UINT8 MidiPlayer::Start(void)
 	size_t curTrk;
 	
 	_chnStates.resize(_outPorts.size() * 0x10);
+	_noteVis.Initialize(_outPorts.size());
 	_loopPt.used = false;
 	_curLoop = 0;
 	
@@ -302,6 +303,11 @@ const std::vector<MidiPlayer::ChannelState>& MidiPlayer::GetChannelStates(void) 
 	return _chnStates;
 }
 
+NoteVisualization* MidiPlayer::GetNoteVis(void)
+{
+	return &_noteVis;
+}
+
 
 void MidiPlayer::RefreshTickTime(void)
 {
@@ -337,6 +343,14 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			break;
 		case 0xC0:
 			didEvt = HandleInstrumentEvent(chnSt, trkState, midiEvt);
+			break;
+		case 0xE0:
+			{
+				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnID);
+				INT32 pbVal = (midiEvt->evtValB << 7) | (midiEvt->evtValA << 0);
+				pbVal = (pbVal - 0x2000) * nvChn->_pbRange;	// 0x2000 per semitone
+				nvChn->_attr.detune[0] = (INT16)(pbVal / 0x20);	// make 8.8 fixed point
+			}
 			break;
 		}
 		if (! didEvt)
@@ -501,6 +515,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 {
 	UINT8 evtType = midiEvt->evtType & 0xF0;
 	UINT8 evtChn = midiEvt->evtType & 0x0F;
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | (evtChn << 0));
 	
 	if ((evtType & 0xE0) != 0x80)
 		return false;	// must be Note On or Note Off
@@ -523,6 +538,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 			std::advance(ntIt, 0x80 - 0x20);
 			chnSt->notes.erase(chnSt->notes.begin(), ntIt);
 		}
+		nvChn->AddNote(midiEvt->evtValA, midiEvt->evtValB);
 	}
 	else
 	{
@@ -536,6 +552,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 				break;
 			}
 		}
+		nvChn->RemoveNote(midiEvt->evtValA);
 	}
 	
 	return false;
@@ -544,6 +561,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	UINT8 ctrlID = midiEvt->evtValA;
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | (midiEvt->evtType & 0x0F));
 	
 	if (ctrlID == chnSt->idCC[0])
 		ctrlID = 0x10;
@@ -568,10 +586,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	case 0x07:	// Main Volume
 		// if (Fading) then calculate new volume + send event + return true
+		nvChn->_attr.volume = midiEvt->evtValB;
 		break;
 	case 0x0A:	// Pan
+		nvChn->_attr.pan = (INT8)midiEvt->evtValB - 0x40;
 		break;
 	case 0x0B:	// Expression
+		nvChn->_attr.expression = midiEvt->evtValB;
 		break;
 	case 0x06:	// Data Entry MSB
 		if (chnSt->rpnCtrl[0] == 0x00)
@@ -582,10 +603,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				chnSt->pbRange = midiEvt->evtValB;
 				if (chnSt->pbRange > 24)
 					chnSt->pbRange = 24;
+				nvChn->_pbRange = chnSt->pbRange;
 				break;
 			case 0x01:	// Fine Tuning
 				chnSt->tuneFine &= ~0xFF00;
 				chnSt->tuneFine |= ((INT16)midiEvt->evtValB - 0x40) << 8;
+				nvChn->_transpose = (INT8)(chnSt->tuneFine >> 8);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) | (nvChn->_transpose << 0);
 				break;
 			case 0x02:	// Coarse Tuning
 				chnSt->tuneCoarse = (INT8)midiEvt->evtValB - 0x40;
@@ -593,6 +617,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 					chnSt->tuneCoarse = -24;
 				else if (chnSt->tuneCoarse > +24)
 					chnSt->tuneCoarse = +24;
+				nvChn->_transpose = chnSt->tuneCoarse;
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) | (nvChn->_transpose << 0);
 				break;
 			}
 		}
@@ -647,9 +673,14 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->rpnCtrl[0] = 0xFF;	// reset RPN state
 		chnSt->rpnCtrl[1] = 0xFF;
 		chnSt->pbRange = 2;
+		nvChn->_attr.volume = chnSt->ctrls[0x07];
+		nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
+		nvChn->_attr.expression = chnSt->ctrls[0x0B];
+		nvChn->_pbRange = chnSt->pbRange;
 		break;
 	case 0x7B:	// All Notes Off
 		chnSt->notes.clear();
+		nvChn->ClearNotes();
 		if (_evtCbFunc != NULL)
 		{
 			MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x7B, 0x00);
@@ -762,6 +793,7 @@ static const INS_DATA* GetClosestInstrument(const INS_BANK* insBank, const MidiP
 
 bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | (midiEvt->evtType & 0x0F));
 	UINT8 oldMSB = chnSt->insBank[0];
 	UINT8 oldLSB = chnSt->insBank[1];
 	UINT8 oldIns = chnSt->curIns;
@@ -808,6 +840,8 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			vis_addstr("Keeping drum mode on ch 9!");
 		}
 		chnSt->curIns = (chnSt->curIns & 0x7F) | (chnSt->flags & 0x80);
+		nvChn->_chnMode &= ~0x01;
+		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 	}
 	else if (_options.srcType == MODULE_GM_1)
 	{
@@ -1314,6 +1348,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 	UINT32 addr;
 	UINT8 evtChn;
 	ChannelState* chnSt = NULL;
+	NoteVisualization::ChnInfo* nvChn = NULL;
 	
 	// Data[0x04]	Address High
 	// Data[0x05]	Address Mid
@@ -1361,6 +1396,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			addr &= ~0x000F00;	// remove channel ID
 			evtChn = PART_ORDER[midiEvt->evtData[0x05] & 0x0F];
 			chnSt = &_chnStates[(trkSt->portID << 4) | evtChn];
+			nvChn = _noteVis.GetChannel((trkSt->portID << 4) | evtChn);
 		}
 		switch(addr)
 		{
@@ -1389,6 +1425,8 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 				chnSt->flags |= 0x80;	// drum mode on
 			else
 				chnSt->flags &= ~0x80;	// drum mode off
+			nvChn->_chnMode &= ~0x01;
+			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 			// TODO: Refresh instrument
 			break;
 		case 0x401016:	// Pitch Key Shift
@@ -1618,6 +1656,7 @@ void MidiPlayer::InitializeChannels(void)
 			drumChn.insBank[0] = 0x7F;
 		}
 	}
+	_noteVis.Reset();
 	_initChnPost = true;
 	
 	return;

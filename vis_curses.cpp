@@ -12,20 +12,44 @@
 #include <stdtype.h>
 #include "MidiLib.hpp"
 #include "MidiPlay.hpp"
+#include "NoteVis.hpp"
 #include "vis.hpp"
 #include "utils.hpp"
 
 static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
-struct ChnNoteDisp
+
+class ChannelData
 {
-	int posX;
-	int remTime;
+public:
+	struct NoteDisplay
+	{
+		UINT8 note;
+		UINT8 vol;	// 0 - off, 1 - soft, 2 - loud
+		UINT8 subcol;	// sub-position in column
+	};
+	
+	UINT8 _flags;
+	UINT16 _chnID;
+	int _posY;
+	int _color;
+	std::string _insName;
+	INT8 _pan;	// -1 - left, 0 - centre, +1 - right
+	UINT8 _noteFlags;
+	std::vector<NoteDisplay> _noteSlots;
+	
+	void Initialize(UINT16 chnID, size_t screenWidth);
+	void ShowInsName(const char* insName, bool grey = false);
+	void ShowPan(INT8 pan);
+	static int CalcNoteSlot(UINT8 note, UINT8* inColPos, int ncols);
+	void RefreshNotes(const NoteVisualization* noteVis, const NoteVisualization::ChnInfo* chnInfo);
+	static void PadString(char* str, size_t padlen, char padchar, UINT8 padleft);
+	void DrawNoteName(size_t slot);
+	void RedrawAll(void);
 };
 
-static int calc_note_posx(UINT8 note, UINT8* inColPos = NULL);
-static void str_padding(char* str, size_t padlen, char padchar, UINT8 padleft);
+
 static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
 
@@ -50,8 +74,7 @@ static MidiPlayer* midPlay = NULL;
 static const char* midFType = NULL;
 static const char* midDevType = NULL;
 
-// std::vector< Channel std::map< posX, remTime> >
-static std::vector< std::map<int, int> > dispNotes;
+static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
 
 static std::string lastMeta01;
@@ -215,8 +238,8 @@ void vis_new_song(void)
 	
 	nTrks = (midFile != NULL) ? midFile->GetTrackCount() : 0;
 	chnCnt = (midPlay != NULL) ? midPlay->GetChannelStates().size() : 0x10;
-	dispNotes.clear();
-	dispNotes.resize(chnCnt);
+	dispChns.clear();
+	dispChns.resize(chnCnt);
 	
 	clear();
 	curs_set(0);
@@ -239,8 +262,11 @@ void vis_new_song(void)
 	for (curChn = 0; curChn < chnCnt; curChn ++, curYline ++)
 	{
 		sprintf(chnNameStr, "Channel %2u", 1 + (curChn & 0x0F));
-		mvprintw(curYline, 0, "%-*.*s", INS_COL_SIZE, INS_COL_SIZE, chnNameStr);
+		dispChns[curChn].Initialize(curChn, COLS);
+		dispChns[curChn].ShowInsName(chnNameStr, true);
+		dispChns[curChn].ShowPan(0);
 		mvaddch(curYline, NOTE_BASE_COL - 1, ACS_VLINE);
+		//dispChns[curChn].RedrawAll();
 	}
 	mvhline(curYline, 0, ACS_HLINE, NOTE_BASE_COL - 1);
 	mvaddch(curYline, NOTE_BASE_COL - 1, ACS_LRCORNER);
@@ -292,32 +318,20 @@ void vis_new_song(void)
 
 void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data)
 {
-	int posY = CHN_BASE_LINE + chn;
-	if (chn >= dispNotes.size())
-		return;
-	std::map<int, int>& chnDisp = dispNotes[chn];
-	std::map<int, int>::iterator noteIt;
+	size_t curChn;
 	
 	switch(action)
 	{
 	case 0x01:	// redraw all notes:
-		for (noteIt = chnDisp.begin(); noteIt != chnDisp.end(); ++noteIt)
-		{
-			// TODO
-		}
+		for (curChn = 0; curChn < dispChns.size(); curChn ++)
+			dispChns[curChn].RedrawAll();
 		break;
 	case 0x7B:	// stop all notes
-		for (noteIt = chnDisp.begin(); noteIt != chnDisp.end(); )
+		// TODO: I think this shouldn't be required anymore.
+		for (curChn = 0; curChn < dispChns.size(); curChn ++)
 		{
-			if (noteIt->second == 0)
-			{
-				std::map<int, int>::iterator remIt = noteIt;
-				++noteIt;
-				mvaddstr(posY, remIt->first, "   ");
-				chnDisp.erase(remIt);
-				continue;
-			}
-			++noteIt;
+			dispChns[curChn].RefreshNotes(NULL, NULL);
+			dispChns[curChn].RedrawAll();
 		}
 		break;
 	}
@@ -348,9 +362,7 @@ void vis_do_ins_change(UINT16 chn)
 		else
 			insName = "--unknown--";
 	}
-	attron(A_BOLD | COLOR_PAIR(color));
-	mvprintw(posY, 0, "%-*.*s", INS_COL_SIZE, INS_COL_SIZE, insName);
-	attroff(A_BOLD | COLOR_PAIR(color));
+	dispChns[chn].ShowInsName(insName);
 	
 	return;
 }
@@ -358,174 +370,24 @@ void vis_do_ins_change(UINT16 chn)
 void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
-	int posY = CHN_BASE_LINE + chn;
-	int color = (chn % 6) + 1;
 	
 	switch(ctrl)
 	{
 	case 0x0A:	// Pan
-		attron(A_BOLD | COLOR_PAIR(color));
 		if (value < 0x2B)
-			mvaddch(posY, NOTE_BASE_COL - 2, '<');
+			dispChns[chn].ShowPan(-1);
 		else if (value > 0x55)
-			mvaddch(posY, NOTE_BASE_COL - 2, '>');
+			dispChns[chn].ShowPan(+1);
 		else
-			mvaddch(posY, NOTE_BASE_COL - 2, ' ');
-		attroff(A_BOLD | COLOR_PAIR(color));
+			dispChns[chn].ShowPan(0);
 		break;
 	}
 	
 	return;
 }
 
-static int calc_note_posx(UINT8 note, UINT8* inColPos)
-{
-	int ncols;
-	int colpos;
-	int posX;
-	
-	ncols = (COLS - NOTE_BASE_COL) / NOTE_NAME_SPACE;
-#if 0
-	colpos = note % NOTES_PER_COL;
-	posX = note / NOTES_PER_COL;
-	posX = posX % ncols;
-#else
-	ncols *= NOTES_PER_COL;
-	// middle C = center of the screen (at ncols / 2)
-	posX = note - CENTER_NOTE + (ncols / 2);
-	posX += (CENTER_NOTE / ncols + 1) * ncols;	// prevent negative note values
-	// scale down notes to column slots
-	colpos = posX % NOTES_PER_COL;
-	posX = (posX % ncols) / NOTES_PER_COL;
-#endif
-	
-	posX = NOTE_BASE_COL + posX * NOTE_NAME_SPACE;
-	if (inColPos != NULL)
-		*inColPos = (UINT8)colpos;
-	return posX;
-}
-
-static void str_padding(char* str, size_t padlen, char padchar, UINT8 padleft)
-{
-	size_t slen;
-	size_t pos;
-	
-	slen = strlen(str);
-	if (! padleft)
-	{
-		// padding - right side
-		for (pos = slen; pos < padlen; pos ++)
-			str[pos] = padchar;
-	}
-	else
-	{
-		// padding - left side
-		if (slen < padlen)
-		{
-			pos = padlen - slen;
-			memmove(&str[pos], &str[0], slen);
-			while(pos > 0)
-			{
-				pos --;
-				str[pos] = padchar;
-			}
-		}
-		else
-		{
-			memmove(&str[0], &str[slen - padlen], padlen);
-		}
-	}
-	str[padlen] = '\0';
-	
-	return;
-}
-
 void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 {
-	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
-	UINT8 inColPos;
-	int posX = calc_note_posx(note, &inColPos);
-	int posY = CHN_BASE_LINE + chn;
-	int color = (chn % 6) + 1;
-	char noteName[8];
-	
-	if (chn >= dispNotes.size())
-		return;
-	std::map<int, int>& chnDisp = dispNotes[chn];
-	std::map<int, int>::iterator noteIt;
-	
-	noteIt = chnDisp.find(posX);
-	if (! volume)
-	{
-		if (noteIt == chnDisp.end())
-			return;
-		if (noteIt->second > 0)
-			return;	// ignore Note Off for drum sounds
-		mvhline(posY, posX, ' ', NOTE_NAME_SPACE);
-		chnDisp.erase(noteIt);
-		return;
-	}
-	
-	int forcedDurat = 0;
-	if (chnSt->flags & 0x80)
-	{
-		// show drum name
-		// C# (crash cym 1) || G (splash cym) || A (crash cym 2)
-		if (note == 0x31 || note == 0x37 || note == 0x39)
-		{
-			strcpy(noteName, "cym");
-			forcedDurat = 600;
-		}
-		// D# (ride cym 1) || F (ride bell) || B (ride cym 2)
-		else if (note == 0x33 || note == 0x35 || note == 0x3B)
-		{
-			strcpy(noteName, "cym");
-			forcedDurat = 300;
-		}
-		else if (note == 0x2A || note == 0x2C || note == 0x2E)	// hi-hats
-		{
-			static const UINT8 hhNotes[3] = {0x2A, 0x2C, 0x2E};
-			std::map<int, int>::iterator hhIt;
-			size_t curHH;
-			
-			// remove other hi-hat notes
-			for (curHH = 0; curHH < 3; curHH ++)
-			{
-				if (hhNotes[curHH] == note)
-					continue;
-				hhIt = chnDisp.find(calc_note_posx(hhNotes[curHH]));
-				if (hhIt != chnDisp.end())
-				{
-					mvhline(posY, hhIt->first, ' ', NOTE_NAME_SPACE);
-					chnDisp.erase(hhIt);
-				}
-			}
-			strcpy(noteName, "hh");
-			forcedDurat = (note == 0x2E) ? 300 : 80;
-		}
-		else
-		{
-			strcpy(noteName, "drm");
-			forcedDurat = 150;
-		}
-	}
-	else
-	{
-		// show note name
-		sprintf(noteName, "%s%u", notes[note % 12], note / 12);
-		forcedDurat = 0;
-	}
-	chnDisp[posX] = forcedDurat;
-	if (volume < 16)	// treat very-low-velocity notes as "note off"
-		noteName[0] = '\0';
-	
-	str_padding(noteName, NOTE_NAME_SPACE, ' ', inColPos);
-	attron(COLOR_PAIR(color));
-	if (volume > 50)
-		attron(A_BOLD);
-	mvaddstr(posY, posX, noteName);
-	attroff(A_BOLD | COLOR_PAIR(color));
-	
 	return;
 }
 
@@ -653,12 +515,14 @@ void vis_update(void)
 	UINT64 newUpdateTime;
 	int updateTicks;
 	size_t curChn;
+	NoteVisualization* noteVis;
 	
 	if (midPlay == NULL)
 	{
 		refresh();
 		return;
 	}
+	noteVis = midPlay->GetNoteVis();
 	
 	newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
 	if (newUpdateTime < lastUpdateTime)
@@ -668,34 +532,247 @@ void vis_update(void)
 		return;	// update with 50 Hz maximum
 	lastUpdateTime = newUpdateTime;
 	
-	for (curChn = 0; curChn < dispNotes.size(); curChn ++)
-	{
-		int posY = CHN_BASE_LINE + curChn;
-		std::map<int, int>& chnDisp = dispNotes[curChn];
-		std::map<int, int>::iterator noteIt;
-		
-		for (noteIt = chnDisp.begin(); noteIt != chnDisp.end(); )
-		{
-			if (noteIt->second > 0)
-			{
-				noteIt->second -= updateTicks;
-				if (noteIt->second <= 0)
-				{
-					std::map<int, int>::iterator remIt = noteIt;
-					++noteIt;
-					mvhline(posY, remIt->first, ' ', NOTE_NAME_SPACE);
-					chnDisp.erase(remIt);
-					continue;
-				}
-			}
-			++noteIt;
-		}
-	}
+	noteVis->AdvanceAge(updateTicks);
+	for (curChn = 0; curChn < dispChns.size(); curChn ++)
+		dispChns[curChn].RefreshNotes(noteVis, noteVis->GetChannel(curChn));
 	
 	vis_mvprintms(1, 0, midPlay->GetPlaybackPos());
 	vis_mvprintms(1, 10, midPlay->GetSongLength());
 	move(curYline, 0);
 	refresh();
+	
+	return;
+}
+
+
+void ChannelData::Initialize(UINT16 chnID, size_t screenWidth)
+{
+	_flags = 0x00;
+	_chnID = chnID;
+	_posY = CHN_BASE_LINE + _chnID;
+	_color = (_chnID % 6) + 1;
+	_insName = std::string(INS_COL_SIZE, ' ');
+	_pan = 0;
+	
+	_noteFlags = 0x00;
+	_noteSlots.resize((screenWidth - NOTE_BASE_COL) / NOTE_NAME_SPACE);
+	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
+	{
+		_noteSlots[curNote].note = 0xFF;
+		_noteSlots[curNote].vol = 0x00;
+	}
+	
+	return;
+}
+
+void ChannelData::ShowInsName(const char* insName, bool grey)
+{
+	sprintf(&_insName[0], "%-*.*s", (int)_insName.size(), (int)_insName.size(), insName);
+	
+	if (grey)
+	{
+		mvaddstr(_posY, 0, _insName.c_str());
+		_flags |= 0x01;
+	}
+	else
+	{
+		_flags &= ~0x01;
+		attron(A_BOLD | COLOR_PAIR(_color));
+		mvaddstr(_posY, 0, _insName.c_str());
+		attroff(A_BOLD | COLOR_PAIR(_color));
+	}
+	
+	return;
+}
+
+void ChannelData::ShowPan(INT8 pan)
+{
+	char pChar;
+	
+	_pan = pan;
+	
+	if (_pan < 0)
+		pChar = '<';
+	else if (_pan > 0)
+		pChar = '>';
+	else
+		pChar = ' ';
+	attron(A_BOLD | COLOR_PAIR(_color));
+	mvaddch(_posY, NOTE_BASE_COL - 2, pChar);
+	attroff(A_BOLD | COLOR_PAIR(_color));
+	
+	return;
+}
+
+/*static*/ int ChannelData::CalcNoteSlot(UINT8 note, UINT8* inColPos, int ncols)
+{
+	int colpos;
+	int posX;
+	
+#if 0
+	colpos = note % NOTES_PER_COL;
+	posX = note / NOTES_PER_COL;
+	posX = posX % ncols;
+#else
+	ncols *= NOTES_PER_COL;
+	// middle C = center of the screen (at ncols / 2)
+	posX = note - CENTER_NOTE + (ncols / 2);
+	posX += (CENTER_NOTE / ncols + 1) * ncols;	// prevent negative note values
+	// scale down notes to column slots
+	colpos = posX % NOTES_PER_COL;
+	posX = (posX % ncols) / NOTES_PER_COL;
+#endif
+	
+	if (inColPos != NULL)
+		*inColPos = (UINT8)colpos;
+	return posX;
+}
+
+void ChannelData::RefreshNotes(const NoteVisualization* noteVis, const NoteVisualization::ChnInfo* chnInfo)
+{
+	std::vector<NoteDisplay> newNS(_noteSlots.size());
+	std::list<NoteVisualization::NoteInfo> noteList;
+	std::list<NoteVisualization::NoteInfo>::const_iterator nlIt;
+	
+	for (size_t curNote = 0; curNote < newNS.size(); curNote ++)
+	{
+		_noteSlots[curNote].note = 0xFF;
+		_noteSlots[curNote].vol = 0;
+	}
+	
+	if (chnInfo != NULL && noteVis != NULL)
+	{
+		noteList = chnInfo->GetProcessedNoteList(noteVis->GetAttributes());
+		_noteFlags = chnInfo->_chnMode;
+	}
+	
+	for (nlIt = noteList.begin(); nlIt != noteList.end(); ++nlIt)
+	{
+		NoteDisplay nDisp;
+		int slot;
+		
+		slot = CalcNoteSlot(nlIt->height, &nDisp.subcol, _noteSlots.size());
+		nDisp.note = nlIt->height;
+		if (nlIt->velocity < 16)	// treat very-low-velocity notes as "note off"
+			nDisp.vol = 0;
+		else if (nlIt->velocity <= 50)
+			nDisp.vol = 1;
+		else
+			nDisp.vol = 2;
+		
+		if (nDisp.vol > 0)	// let's ignore zero-volume notes for now
+			newNS[slot] = nDisp;
+	}
+	
+	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
+	{
+		if (_noteSlots[curNote].note != newNS[curNote].note ||
+			_noteSlots[curNote].vol != newNS[curNote].vol)
+		{
+			_noteSlots[curNote] = newNS[curNote];
+			DrawNoteName(curNote);
+		}
+	}
+	
+	return;
+}
+
+/*static*/ void ChannelData::PadString(char* str, size_t padlen, char padchar, UINT8 padleft)
+{
+	size_t slen;
+	size_t pos;
+	
+	slen = strlen(str);
+	if (! padleft)
+	{
+		// padding - right side
+		for (pos = slen; pos < padlen; pos ++)
+			str[pos] = padchar;
+	}
+	else
+	{
+		// padding - left side
+		if (slen < padlen)
+		{
+			pos = padlen - slen;
+			memmove(&str[pos], &str[0], slen);
+			while(pos > 0)
+			{
+				pos --;
+				str[pos] = padchar;
+			}
+		}
+		else
+		{
+			memmove(&str[0], &str[slen - padlen], padlen);
+		}
+	}
+	str[padlen] = '\0';
+	
+	return;
+}
+
+void ChannelData::DrawNoteName(size_t slot)
+{
+	const ChannelData::NoteDisplay& nDisp = _noteSlots[slot];
+	int posX = NOTE_BASE_COL + slot * NOTE_NAME_SPACE;
+	int note = nDisp.note;
+	char noteName[8];
+	
+	if (nDisp.vol == 0)
+	{
+		mvhline(_posY, posX, ' ', NOTE_NAME_SPACE);
+		return;
+	}
+	
+	if (_noteFlags & 0x01)
+	{
+		// show drum name
+		// C# (crash cym 1) || G (splash cym) || A (crash cym 2)
+		if (note == 0x31 || note == 0x37 || note == 0x39)
+			strcpy(noteName, "cym");
+		// D# (ride cym 1) || F (ride bell) || B (ride cym 2)
+		else if (note == 0x33 || note == 0x35 || note == 0x3B)
+			strcpy(noteName, "cym");
+		else if (note == 0x2A || note == 0x2C || note == 0x2E)	// hi-hats
+			strcpy(noteName, "hh");
+		else
+			strcpy(noteName, "drm");
+	}
+	else
+	{
+		// show note name
+		sprintf(noteName, "%s%u", notes[note % 12], note / 12);
+	}
+	
+	PadString(noteName, NOTE_NAME_SPACE, ' ', nDisp.subcol);
+	attron(COLOR_PAIR(_color));
+	if (nDisp.vol >= 2)
+		attron(A_BOLD);
+	mvaddstr(_posY, posX, noteName);
+	attroff(A_BOLD | COLOR_PAIR(_color));
+	
+	return;
+}
+
+void ChannelData::RedrawAll(void)
+{
+	//move(_posY, 0);	clrtoeol();
+	
+	if (_flags & 0x01)
+	{
+		mvaddstr(_posY, 0, _insName.c_str());
+	}
+	else
+	{
+		attron(A_BOLD | COLOR_PAIR(_color));
+		mvaddstr(_posY, 0, _insName.c_str());
+		attroff(A_BOLD | COLOR_PAIR(_color));
+	}
+	ShowPan(_pan);
+	mvaddch(_posY, NOTE_BASE_COL - 1, ACS_VLINE);
+	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
+		DrawNoteName(curNote);
 	
 	return;
 }

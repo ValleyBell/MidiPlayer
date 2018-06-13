@@ -7,6 +7,7 @@
 
 //#include "MidiLib.hpp"
 class MidiFile;
+#include "NoteVis.hpp"
 #include "MidiOut.h"
 #include "OSTimer.h"
 #include "MidiInsReader.h"
@@ -93,6 +94,7 @@ public:
 	double GetSongLength(void) const;	// returns length in seconds
 	double GetPlaybackPos(void) const;
 	const std::vector<ChannelState>& GetChannelStates(void) const;
+	NoteVisualization* GetNoteVis(void);
 	
 	void DoPlaybackStep(void);
 private:
@@ -140,6 +142,7 @@ private:
 	
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
+	NoteVisualization _noteVis;
 	LoopPoint _loopPt;
 	UINT32 _curLoop;
 	bool _breakMidiProc;

@@ -16,6 +16,7 @@ set(LIBRARIES)
 set(HEADERS
 		MidiLib.hpp
 		MidiPlay.hpp
+		NoteVis.hpp
 		MidiBankScan.hpp
 		MidiInsReader.h
 		MidiModules.hpp
@@ -30,6 +31,7 @@ set(SOURCES
 		main.cpp
 		MidiLib.cpp
 		MidiPlay.cpp
+		NoteVis.cpp
 		MidiBankScan.cpp
 		MidiInsReader.c
 		MidiModules.cpp
