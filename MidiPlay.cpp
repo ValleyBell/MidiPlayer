@@ -673,6 +673,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->rpnCtrl[0] = 0xFF;	// reset RPN state
 		chnSt->rpnCtrl[1] = 0xFF;
 		chnSt->pbRange = 2;
+		if (_options.srcType == MODULE_MT32)
+			chnSt->pbRange = 12;
 		nvChn->_attr.volume = chnSt->ctrls[0x07];
 		nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 		nvChn->_attr.expression = chnSt->ctrls[0x0B];
@@ -1636,6 +1638,8 @@ void MidiPlayer::InitializeChannels(void)
 		
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0xFF;
 		chnSt.pbRange = 2;
+		if (_options.srcType == MODULE_MT32)
+			chnSt.pbRange = 12;
 		chnSt.tuneCoarse = 0;
 		chnSt.tuneFine = 0;
 		
@@ -1657,6 +1661,13 @@ void MidiPlayer::InitializeChannels(void)
 		}
 	}
 	_noteVis.Reset();
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+	{
+		ChannelState& chnSt = _chnStates[curChn];
+		NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
+		nvChn->_chnMode |= (chnSt.flags & 0x80) >> 7;
+		nvChn->_pbRange = chnSt.pbRange;
+	}
 	_initChnPost = true;
 	
 	return;
