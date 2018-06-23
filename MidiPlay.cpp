@@ -589,7 +589,18 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		nvChn->_attr.volume = midiEvt->evtValB;
 		break;
 	case 0x0A:	// Pan
-		nvChn->_attr.pan = (INT8)midiEvt->evtValB - 0x40;
+		{
+			UINT8 panVal = midiEvt->evtValB;
+			if (_options.srcType == MODULE_MT32)
+				panVal ^= 0x7F;	// MT-32 uses 0x7F (left) .. 0x3F (center) .. 0x00 (right)
+			nvChn->_attr.pan = (INT8)panVal - 0x40;
+			if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+			{
+				// MT-32 on GS: send GM-compatible Pan value
+				MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, ctrlID, panVal);
+				return true;
+			}
+		}
 		break;
 	case 0x0B:	// Expression
 		nvChn->_attr.expression = midiEvt->evtValB;
@@ -918,6 +929,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	{
 		if (_options.srcType == MODULE_MT32)
 		{
+			// use MT-32 instruments on GS device
 			chnSt->insBank[1] = 0x01 + MTGS_SC55;
 			if (chnSt->flags & 0x80)
 			{
@@ -929,6 +941,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 				// channels 1-10: MT-32/CM-32L, channels 11-16: CM-32P
 				chnSt->insBank[0] = ((midiEvt->evtType & 0x0F) <= 0x09) ? 0x7F : 0x7E;
 			}
+			bankIgnore &= ~0x03;	// Bank MSB/LSB is important now
 		}
 		else if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS || chnSt->insBank[1] == 0x00)
 		{
@@ -1035,7 +1048,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		}
 		chnSt->insMapPPtr = insData;
 	}
-	if (chnSt->insMapPPtr == NULL && MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+	if (chnSt->insMapPPtr == NULL && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 	{
 		if (! chnSt->insBank[1] || _options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B)
 			chnSt->insMapPPtr = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore | 0x02);
@@ -1351,6 +1364,17 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 	UINT8 evtChn;
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
+	
+	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
+	{
+		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
+		if (! ((midiEvt->evtData[0x04] & 0x3F) == 0x00 && midiEvt->evtData[0x05] == 0x00))
+		{
+			// fixes Steam-Heart's SH03_MMT.MID
+			vis_addstr("Ignoring stray GS SysEx message!");
+			return true;
+		}
+	}
 	
 	// Data[0x04]	Address High
 	// Data[0x05]	Address Mid
@@ -1686,15 +1710,44 @@ void MidiPlayer::InitializeChannels_Post(void)
 		{
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
+				UINT8 ins = 0x00;
+				
 				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
 					drumChn.insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
 				else if (_options.dstType == MODULE_SC8850)
 					drumChn.insBank[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
 				else
 					drumChn.insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+				
+				if (MMASK_TYPE(_options.srcType) == MODULE_MT32)
+				{
+					drumChn.insBank[1] = 0x01;
+					ins = 0x7F;	// select MT-32 drum kit
+				}
+				
 				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x00, drumChn.insBank[0]);
 				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x20, drumChn.insBank[1]);
-				MidiOutPort_SendShortMsg(drumChn.outPort, 0xC9, 0x00, 0x00);
+				MidiOutPort_SendShortMsg(drumChn.outPort, 0xC9, ins, 0x00);
+			}
+		}
+	}
+	
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+	{
+		ChannelState& chnSt = _chnStates[curChn];
+		UINT8 evtChn = curChn & 0x0F;
+		
+		if (_options.flags & PLROPTS_STRICT)
+		{
+			if (chnSt.pbRange != 2 && MMASK_TYPE(_options.dstType) != MODULE_TYPE_OT)
+			{
+				// set initial Pitch Bend Range
+				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x65, 0x00);
+				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x64, 0x00);
+				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x06, chnSt.pbRange);
+				// reset RPN selection
+				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x65, 0x7F);
+				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x64, 0x7F);
 			}
 		}
 	}

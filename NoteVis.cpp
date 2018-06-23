@@ -209,14 +209,22 @@ std::list<NoteVisualization::NoteInfo> NoteVisualization::ChnInfo::GetProcessedN
 	
 	for (nIt = _notes.begin(); nIt != _notes.end(); ++nIt)
 	{
-		notePitch = nIt->height << 8;
-		notePitch += _attr.detune[0] + _attr.detune[1];
-		notePitch += moduleAttr.detune[0] + moduleAttr.detune[1];
-		notePitch = (notePitch + 0x80) >> 8;
-		if (notePitch < 0x00)
-			notePitch = 0x00;
-		else if (notePitch > 0x7F)
-			notePitch = 0x7F;
+		if (_chnMode & 0x01)
+		{
+			// no pitch correction on drum channels
+			notePitch = nIt->height;
+		}
+		else
+		{
+			notePitch = nIt->height << 8;
+			notePitch += _attr.detune[0] + _attr.detune[1];
+			notePitch += moduleAttr.detune[0] + moduleAttr.detune[1];
+			notePitch = (notePitch + 0x80) >> 8;
+			if (notePitch < 0x00)
+				notePitch = 0x00;
+			else if (notePitch > 0x7F)
+				notePitch = 0x7F;
+		}
 		
 		switch(NOTEVOL_MODE)
 		{

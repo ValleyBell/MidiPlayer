@@ -370,13 +370,14 @@ void vis_do_ins_change(UINT16 chn)
 void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
+	const NoteVisualization::ChnInfo* nvChn = midPlay->GetNoteVis()->GetChannel(chn);
 	
 	switch(ctrl)
 	{
 	case 0x0A:	// Pan
-		if (value < 0x2B)
+		if (nvChn->_attr.pan < -0x15)
 			dispChns[chn].ShowPan(-1);
-		else if (value > 0x55)
+		else if (nvChn->_attr.pan > 0x15)
 			dispChns[chn].ShowPan(+1);
 		else
 			dispChns[chn].ShowPan(0);
