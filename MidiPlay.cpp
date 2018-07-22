@@ -13,7 +13,16 @@
 #include "MidiBankScan.hpp"
 #include "MidiInsReader.h"	// for MODTYPE_ defines
 #include "vis.hpp"
+#include "utils.hpp"
 
+
+#if defined(_MSC_VER) && _MSC_VER < 1300
+// VC6 has an implementation for [signed] __int64 -> double
+// but support for unsigned __int64 is missing
+#define U64_TO_DBL(x)	(double)(INT64)(x)
+#else
+#define U64_TO_DBL(x)	(double)(x)
+#endif
 
 #define TICK_FP_SHIFT	8
 #define TICK_FP_MUL		(1 << TICK_FP_SHIFT)
@@ -274,7 +283,7 @@ UINT8 MidiPlayer::GetState(void) const
 
 double MidiPlayer::GetSongLength(void) const
 {
-	return (double)_songLength / (double)_tmrFreq;
+	return U64_TO_DBL(_songLength) / U64_TO_DBL(_tmrFreq);
 }
 
 double MidiPlayer::GetPlaybackPos(void) const
@@ -295,7 +304,7 @@ double MidiPlayer::GetPlaybackPos(void) const
 	tmrTick = tempoIt->tmrTick + (_nextEvtTick - tempoIt->tick) * _curTickTime;
 	if (curTime < _tmrStep)
 		tmrTick -= (_tmrStep - curTime);
-	return (double)tmrTick / (double)_tmrFreq;
+	return U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
 }
 
 const std::vector<MidiPlayer::ChannelState>& MidiPlayer::GetChannelStates(void) const
@@ -384,13 +393,13 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		case 0x03:	// Text/Sequence Name
 			if (trkState->trkID == 0 || _cMidi->GetMidiFormat() == 2)
 			{
-				std::string text(midiEvt->evtData.begin(), midiEvt->evtData.end());
+				std::string text = Vector2String(midiEvt->evtData);
 				//printf("Text: %s\n", text.c_str());
 			}
 			break;
 		case 0x06:	// Marker
 			{
-				std::string text(midiEvt->evtData.begin(), midiEvt->evtData.end());
+				std::string text = Vector2String(midiEvt->evtData);
 				//printf("Marker: %s\n", text.c_str());
 				if (text == "loopStart")
 				{
@@ -791,10 +800,10 @@ static const INS_DATA* GetClosestInstrument(const INS_BANK* insBank, const MidiP
 	insData = GetInsMapData(insPrg, chnSt->curIns, msb, lsb, maxModuleID);
 	if (insData != NULL)
 		return insData;
-	//insData = GetInsMapData(insPrg, chnSt->curIns, msb, 0x00, maxModuleID);
+	insData = GetInsMapData(insPrg, chnSt->curIns, msb, 0x00, maxModuleID);
 	if (insData != NULL)
 		return insData;
-	//insData = GetInsMapData(insPrg, chnSt->curIns, 0x00, lsb, maxModuleID);
+	insData = GetInsMapData(insPrg, chnSt->curIns, 0x00, lsb, maxModuleID);
 	if (insData != NULL)
 		return insData;
 	insData = GetInsMapData(insPrg, chnSt->curIns, msb, 0xFF, maxModuleID);
@@ -840,7 +849,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
 	{
 		if (chnSt->insBank[0] == 0x3F)
-			chnSt->userInsID = (chnSt->curIns & 0x7F);
+			chnSt->userInsID = (chnSt->curIns & 0x7F);	// QS300 user voices (00..1F only)
 		if (chnSt->insBank[0] >= 0x7E)	// MSB 7E/7F = drum kits
 			chnSt->flags |= 0x80;
 		else
@@ -886,8 +895,9 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	{
 		chnSt->insBank[0] = 0x00;
 		chnSt->insBank[1] = 0x00;
-		if (chnSt->flags & 0x80)
-			chnSt->curIns = 0x00 | (chnSt->flags & 0x80);
+		// TODO: improve and keep drum kits while making lookup work
+	//	if (chnSt->flags & 0x80)
+	//		chnSt->curIns = 0x00 | (chnSt->flags & 0x80);
 	}
 	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 	{
@@ -1082,7 +1092,6 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		const char* newName;
 		UINT8 ctrlEvt = 0xB0 | (midiEvt->evtType & 0x0F);
 		UINT8 insEvt = midiEvt->evtType;
-		char msgStr[0x80];
 		bool showOrgIns;
 		
 		showOrgIns = false;
@@ -1099,27 +1108,23 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		newName = (chnSt->insMapPPtr == NULL) ? "" : chnSt->insMapPPtr->insName;
 		if (didPatch)
 		{
-			sprintf(msgStr, "%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
+			vis_printf("%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
 				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName);
-			vis_addstr(msgStr);
-			sprintf(msgStr, "       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
+			vis_printf("       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
-			vis_addstr(msgStr);
 		}
 		else if (! showOrgIns)
 		{
-			sprintf(msgStr, "%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
+			vis_printf("%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
 				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
-			vis_addstr(msgStr);
 		}
 		else
 		{
-			sprintf(msgStr, "%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
+			vis_printf("%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
 				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName);
-			vis_addstr(msgStr);
 		}
 	}
 	
@@ -1173,12 +1178,10 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				{
 				case 0x100000:	// ASCII Display
 				{
-					std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
-					char msgStr[0x80];
+					std::string dispMsg = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
 					
 					SanitizeSysExText(dispMsg);
-					sprintf(msgStr, "SC SysEx: Display = \"%s\"", dispMsg.c_str());
-					vis_addstr(msgStr);
+					vis_printf("SC SysEx: Display = \"%s\"", dispMsg.c_str());
 				}
 					break;
 				case 0x100100:	// Dot Display (page 1-10)
@@ -1188,31 +1191,28 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				case 0x100500:
 				{
 					UINT8 pageID;
-					char msgStr[0x80];
 					
 					pageID = (((addr & 0x00FF00) >> 7) | ((addr & 0x000040) >> 6)) - 1;
-					sprintf(msgStr, "SC SysEx: Dot Display (Page %u)", pageID);
-					vis_addstr(msgStr);
+					if (pageID == 1)
+						vis_printf("SC SysEx: Dot Display (Load/Show Page %u)", pageID);
+					else
+						vis_printf("SC SysEx: Dot Display: Load Page %u", pageID);
 				}
 					break;
 				case 0x102000:
 					if (addr == 0x102000)	// Dot Display: show page
 					{
 						UINT8 pageID;
-						char msgStr[0x80];
 						
 						pageID = midiEvt->evtData[0x07];	// 00 = bar display, 01..0A = page 1..10
-						sprintf(msgStr, "SC SysEx: Dot Display (Page %u)", pageID);
-						vis_addstr(msgStr);
+						vis_printf("SC SysEx: Dot Display: Show Page %u", pageID);
 					}
 					else if (addr == 0x102001)	// Dot Display: set display time
 					{
 						float dispTime;
-						char msgStr[0x80];
 						
 						dispTime = midiEvt->evtData[0x07] * 0.48f;
-						sprintf(msgStr, "SC SysEx: Dot Display: set display time = %.2f sec", dispTime);
-						vis_addstr(msgStr);
+						vis_printf("SC SysEx: Dot Display: set display time = %.2f sec", dispTime);
 					}
 					break;
 				}
@@ -1309,10 +1309,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 			chnSt->pbRange = dataPtr[0x04];
 			if (true)
 			{
-				char msgStr[0x80];
-				
-				sprintf(msgStr, "MT-32 SysEx: Set Ch %u instrument = %u", evtChn, newIns);
-				vis_addstr(msgStr);
+				vis_printf("MT-32 SysEx: Set Ch %u instrument = %u", evtChn, newIns);
 			}
 			if (_evtCbFunc != NULL)
 			{
@@ -1337,12 +1334,10 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 	case 0x200000:	// Display
 		if (addr < 0x200100)
 		{
-			std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
-			char msgStr[0x80];
+			std::string dispMsg = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
 			
 			SanitizeSysExText(dispMsg);
-			sprintf(msgStr, "MT-32 SysEx: Display = \"%s\"", dispMsg.c_str());
-			vis_addstr(msgStr);
+			vis_printf("MT-32 SysEx: Display = \"%s\"", dispMsg.c_str());
 		}
 		else if (addr == 0x200100)
 		{
@@ -1389,7 +1384,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		{
 		case 0x00007F:	// SC-88 System Mode Set
 			InitializeChannels();	// it completely resets the device
-			vis_addstr("SysEx: SC-88 System Mode Set\n");
+			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + midiEvt->evtData[0x07]);
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
 			{
 				// for devices that don't understand the message, send GS reset instead
@@ -1406,9 +1401,9 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		{
 		case 0x210000:	// Drum Set Name
 		{
-			std::string drmName(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
+			std::string drmName = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
 			if (midiEvt->evtData[0x06] == 0x00 && drmName.length() > 1)
-				vis_printf("SC-88 SysEx: Set User Drum Set %u Name = \"%s\"\n", evtChn, midiEvt->evtData[0x06], drmName.c_str());
+				vis_printf("SC-88 SysEx: Set User Drum Set %u Name = \"%s\"\n", evtChn, drmName.c_str());
 			else
 				vis_printf("SC-88 SysEx: Set User Drum Set %u Name [%X] = \"%s\"\n", evtChn, midiEvt->evtData[0x06], drmName.c_str());
 		}
@@ -1437,12 +1432,10 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			break;
 		case 0x400100:	// Patch Name
 		{
-			std::string dispMsg(&midiEvt->evtData[0x07], &midiEvt->evtData[midiEvt->evtData.size() - 2]);
-			char msgStr[0x80];
+			std::string dispMsg = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
 			
 			SanitizeSysExText(dispMsg);
-			sprintf(msgStr, "SC SysEx: ALL Display = \"%s\"", dispMsg.c_str());
-			vis_addstr(msgStr);
+			vis_printf("SC SysEx: ALL Display = \"%s\"", dispMsg.c_str());
 		}
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
@@ -1461,7 +1454,6 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		case 0x401020:	// CC2 Controller Number
 			if (_options.dstType == MODULE_SC8850)
 			{
-				char msgStr[0x40];
 				UINT8 ccNo;
 				
 				// On the SC-8820, CC1/CC2 number reprogramming is broken.
@@ -1469,9 +1461,8 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 				ccNo = addr - 0x40101F;
 				if (midiEvt->evtData[0x07] < 0x0C)
 				{
-					sprintf(msgStr, "Warning: Channel %u: CC%u reprogramming to CC#%u might not work!",
-							1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
-					vis_addstr(msgStr);
+					vis_printf("Warning: Channel %u: CC%u reprogramming to CC#%u might not work!",
+								1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
 					break;	// ignore stuff like Modulation
 				}
 				chnSt->idCC[ccNo] = midiEvt->evtData[0x07];
@@ -1481,9 +1472,8 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 					return true;	// for the defaults, silently drop the message
 				}
 				
-				sprintf(msgStr, "Warning: Channel %u: Ignoring CC%u reprogramming to CC#%u!",
-						1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
-				vis_addstr(msgStr);
+				vis_printf("Warning: Channel %u: Ignoring CC%u reprogramming to CC#%u!",
+							1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
 				return true;
 			}
 			break;

@@ -860,7 +860,7 @@ static std::string GetMidiSongTitle(MidiFile* cMidi)
 		
 		if (evtIt->evtType == 0xFF && evtIt->evtValA == 0x03)	// FF 03 - Sequence Name
 		{
-			std::string evtText(evtIt->evtData.begin(), evtIt->evtData.end());
+			std::string evtText = Vector2String(evtIt->evtData);
 			std::string convText;
 			char retVal;
 			UINT8 curCP;

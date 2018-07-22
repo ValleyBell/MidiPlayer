@@ -52,7 +52,7 @@ void NoteVisualization::Initialize(UINT8 chnGroups)
 	_chnList.resize(chnGroups * 0x10);
 	for (curChn = 0; curChn < _chnList.size(); curChn  ++)
 	{
-		auto& chn = _chnList[curChn];
+		ChnInfo& chn = _chnList[curChn];
 		chn.Initialize();
 		if ((curChn & 0x0F) == 0x09)
 			chn._chnMode = 0x01;	// drum channel

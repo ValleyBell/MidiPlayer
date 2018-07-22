@@ -3,6 +3,9 @@
 #include <stdlib.h>
 
 #include <Windows.h>
+#ifndef DWORD_PTR
+#define DWORD_PTR	DWORD
+#endif
 
 #include <stdtype.h>
 #include "MidiOut.h"
@@ -77,7 +80,7 @@ void MidiOutPort_SendShortMsg(MIDIOUT_PORT* mop, UINT8 event, UINT8 data1, UINT8
 	return;
 }
 
-UINT8 MidiOutPort_SendLongMsg(MIDIOUT_PORT* mop, size_t dataLen, const void* data)
+static UINT8 MidiOutPort_DoLongMsg(MIDIOUT_PORT* mop, size_t dataLen, const void* data)
 {
 	MIDIHDR mHdr;
 	MMRESULT retMM;
@@ -106,4 +109,27 @@ UINT8 MidiOutPort_SendLongMsg(MIDIOUT_PORT* mop, size_t dataLen, const void* dat
 		return 0x12;
 	
 	return 0x00;
+}
+
+UINT8 MidiOutPort_SendLongMsg(MIDIOUT_PORT* mop, size_t dataLen, const void* data)
+{
+	if (! IsBadWritePtr((LPVOID)data, dataLen))
+	{
+		return MidiOutPort_DoLongMsg(mop, dataLen, data);
+	}
+	else
+	{
+		UINT8 retVal;
+		void* dupData;
+		
+		// Windows is stupid and requires R/W access for the data, so it doesn't work with data
+		// from read-only memory pages. We make a temporary copy of the data to work around that.
+		dupData = malloc(dataLen);
+		memcpy(dupData, data, dataLen);
+		
+		retVal = MidiOutPort_DoLongMsg(mop, dataLen, dupData);
+		
+		free(dupData);
+		return retVal;
+	}
 }

@@ -16,6 +16,8 @@ static bool IsAbsolutePath(const char* filePath);
 //std::string CombinePaths(const std::string& basePath, const std::string& addPath);
 //std::string FindFile_List(const std::vector<std::string>& fileList, const std::vector<std::string>& pathList);
 //std::string FindFile_Single(const std::string& fileName, const std::vector<std::string>& pathList);
+//std::string Vector2String(const std::vector<char>& data, size_t startPos, size_t endPos);
+//std::string Vector2String(const std::vector<unsigned char>& data, size_t startPos, size_t endPos);
 //char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inStr);
 static size_t utf8_chrsize(const char* utf8chr);
 static bool utf8_advance(const char** str);
@@ -129,6 +131,26 @@ std::string FindFile_Single(const std::string& fileName, const std::vector<std::
 	
 	fileList.push_back(fileName);
 	return FindFile_List(fileList, pathList);
+}
+
+std::string Vector2String(const std::vector<char>& data, size_t startPos, size_t endPos)
+{
+	if (endPos == std::string::npos)
+		endPos = data.size();
+	if (endPos < startPos)
+		return std::string();
+	const char* basePtr = &(*data.begin());
+	return std::string(basePtr + startPos, basePtr + endPos);
+}
+
+std::string Vector2String(const std::vector<unsigned char>& data, size_t startPos, size_t endPos)
+{
+	if (endPos == std::string::npos)
+		endPos = data.size();
+	if (endPos < startPos)
+		return std::string();
+	const unsigned char* basePtr = &(*data.begin());
+	return std::string((const char*)basePtr + startPos, (const char*)basePtr + endPos);
 }
 
 char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inStr)

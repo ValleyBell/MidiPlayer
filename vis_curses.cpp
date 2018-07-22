@@ -634,11 +634,12 @@ void ChannelData::RefreshNotes(const NoteVisualization* noteVis, const NoteVisua
 	std::vector<NoteDisplay> newNS(_noteSlots.size());
 	std::list<NoteVisualization::NoteInfo> noteList;
 	std::list<NoteVisualization::NoteInfo>::const_iterator nlIt;
+	size_t curNote;
 	
-	for (size_t curNote = 0; curNote < newNS.size(); curNote ++)
+	for (curNote = 0; curNote < newNS.size(); curNote ++)
 	{
-		_noteSlots[curNote].note = 0xFF;
-		_noteSlots[curNote].vol = 0;
+		newNS[curNote].note = 0xFF;
+		newNS[curNote].vol = 0;
 	}
 	
 	if (chnInfo != NULL && noteVis != NULL)
@@ -665,7 +666,7 @@ void ChannelData::RefreshNotes(const NoteVisualization* noteVis, const NoteVisua
 			newNS[slot] = nDisp;
 	}
 	
-	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
+	for (curNote = 0; curNote < _noteSlots.size(); curNote ++)
 	{
 		if (_noteSlots[curNote].note != newNS[curNote].note ||
 			_noteSlots[curNote].vol != newNS[curNote].vol)
