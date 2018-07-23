@@ -94,7 +94,8 @@ std::string CombinePaths(const std::string& basePath, const std::string& addPath
 {
 	if (basePath.empty() || IsAbsolutePath(addPath.c_str()))
 		return addPath;
-	if (basePath.back() == '/' || basePath.back() == '\\')
+	char lastChr = basePath[basePath.length() - 1];
+	if (lastChr == '/' || lastChr == '\\')
 		return basePath + addPath;
 	else
 		return basePath + '/' + addPath;
@@ -177,7 +178,7 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	wrtBytes = iconv(hIConv, &inPtr, &remBytesIn, &outPtr, &remBytesOut);
 	while(wrtBytes == (size_t)-1)
 	{
-		if (errno == EILSEQ || errno == EINVAL)
+		if (errno != E2BIG)	// (errno == EILSEQ || errno == EINVAL)
 		{
 			// invalid encoding - return original string
 #if 0

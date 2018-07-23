@@ -273,7 +273,7 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 	
-	retVal = ParseSongFiles(std::vector<std::string>(argv + argbase, argv + argc), songList, plList);
+	retVal = ParseSongFiles(std::vector<const char*>(argv + argbase, argv + argc), songList, plList);
 	if (retVal)
 		printf("One or more playlists couldn't be read!\n");
 	if (songList.empty())

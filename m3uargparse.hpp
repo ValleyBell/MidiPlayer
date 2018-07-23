@@ -11,6 +11,9 @@ struct SongFileList
 	size_t playlistID;
 };
 
-UINT8 ParseSongFiles(const std::vector<std::string> args, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList);
+UINT8 ParseSongFiles(size_t argc, const char* const* argv, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList);
+UINT8 ParseSongFiles(const std::vector<char*>& args, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList);
+UINT8 ParseSongFiles(const std::vector<const char*>& args, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList);
+UINT8 ParseSongFiles(const std::vector<std::string>& args, std::vector<SongFileList>& songList, std::vector<std::string>& playlistList);
 
 #endif	// __M3UARGPARSE_HPP__
