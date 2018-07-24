@@ -148,7 +148,7 @@ std::string Vector2String(const std::vector<unsigned char>& data, size_t startPo
 {
 	if (endPos == std::string::npos)
 		endPos = data.size();
-	if (endPos < startPos)
+	if (endPos <= startPos)
 		return std::string();
 	const unsigned char* basePtr = &(*data.begin());
 	return std::string((const char*)basePtr + startPos, (const char*)basePtr + endPos);
