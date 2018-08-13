@@ -621,6 +621,8 @@ void PlayMidi(void)
 			resetOff = false;	// disable GM reset
 		else if (MMASK_TYPE(scanRes.hasReset) != MMASK_TYPE(mMod->modType))
 			resetOff = false;	// enforce manual reset when MIDI and device types differ
+		else if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_GS && scanRes.modType >= MODULE_SC88)
+			resetOff = false;	// enforce manual reset with SC-88 and later for now (TODO: enforce SC-88 reset when only GS reset is present)
 		if (resetOff)
 			plrOpts.flags &= ~PLROPTS_RESET;
 	}

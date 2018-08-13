@@ -15,9 +15,18 @@
 #include "NoteVis.hpp"
 #include "vis.hpp"
 #include "utils.hpp"
+#include "MidiInsReader.h"	// for MIDI module type
 
 static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+
+static const char SC_MAP_SYMBOLS[4] =
+{
+	'\'',	// SC-55 map (as seen on SC-88/SC-88Pro)
+	'\"',	// SC-88 map (as seen on SC-88Pro)
+	'|',	// SC-88Pro map
+	'!',	// SC-8850 map
+};
 
 
 class ChannelData
@@ -344,7 +353,7 @@ void vis_do_ins_change(UINT16 chn)
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
 	int posY = CHN_BASE_LINE + chn;
 	int color = (chn % 6) + 1;
-	const char* insName;
+	std::string insName;
 	char userInsName[20];
 	
 	if (chnSt->userInsID != 0xFFFF)
@@ -362,7 +371,23 @@ void vis_do_ins_change(UINT16 chn)
 		else
 			insName = "--unknown--";
 	}
-	dispChns[chn].ShowInsName(insName);
+	if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_GS)
+	{
+		insName = "  " + insName;
+		if (chnSt->insBank[1] >= 0x01 && chnSt->insBank[1] <= 0x04)
+			insName[1] = SC_MAP_SYMBOLS[chnSt->insBank[1] - 0x01];
+		else
+			insName[1] = ' ';
+		if (chnSt->flags & 0x80)
+			insName[0] = '*';	// drum channel
+		else if (chnSt->insBank[0] > 0x00 && chnSt->insBank[0] < 0x40)
+			insName[0] = '+';	// variation sound
+		else if (chnSt->insBank[0] >= 0x7E)
+			insName[0] = '#';	// CM-64 sound
+		else
+			insName[0] = ' ';	// capital sound
+	}
+	dispChns[chn].ShowInsName(insName.c_str());
 	
 	return;
 }

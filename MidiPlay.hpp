@@ -83,6 +83,7 @@ public:
 	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts);
 	void SetOutPortMapping(size_t numPorts, const size_t* outPorts);
 	void SetOptions(const PlayerOpts& plrOpts);
+	UINT8 GetModuleType(void);	// current MIDI module type used for playback
 	UINT32 _numLoops;
 	void SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);

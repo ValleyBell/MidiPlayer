@@ -33,7 +33,7 @@ static const UINT8 PART_ORDER[0x10] =
 static const UINT8 RESET_GM1[] = {0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7};
 static const UINT8 RESET_GM2[] = {0xF0, 0x7E, 0x7F, 0x09, 0x03, 0xF7};
 static const UINT8 RESET_GS[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7};
-//static const UINT8 RESET_SC[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x00, 0x00, 0x7F, 0x00, 0x01, 0xF7};
+static const UINT8 RESET_SC[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x00, 0x00, 0x7F, 0x00, 0x01, 0xF7};
 static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7};
 
 extern UINT8 optShowInsChange;
@@ -84,6 +84,11 @@ void MidiPlayer::SetOutPortMapping(size_t numPorts, const size_t* outPorts)
 void MidiPlayer::SetOptions(const PlayerOpts& plrOpts)
 {
 	_options = plrOpts;
+}
+
+UINT8 MidiPlayer::GetModuleType(void)
+{
+	return _options.dstType;
 }
 
 void MidiPlayer::SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData)
@@ -220,8 +225,16 @@ UINT8 MidiPlayer::Start(void)
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 		{
 			// send GS reset
-			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GS), RESET_GS);
+			if (MMASK_MOD(_options.dstType) >= MTGS_SC88 && MMASK_MOD(_options.dstType) != MTGS_TG300B)
+			{
+				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_SC), RESET_SC);
+			}
+			else
+			{
+				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GS), RESET_GS);
+			}
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 		{
@@ -1147,11 +1160,13 @@ static void SanitizeSysExText(std::string& text)
 
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
+	if (midiEvt->evtData.size() < 0x03)
+		return false;	// ignore incomplete SysEx messages
 	if (midiEvt->evtData[0x00] & 0x80)
 	{
-		vis_printf("Warning: Ignoring bad SysEx message! (begins with %02X %02X %02X %02X ...)\n",
+		vis_printf("Warning: Can't parse bad SysEx message! (begins with %02X %02X %02X %02X ...)\n",
 				midiEvt->evtType, midiEvt->evtData[0x00], midiEvt->evtData[0x01], midiEvt->evtData[0x02]);
-		return true;
+		return false;
 	}
 	
 	switch(midiEvt->evtData[0x00])
