@@ -672,7 +672,12 @@ void PlayMidi(void)
 			songTitle = GetMidiSongTitle(&CMidi);
 			fprintf(hFile, "TITLE=%s", fileTitle);
 			if (1)
-				fprintf(hFile, " [%s]", GetModuleTypeNameS(scanRes.modType));
+			{
+				if (scanRes.numPorts <= 1)
+					fprintf(hFile, " [%s]", GetModuleTypeNameS(scanRes.modType));
+				else
+					fprintf(hFile, " [%s x%u]", GetModuleTypeNameS(scanRes.modType), scanRes.numPorts);
+			}
 			if (! songTitle.empty())
 				fprintf(hFile, ": %s", songTitle.c_str());
 			fputc('\n', hFile);

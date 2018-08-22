@@ -480,6 +480,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			printf("XG/%s", xgOptStr);
 			if (modChk.XG_Unknown)
 				printf(" (bad instruments)");
+			if (modChk.XG_Opt < 0 && syxReset == SYX_RESET_XG)
+				modChk.XG_Opt = 0;	// TODO: do this in a better way [required for MIDIs that use SysEx for setting instruments]
 			didPrint = 1;
 		}
 		if (! didPrint)

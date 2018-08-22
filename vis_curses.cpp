@@ -20,12 +20,34 @@
 static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
+// Roland Symbols:
+//	Map:	' - SC-55 map (LSB 1), " - SC-88 map (LSB 2)
+//	Bank:	* - drum bank, [space] - GM bank, + - variation bank (LSB 1..63), # - MT-32/CM-64 bank (MSB 126/127)
+//	Order is [bank] [map] [instrument name].
+//	The display reserves 1 character for the [bank] symbol.
+//	Selecting the non-native instrument causes the [map] character to be prepended to the
+//	instrument name, shifting it to the right by 1 character.
+//
+// Yamaha Symbols:
+//	Bank:	+ - SFX bank (MSB 64), # - drum bank (MSB 126/127)
+//	Order is [bank] [instrument name]
+//	The [bank] symbol is prepended to the instrument name.
+
 static const char SC_MAP_SYMBOLS[4] =
 {
 	'\'',	// SC-55 map (as seen on SC-88/SC-88Pro)
 	'\"',	// SC-88 map (as seen on SC-88Pro)
-	'|',	// SC-88Pro map
-	'!',	// SC-8850 map
+	'^',	// SC-88Pro map
+	'|',	// SC-8850 map
+};
+static const char MU_MAP_SYMBOLS[6] =
+{
+	'\'',	// MU-50
+	'\"',	// MU-80
+	'^',	// MU-90
+	'/',	// MU-100
+	'-',	// MU-128
+	'|',	// MU-1000
 };
 
 
@@ -371,21 +393,39 @@ void vis_do_ins_change(UINT16 chn)
 		else
 			insName = "--unknown--";
 	}
+	// The symbol order is [map] [bank] [name] for all modules.
 	if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_GS)
 	{
+		// The order on actual Roland Sound Canvas modules would be [bank] [map] [name].
 		insName = "  " + insName;
 		if (chnSt->insBank[1] >= 0x01 && chnSt->insBank[1] <= 0x04)
-			insName[1] = SC_MAP_SYMBOLS[chnSt->insBank[1] - 0x01];
+			insName[0] = SC_MAP_SYMBOLS[chnSt->insBank[1] - 0x01];
+		else
+			insName[0] = ' ';
+		if (chnSt->flags & 0x80)
+			insName[1] = '*';	// drum channel
+		else if (chnSt->insBank[0] >= 0x7E)
+			insName[1] = '#';	// CM-64 sound
+		else if (chnSt->insBank[0] > 0x00)
+			insName[1] = '+';	// variation sound
+		else
+			insName[1] = ' ';	// capital sound
+	}
+	else if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_XG)
+	{
+		insName = "  " + insName;
+		if ((chnSt->flags & 0x80) && (chnSt->curIns & 0x7F) == 0x00)
+			insName[0] = ' ';	// GM drums
+		else if (chnSt->insBank[0] == 0x00 && chnSt->insBank[1] == 0x00)
+			insName[0] = ' ';	// GM instrument
+		else if (chnSt->insMapPPtr != NULL && chnSt->insMapPPtr->moduleID < 6)
+			insName[0] = MU_MAP_SYMBOLS[chnSt->insMapPPtr->moduleID];
+		if ((chnSt->flags & 0x80) || chnSt->insBank[0] >= 0x7E)
+			insName[1] = '#';	// drum bank
+		else if (chnSt->insBank[0] == 0x40)
+			insName[1] = '+';	// SFX bank
 		else
 			insName[1] = ' ';
-		if (chnSt->flags & 0x80)
-			insName[0] = '*';	// drum channel
-		else if (chnSt->insBank[0] > 0x00 && chnSt->insBank[0] < 0x40)
-			insName[0] = '+';	// variation sound
-		else if (chnSt->insBank[0] >= 0x7E)
-			insName[0] = '#';	// CM-64 sound
-		else
-			insName[0] = ' ';	// capital sound
 	}
 	dispChns[chn].ShowInsName(insName.c_str());
 	
