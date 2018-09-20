@@ -4,5 +4,6 @@ Most of them were copied from MIDI Sequencer Cherry version 1.4.3 and thus use i
 I fixed a few mistakes in some of them.
 In gs.ins I fixed a few instruments that were incorrectly assigned to the wrong Sound Canvas model.
 I also removed the MT-32/CM-64 instruments from SC88/88Pro/8850 maps, because they are only present in when the SC-55 map is selected.
+In xg.ins I fixed a few SFX voices that were incorrectly assigned to MU80 instead of XG.
 
 mt32.ins was made using the MT-32/CM-64 instruments from gs.ins.

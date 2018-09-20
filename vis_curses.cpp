@@ -22,7 +22,7 @@ static const char* notes[12] =
 
 // Roland Symbols:
 //	Map:	' - SC-55 map (LSB 1), " - SC-88 map (LSB 2)
-//	Bank:	* - drum bank, [space] - GM bank, + - variation bank (LSB 1..63), # - MT-32/CM-64 bank (MSB 126/127)
+//	Bank:	* - drum bank, [space] - GM bank, + - variation bank (LSB 1..125), # - MT-32/CM-64 bank (MSB 126/127)
 //	Order is [bank] [map] [instrument name].
 //	The display reserves 1 character for the [bank] symbol.
 //	Selecting the non-native instrument causes the [map] character to be prepended to the
@@ -72,7 +72,7 @@ public:
 	
 	void Initialize(UINT16 chnID, size_t screenWidth);
 	void ShowInsName(const char* insName, bool grey = false);
-	void ShowPan(INT8 pan);
+	void ShowPan(INT8 pan, bool grey = false);
 	static int CalcNoteSlot(UINT8 note, UINT8* inColPos, int ncols);
 	void RefreshNotes(const NoteVisualization* noteVis, const NoteVisualization::ChnInfo* chnInfo);
 	static void PadString(char* str, size_t padlen, char padchar, UINT8 padleft);
@@ -113,6 +113,19 @@ static std::string lastMeta03;
 static std::string lastMeta04;
        std::vector<UINT8> optShowMeta;
        UINT8 optShowInsChange;
+
+static void refresh_cursor_y(void)
+{
+	int x, y;
+	
+	getyx(stdscr, y, x);
+	if (y > curYline)
+		curYline = y;
+	if (curYline >= LINES)
+		curYline = TEXT_BASE_LINE;
+	
+	return;
+}
 
 void vis_init(void)
 {
@@ -176,8 +189,7 @@ void vis_addstr(const char* text)
 	move(curYline, 0);	clrtoeol();
 	addstr(text);
 	curYline ++;
-	if (curYline >= LINES)
-		curYline = TEXT_BASE_LINE;
+	refresh_cursor_y();
 	move(curYline, 0);	clrtoeol();
 	
 	return;
@@ -194,8 +206,7 @@ void vis_printf(const char* format, ...)
 	va_end(args);
 	
 	curYline ++;
-	if (curYline >= LINES)
-		curYline = TEXT_BASE_LINE;
+	refresh_cursor_y();
 	move(curYline, 0);	clrtoeol();
 	
 	return;
@@ -295,7 +306,7 @@ void vis_new_song(void)
 		sprintf(chnNameStr, "Channel %2u", 1 + (curChn & 0x0F));
 		dispChns[curChn].Initialize(curChn, COLS);
 		dispChns[curChn].ShowInsName(chnNameStr, true);
-		dispChns[curChn].ShowPan(0);
+		dispChns[curChn].ShowPan(0, true);
 		mvaddch(curYline, NOTE_BASE_COL - 1, ACS_VLINE);
 		//dispChns[curChn].RedrawAll();
 	}
@@ -338,9 +349,9 @@ void vis_new_song(void)
 	move(curYline, 0);
 	refresh();
 	
-	lastMeta01 = "";
-	lastMeta03 = "";
-	lastMeta04 = "";
+	lastMeta01.clear();
+	lastMeta03.clear();
+	lastMeta04.clear();
 	
 	lastUpdateTime = 0;
 	
@@ -426,6 +437,9 @@ void vis_do_ins_change(UINT16 chn)
 			insName[1] = '+';	// SFX bank
 		else
 			insName[1] = ' ';
+		
+		if (insName[1] == ' ')	// make [bank] optional, as XG names can be pretty long
+			insName = insName[0] + insName.substr(2);
 	}
 	dispChns[chn].ShowInsName(insName.c_str());
 	
@@ -476,6 +490,22 @@ void str_locale_conv(std::string& text)
 	return;
 }
 
+static bool string_is_empty(const std::string& str)
+{
+	if (str.empty())
+		return true;
+	
+	size_t curChr;
+	
+	// return 'true' for strings that consist entirely of whitespace
+	for (curChr = 0; curChr < str.length(); curChr ++)
+	{
+		if (! isspace((unsigned char)str[curChr]))
+			return false;
+	}
+	return true;
+}
+
 void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data)
 {
 	std::string text(data, &data[dataLen]);
@@ -504,8 +534,8 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		curYline ++;
 		break;
 	case 0x03:	// Sequence/Track Name
-		if (lastMeta03 == text)
-			break;
+		//if (lastMeta03 == text)
+		//	break;
 		lastMeta03 = text;
 		
 		if (trk == 0 || midFile->GetMidiFormat() == 2)
@@ -516,8 +546,20 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			attroff(A_BOLD);
 			curYline ++;
 		}
+		else if (true)
+		{
+			//if (! optShowMeta[3])
+			//	break;
+			if (string_is_empty(text))
+				break;
+			str_locale_conv(text);
+			printw("Track %u Name: %s", trk, text.c_str());
+			curYline ++;
+		}
 		break;
 	case 0x04:	// Instrument Name
+		//if (! optShowMeta[4])
+		//	break;
 		if (lastMeta04 == text)
 			break;
 		lastMeta04 = text;
@@ -544,8 +586,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		break;
 	}
 	attroff(COLOR_PAIR(metaType % 8));
-	if (curYline >= LINES)
-		curYline = TEXT_BASE_LINE;
+	refresh_cursor_y();
 	move(curYline, 0);	clrtoeol();
 	
 	return;
@@ -651,9 +692,9 @@ void ChannelData::ShowInsName(const char* insName, bool grey)
 	return;
 }
 
-void ChannelData::ShowPan(INT8 pan)
+void ChannelData::ShowPan(INT8 pan, bool grey)
 {
-	char pChar;
+	chtype pChar;
 	
 	_pan = pan;
 	
@@ -662,10 +703,19 @@ void ChannelData::ShowPan(INT8 pan)
 	else if (_pan > 0)
 		pChar = '>';
 	else
-		pChar = ' ';
-	attron(A_BOLD | COLOR_PAIR(_color));
-	mvaddch(_posY, NOTE_BASE_COL - 2, pChar);
-	attroff(A_BOLD | COLOR_PAIR(_color));
+		pChar = ACS_BULLET;	// ' '
+	if (grey)
+	{
+		mvaddch(_posY, NOTE_BASE_COL - 2, pChar);
+		_flags |= 0x02;
+	}
+	else
+	{
+		_flags &= ~0x02;
+		attron(A_BOLD | COLOR_PAIR(_color));
+		mvaddch(_posY, NOTE_BASE_COL - 2, pChar);
+		attroff(A_BOLD | COLOR_PAIR(_color));
+	}
 	
 	return;
 }
@@ -836,7 +886,7 @@ void ChannelData::RedrawAll(void)
 		mvaddstr(_posY, 0, _insName.c_str());
 		attroff(A_BOLD | COLOR_PAIR(_color));
 	}
-	ShowPan(_pan);
+	ShowPan(_pan, (_flags & 0x02) ? true : false);
 	mvaddch(_posY, NOTE_BASE_COL - 1, ACS_VLINE);
 	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
 		DrawNoteName(curNote);

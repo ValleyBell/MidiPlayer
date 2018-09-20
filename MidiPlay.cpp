@@ -386,6 +386,8 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	{
 	case 0xF0:
 	case 0xF7:
+		if (midiEvt->evtData.size() < 0x03)
+			break;	// ignore invalid/empty SysEx messages
 		{
 			if (HandleSysExMessage(trkState, midiEvt))
 				break;
@@ -673,6 +675,24 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	case 0x63:	// NRPN MSB
 		chnSt->rpnCtrl[0] = 0x80 | midiEvt->evtValB;
+		if (midiEvt->evtValB == 20)
+		{
+			vis_addstr("NRPN Loop Start found.");
+			SaveLoopState(_loopPt, trkSt);
+		}
+		else if (midiEvt->evtValB == 30)
+		{
+			if (_loopPt.used && _loopPt.tick < _nextEvtTick)
+			{
+				_curLoop ++;
+				if (! _numLoops || _curLoop < _numLoops)
+				{
+					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+					_breakMidiProc = true;
+					RestoreLoopState(_loopPt);
+				}
+			}
+		}
 		break;
 	case 0x64:	// RPN LSB
 		chnSt->rpnCtrl[1] = 0x00 | midiEvt->evtValB;

@@ -299,6 +299,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 				}
 				break;
 			case 0xF0:
+				if (evtIt->evtData.size() < 0x03)
+					break;
 				switch(evtIt->evtType)
 				{
 				case 0xF0:	// SysEx message
@@ -307,6 +309,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 					switch(evtIt->evtData[0x00])
 					{
 					case 0x41:	// Roland ID
+						if (evtIt->evtData.size() < 0x08)
+							break;
 						// Data[0x01] == 0x1n - Device Number n
 						// Data[0x02] == Model ID (MT-32 = 0x16, GS = 0x42)
 						// Data[0x03] == Command ID (reqest data RQ1 = 0x11, data set DT1 = 0x12)
@@ -354,6 +358,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 						}
 						break;
 					case 0x43:	// YAMAHA ID
+						if (evtIt->evtData.size() < 0x06)
+							break;
 						if (evtIt->evtData[0x02] == 0x4C)
 						{
 							if (evtIt->evtData[0x03] == 0x00 && evtIt->evtData[0x04] == 0x00 &&
@@ -365,6 +371,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 						}
 						break;
 					case 0x7E:
+						if (evtIt->evtData.size() < 0x04)
+							break;
 						if (evtIt->evtData[0x01] == 0x7F && evtIt->evtData[0x02] == 0x09)
 						{
 							// GM Level 1 On: F0 7E 7F 09 01 F7
