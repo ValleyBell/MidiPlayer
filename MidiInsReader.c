@@ -148,6 +148,13 @@ static void AddInstrument(INS_BANK* insBank, const INS_DATA* newIns, UINT8 drumM
 	tempPrg->instruments[tempPrg->count] = *newIns;
 	tempPrg->count ++;
 	
+	if (newIns->bankMSB > insBank->maxBankMSB)
+		insBank->maxBankMSB = newIns->bankMSB;
+	if (newIns->bankLSB > insBank->maxBankLSB)
+		insBank->maxBankLSB = newIns->bankLSB;
+	if (drumMode && newIns->program > insBank->maxDrumKit)
+		insBank->maxDrumKit = newIns->program;
+	
 	return;
 }
 
@@ -173,6 +180,10 @@ UINT8 LoadInstrumentList(const char* fileName, INS_BANK* insBank)
 	
 	insAlloc = 0x100;
 	fileVer = 0;	// assume version 0 at first
+	insBank->moduleType = 0x00;
+	insBank->maxBankMSB = 0x00;
+	insBank->maxBankLSB = 0x00;
+	insBank->maxDrumKit = 0x00;
 	while(! feof(hFile))
 	{
 		tempPtr = fgets(lineBuf, 0x100, hFile);
@@ -338,6 +349,9 @@ void CopyInstrumentBank(INS_BANK* dest, const INS_BANK* source, UINT8 moduleID)
 	UINT16 curPrg;
 	
 	dest->moduleType = source->moduleType;
+	dest->maxBankMSB = source->maxBankMSB;
+	dest->maxBankLSB = source->maxBankLSB;
+	dest->maxDrumKit = source->maxDrumKit;
 	for (curPrg = 0x00; curPrg < 0x100; curPrg ++)
 	{
 		const INS_PRG_LST* srcPrg = &source->prg[curPrg];

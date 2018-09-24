@@ -21,8 +21,9 @@ static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
 // Roland Symbols:
-//	Map:	' - SC-55 map (LSB 1), " - SC-88 map (LSB 2)
-//	Bank:	* - drum bank, [space] - GM bank, + - variation bank (LSB 1..125), # - MT-32/CM-64 bank (MSB 126/127)
+//	Map:	" - SC-55 map (LSB 1), ' - SC-88 map (LSB 2)
+//	Bank:	* - drum bank, _ - GM map (MSB 0 after GM reset),
+//			[space] - capital bank (LSB 0), + - variation bank (LSB 1..125), # - MT-32/CM-64 bank (MSB 126/127)
 //	Order is [bank] [map] [instrument name].
 //	The display reserves 1 character for the [bank] symbol.
 //	Selecting the non-native instrument causes the [map] character to be prepended to the
@@ -35,8 +36,8 @@ static const char* notes[12] =
 
 static const char SC_MAP_SYMBOLS[4] =
 {
-	'\'',	// SC-55 map (as seen on SC-88/SC-88Pro)
-	'\"',	// SC-88 map (as seen on SC-88Pro)
+	'\'',	// SC-55 map
+	'\"',	// SC-88 map
 	'^',	// SC-88Pro map
 	'|',	// SC-8850 map
 };
@@ -384,6 +385,7 @@ void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data)
 void vis_do_ins_change(UINT16 chn)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
+	const MidiPlayer::InstrumentInfo* insInf = &chnSt->insSend;
 	int posY = CHN_BASE_LINE + chn;
 	int color = (chn % 6) + 1;
 	std::string insName;
@@ -399,8 +401,8 @@ void vis_do_ins_change(UINT16 chn)
 	}
 	else
 	{
-		if (chnSt->insMapPPtr != NULL)
-			insName = chnSt->insMapPPtr->insName;
+		if (insInf->bankPtr != NULL)
+			insName = insInf->bankPtr->insName;
 		else
 			insName = "--unknown--";
 	}
@@ -409,15 +411,15 @@ void vis_do_ins_change(UINT16 chn)
 	{
 		// The order on actual Roland Sound Canvas modules would be [bank] [map] [name].
 		insName = "  " + insName;
-		if (chnSt->insBank[1] >= 0x01 && chnSt->insBank[1] <= 0x04)
-			insName[0] = SC_MAP_SYMBOLS[chnSt->insBank[1] - 0x01];
+		if (insInf->bank[1] >= 0x01 && insInf->bank[1] <= 0x04)
+			insName[0] = SC_MAP_SYMBOLS[insInf->bank[1] - 0x01];
 		else
 			insName[0] = ' ';
 		if (chnSt->flags & 0x80)
 			insName[1] = '*';	// drum channel
-		else if (chnSt->insBank[0] >= 0x7E)
+		else if (insInf->bank[0] >= 0x7E)
 			insName[1] = '#';	// CM-64 sound
-		else if (chnSt->insBank[0] > 0x00)
+		else if (insInf->bank[0] > 0x00)
 			insName[1] = '+';	// variation sound
 		else
 			insName[1] = ' ';	// capital sound
@@ -425,15 +427,15 @@ void vis_do_ins_change(UINT16 chn)
 	else if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_XG)
 	{
 		insName = "  " + insName;
-		if ((chnSt->flags & 0x80) && (chnSt->curIns & 0x7F) == 0x00)
+		if ((chnSt->flags & 0x80) && chnSt->curIns == 0x00)
 			insName[0] = ' ';	// GM drums
-		else if (chnSt->insBank[0] == 0x00 && chnSt->insBank[1] == 0x00)
+		else if (insInf->bank[0] == 0x00 && insInf->bank[1] == 0x00)
 			insName[0] = ' ';	// GM instrument
-		else if (chnSt->insMapPPtr != NULL && chnSt->insMapPPtr->moduleID < 6)
-			insName[0] = MU_MAP_SYMBOLS[chnSt->insMapPPtr->moduleID];
-		if ((chnSt->flags & 0x80) || chnSt->insBank[0] >= 0x7E)
+		else if (insInf->bankPtr != NULL && insInf->bankPtr->moduleID < 6)
+			insName[0] = MU_MAP_SYMBOLS[insInf->bankPtr->moduleID];
+		if ((chnSt->flags & 0x80) || insInf->bank[0] >= 0x7E)
 			insName[1] = '#';	// drum bank
-		else if (chnSt->insBank[0] == 0x40)
+		else if (insInf->bank[0] == 0x40)
 			insName[1] = '+';	// SFX bank
 		else
 			insName[1] = ' ';

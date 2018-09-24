@@ -27,6 +27,9 @@ typedef struct
 typedef struct
 {
 	UINT8 moduleType;
+	UINT8 maxBankMSB;
+	UINT8 maxBankLSB;
+	UINT8 maxDrumKit;
 	INS_PRG_LST prg[0x100];	// program IDs: 00..7F - melody instruments, 80-FF - drum instruments
 } INS_BANK;
 

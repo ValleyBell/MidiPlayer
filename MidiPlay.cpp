@@ -27,6 +27,12 @@
 #define TICK_FP_SHIFT	8
 #define TICK_FP_MUL		(1 << TICK_FP_SHIFT)
 
+#define BNKIGN_NONE		0x00
+#define BNKIGN_MSB		0x01
+#define BNKIGN_LSB		0x02
+#define BNKIGN_ALLBNK	(BNKIGN_MSB | BNKIGN_LSB)
+#define BNKIGN_INS		0x04
+
 static const UINT8 PART_ORDER[0x10] =
 {	0x9, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF};
 
@@ -596,17 +602,10 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	switch(ctrlID)
 	{
 	case 0x00:	// Bank MSB
-		chnSt->insBank[0] = chnSt->ctrls[0x00];
+		chnSt->insState[0] = chnSt->ctrls[0x00];
 		break;
 	case 0x20:	// Bank LSB
-		chnSt->insBank[1] = chnSt->ctrls[0x20];
-		if ((_options.flags & PLROPTS_STRICT) && (_options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B))
-		{
-			// enforce Bank LSB == 0 for GS/SC-55
-			chnSt->insBank[1] = 0x00;
-			MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, ctrlID, chnSt->insBank[1]);
-			return true;
-		}
+		chnSt->insState[1] = chnSt->ctrls[0x20];
 		break;
 	case 0x07:	// Main Volume
 		// if (Fading) then calculate new volume + send event + return true
@@ -760,9 +759,6 @@ static const INS_DATA* GetInsMapData(const INS_PRG_LST* insPrg, UINT8 ins, UINT8
 		insData = &insPrg->instruments[curIns];
 		if (msb == 0xFF || insData->bankMSB == msb)
 		{
-			// The Bank MSB check prevents it from accidentally selecting MT-32 sounds in GS instrument maps.
-			if (msb == 0xFF && insData->bankMSB >= 0x7E)
-				continue;
 			if (lsb == 0xFF || insData->bankLSB == lsb)
 			{
 				if (insData->moduleID == maxModuleID)
@@ -786,382 +782,451 @@ static const INS_DATA* GetInsMapData(const INS_PRG_LST* insPrg, UINT8 ins, UINT8
 	return NULL;
 }
 
-static const INS_DATA* GetExactInstrument(const INS_BANK* insBank, const MidiPlayer::ChannelState* chnSt, UINT8 maxModuleID, UINT8 bankIgnore)
+static const INS_DATA* GetExactInstrument(const INS_BANK* insBank, const MidiPlayer::InstrumentInfo* insInf, UINT8 maxModuleID, UINT8 bankIgnore)
 {
 	const INS_PRG_LST* insPrg;
 	const INS_DATA* insData;
 	UINT8 msb;
 	UINT8 lsb;
+	UINT8 ins;
 	
 	if (insBank == NULL)
 		return NULL;
-	insPrg = &insBank->prg[chnSt->curIns];
+	insPrg = &insBank->prg[insInf->ins];
 	
 	// try exact match first
-	if (bankIgnore)
-	{
-		insData = GetInsMapData(insPrg, chnSt->curIns, chnSt->insBank[0], chnSt->insBank[1], maxModuleID);
-		if (insData != NULL)
-			return insData;
-	}
-	msb = (bankIgnore & 0x01) ? 0xFF : chnSt->insBank[0];
-	lsb = (bankIgnore & 0x02) ? 0xFF : chnSt->insBank[1];
-	insData = GetInsMapData(insPrg, chnSt->curIns, msb, lsb, maxModuleID);
-	return insData;
+	insData = GetInsMapData(insPrg, insInf->ins, insInf->bank[0], insInf->bank[1], maxModuleID);
+	if (insData != NULL || ! bankIgnore)
+		return insData;
+	
+	msb = (bankIgnore & BNKIGN_MSB) ? 0xFF : insInf->bank[0];
+	lsb = (bankIgnore & BNKIGN_LSB) ? 0xFF : insInf->bank[1];
+	ins = (bankIgnore & BNKIGN_INS) ? 0x00 : insInf->ins;
+	return GetInsMapData(insPrg, ins, msb, lsb, maxModuleID);
 }
 
-static const INS_DATA* GetClosestInstrument(const INS_BANK* insBank, const MidiPlayer::ChannelState* chnSt, UINT8 maxModuleID, UINT8 bankIgnore)
+void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8* bankIgnore)
 {
-	const INS_PRG_LST* insPrg;
-	const INS_DATA* insData;
-	UINT8 msb;
-	UINT8 lsb;
+	if (chnSt->userInsID != 0xFFFF)
+		return;
 	
-	if (insBank == NULL)
-		return NULL;
-	insPrg = &insBank->prg[chnSt->curIns];
-	
-	// try exact match first
-	if (bankIgnore)
+	if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 	{
-		insData = GetInsMapData(insPrg, chnSt->curIns, chnSt->insBank[0], chnSt->insBank[1], maxModuleID);
-		if (insData != NULL)
-			return insData;
+		if (devType == MODULE_SC55)
+		{
+			// This implements the Capital Tone Fallback mode from SC-55 v1.
+			if (! (chnSt->flags & 0x80))
+			{
+				// melody mode
+				if (insBank != NULL)
+				{
+					const INS_PRG_LST* insPrg = &insBank->prg[insInf->ins];
+				
+					// 1. sub-CTF according to https://www.vogons.org/viewtopic.php?p=501280#p501280
+					insInf->bank[0] &= ~0x07;
+					if (GetInsMapData(insPrg, insInf->ins, insInf->bank[0], insInf->bank[1], 0xFF) != NULL)
+						return;
+				}
+				
+				// 2. fall back to GM sound
+				insInf->bank[0] = 0x00;
+			}
+			else
+			{
+				// drum CTF according to https://www.vogons.org/viewtopic.php?p=501038#p501038
+				insInf->ins &= ~0x07;
+			}
+		}
+		else if (devType == MODULE_TG300B)
+		{
+			// Yamaha's CTF is simple and very similar to the XG fallback.
+			if (! (chnSt->flags & 0x80))
+			{
+				insInf->bank[0] = 0x00;
+			}
+		}
+		else
+		{
+			// SC-88 and later simply ignores the instrument change
+		}
 	}
-	msb = (bankIgnore & 0x01) ? 0xFF : chnSt->insBank[0];
-	lsb = (bankIgnore & 0x02) ? 0xFF : chnSt->insBank[1];
-	insData = GetInsMapData(insPrg, chnSt->curIns, msb, lsb, maxModuleID);
-	if (insData != NULL)
-		return insData;
-	insData = GetInsMapData(insPrg, chnSt->curIns, msb, 0x00, maxModuleID);
-	if (insData != NULL)
-		return insData;
-	insData = GetInsMapData(insPrg, chnSt->curIns, 0x00, lsb, maxModuleID);
-	if (insData != NULL)
-		return insData;
-	insData = GetInsMapData(insPrg, chnSt->curIns, msb, 0xFF, maxModuleID);
-	if (insData != NULL)
-		return insData;
-	insData = GetInsMapData(insPrg, chnSt->curIns, 0xFF, 0xFF, maxModuleID);
-	return insData;
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
+	{
+		// XG has capital tone fallback by setting Bank LSB to 00
+		// for Bank MSB 0, this results in GM sounds.
+		// for Bank MSB 64/126/127, LSB isn't used anyway
+		// for all unused/invalid Bank MSB, it results in silence
+		insInf->bank[1] = 0x00;
+	}
+	else
+	{
+		// generic fallback code
+		*bankIgnore |= BNKIGN_ALLBNK;
+	}
+	return;
+}
+
+void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID)
+{
+	const INS_BANK* insBank;
+	const UINT8 devType = _options.srcType;
+	UINT8 mapModType;
+	UINT8 bankIgnore;
+	
+	insInf->bank[0] = chnSt->ctrls[0x00];
+	insInf->bank[1] = chnSt->ctrls[0x20];
+	insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
+	bankIgnore = BNKIGN_NONE;
+	insBank = SelectInsMap(devType, &mapModType);
+	
+	if (devType == MODULE_GM_1)
+	{
+		bankIgnore = BNKIGN_ALLBNK;
+		if (chnSt->flags & 0x80)
+			bankIgnore |= BNKIGN_INS;	// there is only 1 drum kit
+	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
+	{
+		if (devType == MODULE_SC55 || devType == MODULE_TG300B)
+		{
+			// SC-55 ignores Bank LSB
+			if (insBank != NULL && insBank->maxBankLSB > 0x00)
+				insInf->bank[1] = 0x01;	// instrument bank has SC-55/88/... maps - default to the SC-55 one
+			else
+				bankIgnore |= BNKIGN_LSB;
+		}
+		else
+		{
+			// SC-88+: force GS instrument bank LSB to 01+
+			if (insInf->bank[1] == 0x00)	// Bank LSB = default bank
+			{
+				// enforce the device's "native" bank
+				if (MMASK_MOD(devType) < MT_UNKNOWN)
+					insInf->bank[1] = 0x01 + MMASK_MOD(devType);
+				else
+					bankIgnore |= BNKIGN_LSB;	// unknown device - find anything
+			}
+		}
+		if (chnSt->flags & 0x80)
+			bankIgnore |= BNKIGN_MSB;	// ignore MSB on drum channels
+	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
+	{
+		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
+			bankIgnore |= BNKIGN_LSB;	// ignore LSB on drum channels and SFX banks
+	}
+	else if (devType == MODULE_MT32)
+	{
+		if (insBank != NULL && insBank->maxBankMSB >= 0x01)
+		{
+			// when supported by the instrument bank, do CM-32L/P instrument set selection
+			bankIgnore = BNKIGN_LSB;
+			if (chnID <= 0x09)
+				insInf->bank[0] = 0x00;	// MT-32/CM-32L set
+			else
+				insInf->bank[0] = 0x01;	// CM-32P set
+		}
+		else
+		{
+			bankIgnore = BNKIGN_ALLBNK;
+		}
+		if (chnSt->flags & 0x80)
+			bankIgnore |= BNKIGN_INS;	// there is only 1 drum kit
+	}
+	else
+	{
+		// generic handler
+		if (insBank == NULL || insBank->maxBankMSB == 0x00)
+			bankIgnore |= BNKIGN_MSB;
+		if (insBank == NULL || insBank->maxBankLSB == 0x00)
+			bankIgnore |= BNKIGN_LSB;
+		if ((chnSt->flags & 0x80) && (insBank == NULL || insBank->maxDrumKit == 0x00))
+			bankIgnore |= BNKIGN_INS;
+	}
+	
+	insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType, bankIgnore);
+	if (insInf->bankPtr == NULL && insBank != NULL)
+	{
+		if (chnSt->userInsID != 0xFFFF)
+		{
+			if (MMASK_TYPE(devType) == MODULE_TYPE_GS && ! (chnSt->flags & 0x80))
+			{
+				InstrumentInfo tmpII;
+				tmpII.bank[0] = 0x00;
+				tmpII.bank[1] = (insInf->bank[0] == 0x41) ? 0x01 : insInf->bank[1];
+				tmpII.ins = insInf->ins;
+				insInf->bankPtr = GetExactInstrument(insBank, &tmpII, mapModType, bankIgnore);
+			}
+		}
+		else if (_options.flags & PLROPTS_ENABLE_CTF)
+		{
+			// handle device-specific fallback modes
+			HandleIns_DoFallback(chnSt, insInf, devType, insBank, &bankIgnore);
+			insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType, bankIgnore);
+		}
+	}
+	
+	return;
+}
+
+void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID)
+{
+	InstrumentInfo insIOld;
+	const INS_BANK* insBank;
+	const UINT8 devType = _options.dstType;
+	UINT8 mapModType;
+	UINT8 bankIgnore;
+	UINT8 strictPatch;
+	
+	if (_options.flags & PLROPTS_STRICT)
+	{
+		*insInf = chnSt->insOrg;
+	}
+	else
+	{
+		insInf->bank[0] = chnSt->ctrls[0x00];
+		insInf->bank[1] = chnSt->ctrls[0x20];
+		insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
+	}
+	insIOld = *insInf;
+	bankIgnore = BNKIGN_NONE;
+	strictPatch = BNKIGN_NONE;
+	insBank = SelectInsMap(devType, &mapModType);
+	
+	
+	if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
+	{
+		if (_options.srcType == MODULE_MT32)
+		{
+			// [conversion] use MT-32 instruments on GS device
+			insInf->bank[1] = 0x01 + MTGS_SC55;
+			if (chnSt->flags & 0x80)
+			{
+				insInf->bank[0] = 0x00;
+				insInf->ins = 0x7F | 0x80;
+			}
+			else
+			{
+				// channels 1-10: MT-32/CM-32L, channels 11-16: CM-32P
+				insInf->bank[0] = (chnID <= 0x09) ? 0x7F : 0x7E;
+			}
+		}
+		else
+		{
+			if (insInf->bank[1] == 0x00 || MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS)
+			{
+				UINT8 defaultDev;
+				// GS song: use bank that is optimal for the song
+				// GM song: use "native" bank for device
+				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
+				{
+					defaultDev = MMASK_MOD(_options.srcType);
+				}
+				else
+				{
+					defaultDev = MMASK_MOD(devType);
+					if (defaultDev == MTGS_SC8850)
+						defaultDev = MTGS_SC88PRO;	// TODO: make configurable
+				}
+				insInf->bank[1] = 0x01 + defaultDev;
+				strictPatch |= BNKIGN_LSB;	// mark for undo when not strict
+			}
+			if (_options.srcType == MODULE_GM_1 && (chnSt->flags & 0x80))
+			{
+				insInf->ins = 0x00 | 0x80;	// for GM, enforce to Standard Kit 1
+			}
+		}
+		if (chnSt->flags & 0x80)
+		{
+			bankIgnore |= BNKIGN_MSB;	// ignore MSB on drum channels
+			if (_options.flags & PLROPTS_STRICT)
+				insInf->bank[0] = 0x00;
+		}
+		if (insBank != NULL && insBank->maxBankLSB == 0x00)
+			bankIgnore |= BNKIGN_LSB;
+	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
+	{
+		if (_options.flags & PLROPTS_STRICT)
+		{
+			if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_XG)
+			{
+				insInf->bank[0] = (chnSt->flags & 0x80) ? 0x7F : 0x00;
+				insInf->bank[1] = 0x00;
+			}
+		}
+		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
+		{
+			bankIgnore |= BNKIGN_LSB;	// ignore LSB on drum channels and SFX banks
+			if (_options.flags & PLROPTS_STRICT)
+				insInf->bank[1] = 0x00;
+		}
+	}
+	
+	// try to choose a fitting instrument for the destination device
+	// (the XG patch above had to be done first)
+	insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType, bankIgnore);
+	if (insInf->bankPtr == NULL && insBank != NULL)
+	{
+		if (chnSt->userInsID != 0xFFFF)
+		{
+			if (MMASK_TYPE(devType) == MODULE_TYPE_GS && ! (chnSt->flags & 0x80))
+			{
+				InstrumentInfo tmpII;
+				tmpII.bank[0] = 0x00;
+				tmpII.bank[1] = (insInf->bank[0] == 0x41) ? 0x01 : insInf->bank[1];
+				tmpII.ins = insInf->ins;
+				insInf->bankPtr = GetExactInstrument(insBank, &tmpII, mapModType, bankIgnore);
+			}
+		}
+		else if (_options.flags & PLROPTS_ENABLE_CTF)
+		{
+			// handle device-specific fallback modes
+			UINT8 fbDevType = devType;
+			if (true && MMASK_TYPE(fbDevType) == MODULE_TYPE_GS)
+				fbDevType = MODULE_SC55;	// use SC-55 fallback method for all GS devices
+			HandleIns_DoFallback(chnSt, insInf, fbDevType, insBank, &bankIgnore);
+			insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType, bankIgnore);
+		}
+	}
+	
+	if (! (_options.flags & PLROPTS_STRICT))
+	{
+		if (strictPatch & BNKIGN_MSB)
+			insInf->bank[0] = insIOld.bank[0];
+		if (strictPatch & BNKIGN_LSB)
+			insInf->bank[1] = insIOld.bank[1];
+		if (strictPatch & BNKIGN_MSB)
+			insInf->ins = insIOld.ins;
+	}
+	else //if (_options.flags & PLROPTS_STRICT)
+	{
+		if (devType == MODULE_SC55 || devType == MODULE_TG300B)
+		{
+			// We had to use LSB 01 for instrument lookup, but we actually send LSB 00.
+			// (LSB is ignored on the SC-55 itself, but LSB 00 is required on the Yamaha MU80.)
+			insInf->bank[1] = 0x00;
+		}
+	}
+	
+	return;
 }
 
 bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | (midiEvt->evtType & 0x0F));
-	UINT8 oldMSB = chnSt->insBank[0];
-	UINT8 oldLSB = chnSt->insBank[1];
-	UINT8 oldIns = chnSt->curIns;
-	bool isUserIns;
-	bool didPatch;
-	const INS_BANK* insBank;
-	UINT8 mapModType;
-	UINT8 bankIgnore;
+	UINT8 chnID = midiEvt->evtType & 0x0F;
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | chnID);
+	UINT8 oldMSB = chnSt->insState[0];
+	UINT8 oldLSB = chnSt->insState[1];
+	UINT8 oldIns = chnSt->insState[2];
+	UINT8 bankMSB = chnSt->ctrls[0x00];
 	
-	// start with the "actual" definition, then add patches
-	chnSt->insBank[0] = chnSt->ctrls[0x00];
-	chnSt->insBank[1] = chnSt->ctrls[0x20];
 	chnSt->curIns = midiEvt->evtValA;
-	chnSt->curIns = (chnSt->curIns & 0x7F) | (chnSt->flags & 0x80);
 	chnSt->userInsID = 0xFFFF;
-	chnSt->insMapOPtr = chnSt->insMapPPtr = NULL;
-	isUserIns = false;
-	didPatch = false;
-	bankIgnore = 0x00;
 	
+	// handle user instruments and channel mode changes
 	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 	{
 		if (MMASK_MOD(_options.srcType) >= MTGS_SC88 && MMASK_MOD(_options.srcType) != MTGS_TG300B)
 		{
-			if (chnSt->curIns == (0x80|0x40) || chnSt->curIns == (0x80|0x41))
+			if ((chnSt->flags & 0x80) && (chnSt->curIns == 0x40 || chnSt->curIns == 0x41))	// user drum kit
 				chnSt->userInsID = 0x8000 | (chnSt->curIns & 0x01);
-			else if (chnSt->insBank[0] == 0x40 || chnSt->insBank[0] == 0x41)
-				chnSt->userInsID = ((chnSt->insBank[0] & 0x01) << 7) | (chnSt->curIns & 0x7F);
+			else if (bankMSB == 0x40 || bankMSB == 0x41)	// user instrument
+				chnSt->userInsID = ((bankMSB & 0x01) << 7) | chnSt->curIns;
 		}
 	}
 	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
 	{
-		if (chnSt->insBank[0] == 0x3F)
-			chnSt->userInsID = (chnSt->curIns & 0x7F);	// QS300 user voices (00..1F only)
-		if (chnSt->insBank[0] >= 0x7E)	// MSB 7E/7F = drum kits
+		if (bankMSB == 0x3F)
+			chnSt->userInsID = chnSt->curIns;	// QS300 user voices (00..1F only)
+		if (bankMSB >= 0x7E)	// MSB 7E/7F = drum kits
 			chnSt->flags |= 0x80;
 		else
 			chnSt->flags &= ~0x80;
-		if ((midiEvt->evtType & 0x0F) == 0x09 && ! (chnSt->flags & 0x80))
+		if (chnID == 0x09 && ! (chnSt->flags & 0x80))
 		{
 			// for now enforce drum mode on channel 9
 			// TODO: XG allows ch 9 to be melody - what are the exact conditions??
 			chnSt->flags |= 0x80;
 			vis_addstr("Keeping drum mode on ch 9!");
 		}
-		chnSt->curIns = (chnSt->curIns & 0x7F) | (chnSt->flags & 0x80);
 		nvChn->_chnMode &= ~0x01;
 		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 	}
-	else if (_options.srcType == MODULE_GM_1)
+	else if (_options.srcType == MODULE_GM_2)
 	{
-		bankIgnore = 0x03;	// GM Level 1 doesn't support Bank MSB/LSB
-	}
-	else if (_options.srcType == MODULE_MT32)
-	{
-		isUserIns = true;	// disable CTF patch
-		bankIgnore = 0x03;	// MT-32 doesn't support Bank MSB/LSB
-	}
-	if (chnSt->userInsID != 0xFFFF)
-		isUserIns = true;
-	
-	// ignore Bank MSB/LSB on drum channels, depending on device type
-	if (chnSt->flags & 0x80)
-	{
-		if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-			bankIgnore |= 0x01;	// ignore MSB
-		else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
-			bankIgnore |= 0x02;	// ignore LSB
-		else
-			bankIgnore |= 0x03;
+		if (bankMSB == 0x78)	// drum kits
+			chnSt->flags |= 0x80;
+		else if (bankMSB == 0x79)	// melody instruments
+			chnSt->flags &= ~0x80;
+		nvChn->_chnMode &= ~0x01;
+		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 	}
 	
-	
-	// apply PLROPTS_STRICT filter now (regardless of the option),
-	// so that instrument lookup works
-	if (_options.srcType == MODULE_GM_1 || _options.srcType == MODULE_MT32)
-	{
-		chnSt->insBank[0] = 0x00;
-		chnSt->insBank[1] = 0x00;
-		// TODO: improve and keep drum kits while making lookup work
-	//	if (chnSt->flags & 0x80)
-	//		chnSt->curIns = 0x00 | (chnSt->flags & 0x80);
-	}
-	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-	{
-		if (_options.srcType == MODULE_SC55)
-		{
-			// SC-55 ignores Bank LSB, so we enforce the SC-55 instrument map here
-			chnSt->insBank[1] = 0x01;
-		}
-		// SC-88+: force GS instrument bank LSB to 01+
-		else if (chnSt->insBank[1] == 0x00)	// Bank LSB = default bank
-		{
-			// GS song: use bank that is optimal for the song
-			// GM song: use "native" bank for device
-			if (MMASK_MOD(_options.srcType) >= MT_UNKNOWN)
-				bankIgnore |= 0x02;
-			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
-			else
-			{
-				if (_options.dstType == MODULE_SC8850)
-					chnSt->insBank[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
-				else
-					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
-			}
-		}
-	}
-	insBank = SelectInsMap(_options.srcType, &mapModType);
-	chnSt->insMapOPtr = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore);
-	
-	if (_options.flags & PLROPTS_STRICT)
-	{
-		if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_XG &&
-			MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
-		{
-			chnSt->insBank[0] = (chnSt->flags & 0x80) ? 0x7F : 0x00;
-		}
-	}
-	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
-	{
-		if (_options.srcType == MODULE_MT32)
-		{
-			// use MT-32 instruments on GS device
-			chnSt->insBank[1] = 0x01 + MTGS_SC55;
-			if (chnSt->flags & 0x80)
-			{
-				chnSt->insBank[0] = 0x00;
-				chnSt->curIns = 0x7F | (chnSt->flags & 0x80);
-			}
-			else
-			{
-				// channels 1-10: MT-32/CM-32L, channels 11-16: CM-32P
-				chnSt->insBank[0] = ((midiEvt->evtType & 0x0F) <= 0x09) ? 0x7F : 0x7E;
-			}
-			bankIgnore &= ~0x03;	// Bank MSB/LSB is important now
-		}
-		else if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS || chnSt->insBank[1] == 0x00)
-		{
-			// GS song: use bank that is optimal for the song
-			// GM song: use "native" bank for device
-			if (MMASK_MOD(_options.srcType) >= MT_UNKNOWN)
-				bankIgnore |= 0x02;
-			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-				chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
-			else
-			{
-				if (_options.dstType == MODULE_SC8850)
-					chnSt->insBank[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
-				else
-					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
-			}
-		}
-	}
-	
-	// try to choose a fitting instrument for the destination device
-	// (the XG patch above had to be done first)
-	insBank = SelectInsMap(_options.dstType, &mapModType);
-	chnSt->insMapPPtr = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore);
-	
-	if (! (_options.flags & PLROPTS_STRICT))
-	{
-		// restore actual Bank MSB/LSB settings, for non-strict mode
-		chnSt->insBank[0] = chnSt->ctrls[0x00];
-		chnSt->insBank[1] = chnSt->ctrls[0x20];
-		chnSt->curIns = (midiEvt->evtValA & 0x7F) | (chnSt->flags & 0x80);
-		if (chnSt->insMapPPtr != NULL && chnSt->insMapOPtr != NULL)
-			chnSt->insMapPPtr = chnSt->insMapOPtr;
-	}
-	
-	if (chnSt->insMapPPtr == NULL && ! isUserIns && (~bankIgnore & 0x03) && (_options.flags & PLROPTS_ENABLE_CTF))
-	{
-		const INS_DATA* insData;
-		
-		if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG && (chnSt->flags & 0x80))
-			chnSt->insBank[0] = 0x7F;	// search on drum bank first [TODO: remove and do properly]
-		insData = GetClosestInstrument(insBank, chnSt, mapModType, bankIgnore);
-		if (insData == NULL)
-		{
-			// try General MIDI fallback
-			chnSt->insBank[0] = 0x00;
-			chnSt->insBank[1] = 0x00;
-			// on GS devices, keep a fitting Bank LSB type
-			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-			{
-				if (MMASK_MOD(_options.srcType) <= MMASK_MOD(_options.dstType))
-					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
-				else
-					chnSt->insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
-			}
-			
-			if (chnSt->flags & 0x80)
-			{
-				// handle drum mode fallback
-				chnSt->curIns &= 0x7F;
-				if (_options.srcType == MODULE_SC55 || (true && MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS))
-				{
-					// SC-55 v1 style drum CTF
-					// see https://www.vogons.org/viewtopic.php?p=501038#p501038
-					if ((chnSt->curIns & 0x78) == 0x18)
-						chnSt->curIns = 0x19;	// fall back to TR-808 kit
-					else if (chnSt->curIns < 0x40)
-						chnSt->curIns &= ~0x07;
-				}
-				else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-				{
-					// SC-88+ simply ignores the instrument change
-					chnSt->curIns = oldIns;
-				}
-				else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
-				{
-					// XG devices ignore the instrument change, but we should keep Bank MSB
-					chnSt->insBank[0] = chnSt->ctrls[0x00];
-					chnSt->curIns = oldIns;
-				}
-				else
-				{
-					// fall back to Standard Drum Kit
-					chnSt->curIns = 0x00;
-				}
-				chnSt->curIns |= 0x80;
-			}
-			insData = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore);
-			didPatch = true;
-		}
-		else
-		{
-			bool doLSB = true;
-			
-			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-			{
-				// PLROPTS_STRICT is enabled, insBank[1] will be >0
-				if (! chnSt->insBank[1] && insData->bankLSB == 0x01 + MMASK_MOD(_options.dstType))
-					doLSB = false;	// keep LSB where possible
-			}
-			
-			chnSt->insBank[0] = insData->bankMSB;
-			if (doLSB)
-				chnSt->insBank[1] = insData->bankLSB;
-		}
-		chnSt->insMapPPtr = insData;
-	}
-	if (chnSt->insMapPPtr == NULL && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
-	{
-		if (! chnSt->insBank[1] || _options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B)
-			chnSt->insMapPPtr = GetExactInstrument(insBank, chnSt, mapModType, bankIgnore | 0x02);
-	}
-	
-	if (_options.flags & PLROPTS_STRICT)
-	{
-		if (_options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B)
-		{
-			// We had to use LSB 01 for instrument lookup, but we actually send LSB 00.
-			// (LSB is ignored on the SC-55 itself, but LSB 00 is required on the Yamaha MU80.)
-			chnSt->insBank[1] = 0x00;
-		}
-	}
-	
-	// resend Bank MSB/LSB
-	if (oldMSB != chnSt->insBank[0] || oldLSB != chnSt->insBank[1] /*&& (~bankIgnore & 0x03)*/)
-	{
-		UINT8 evtType = 0xB0 | (midiEvt->evtType & 0x0F);
-		if (oldMSB != chnSt->insBank[0])
-			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x00, chnSt->insBank[0]);
-		if (oldLSB != chnSt->insBank[1])
-			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x20, chnSt->insBank[1]);
-	}
-	if (chnSt->insBank[0] != chnSt->ctrls[0x00] || chnSt->insBank[1] != chnSt->ctrls[0x20])
-		didPatch = true;
+	HandleIns_GetOriginal(chnSt, &chnSt->insOrg, chnID);
+	HandleIns_GetRemapped(chnSt, &chnSt->insSend, chnID);
 	
 	if (optShowInsChange)
 	{
 		const char* oldName;
 		const char* newName;
-		UINT8 ctrlEvt = 0xB0 | (midiEvt->evtType & 0x0F);
+		UINT8 ctrlEvt = 0xB0 | chnID;
 		UINT8 insEvt = midiEvt->evtType;
-		bool showOrgIns;
+		bool didPatch = false;
+		bool showOrgIns = false;
 		
-		showOrgIns = false;
+		if (chnSt->insSend.bank[0] != chnSt->ctrls[0x00] || chnSt->insSend.bank[1] != chnSt->ctrls[0x20] || chnSt->insSend.bank[1] != chnSt->ctrls[0x20])
+			didPatch = true;
 		if (didPatch && (_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 		{
-			if (chnSt->ctrls[0x20] == 0 && chnSt->ctrls[0x00] == chnSt->insBank[0] && midiEvt->evtValA == (chnSt->curIns & 0x7F))
+			if (chnSt->ctrls[0x20] == 0x00 && chnSt->ctrls[0x00] == chnSt->insSend.bank[0] && chnSt->curIns == (chnSt->insSend.ins & 0x7F))
 			{
 				didPatch = false;	// hide default instrument map strict mode
 				showOrgIns = true;
 			}
 		}
+		if (! didPatch && chnSt->insSend.bankPtr == NULL)
+			showOrgIns = true;
 		
-		oldName = (chnSt->insMapOPtr == NULL) ? "" : chnSt->insMapOPtr->insName;
-		newName = (chnSt->insMapPPtr == NULL) ? "" : chnSt->insMapPPtr->insName;
+		oldName = (chnSt->insOrg.bankPtr == NULL) ? "" : chnSt->insOrg.bankPtr->insName;
+		newName = (chnSt->insSend.bankPtr == NULL) ? "" : chnSt->insSend.bankPtr->insName;
 		if (didPatch)
 		{
 			vis_printf("%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
-				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName);
+				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, chnSt->curIns, oldName);
 			vis_printf("       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
-				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
+				ctrlEvt, chnSt->insSend.bank[0], ctrlEvt, chnSt->insSend.bank[1], insEvt, chnSt->insSend.ins & 0x7F, newName);
 		}
 		else if (! showOrgIns)
 		{
 			vis_printf("%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
-				ctrlEvt, chnSt->insBank[0], ctrlEvt, chnSt->insBank[1], insEvt, chnSt->curIns & 0x7F, newName);
+				ctrlEvt, chnSt->insSend.bank[0], ctrlEvt, chnSt->insSend.bank[1], insEvt, chnSt->insSend.ins & 0x7F, newName);
 		}
 		else
 		{
 			vis_printf("%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
-				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, midiEvt->evtValA, oldName);
+				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, chnSt->curIns, oldName);
 		}
 	}
 	
-	MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, chnSt->curIns & 0x7F, 0x00);
+	// apply new state (insSend is a reference of the instrument, insState keeps the last data sent to the device)
+	chnSt->insState[0] = chnSt->insSend.bank[0];
+	chnSt->insState[1] = chnSt->insSend.bank[1];
+	chnSt->insState[2] = chnSt->insSend.ins & 0x7F;
+	
+	// resend Bank MSB/LSB
+	if (oldMSB != chnSt->insState[0] || oldLSB != chnSt->insState[1])
+	{
+		UINT8 evtType = 0xB0 | chnID;
+		if (oldMSB != chnSt->insState[0])
+			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x00, chnSt->insState[0]);
+		if (oldLSB != chnSt->insState[1])
+			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x20, chnSt->insState[1]);
+	}
+	MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, chnSt->insState[2], 0x00);
 	return true;
 }
 
@@ -1332,14 +1397,17 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 				
 				chnSt->curIns = newIns;
 				chnSt->userInsID = 0xFFFF;
+				//HandleIns_GetOriginal(chnSt, &chnSt->insOrg, evtChn);
+				//HandleIns_GetRemapped(chnSt, &chnSt->insSend, evtChn);
 				insBank = SelectInsMap(_options.dstType, &mapModType);
-				chnSt->insMapPPtr = GetExactInstrument(insBank, chnSt, mapModType, 0x03);
+				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &chnSt->insSend, mapModType, BNKIGN_ALLBNK);
 			}
 			else
 			{
 				chnSt->curIns = 0xFF;
 				chnSt->userInsID = newIns & 0x7F;
-				chnSt->insMapPPtr = NULL;
+				chnSt->insOrg.bankPtr = NULL;
+				chnSt->insSend.bankPtr = NULL;
 			}
 			chnSt->pbRange = dataPtr[0x04];
 			if (true)
@@ -1678,10 +1746,13 @@ void MidiPlayer::InitializeChannels(void)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
 		chnSt.flags = 0x00;
+		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
+		chnSt.insOrg.bankPtr = NULL;
+		chnSt.insSend.bank[0] = chnSt.insSend.bank[1] = chnSt.insSend.ins = 0xFF;	// initialize to "not set"
+		chnSt.insSend.bankPtr = NULL;
+		chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;
 		chnSt.curIns = 0x00;
-		chnSt.insBank[0] = chnSt.insBank[1] = 0x00;
 		chnSt.userInsID = 0xFFFF;
-		chnSt.insMapOPtr = chnSt.insMapPPtr = NULL;
 		memset(&chnSt.ctrls[0], 0x00, 0x80);
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
@@ -1702,12 +1773,8 @@ void MidiPlayer::InitializeChannels(void)
 	{
 		ChannelState& drumChn = _chnStates[curChn | 0x09];
 		drumChn.flags |= 0x80;	// set drum channel mode
-		drumChn.curIns |= 0x80;
 		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
-		{
 			drumChn.ctrls[0x00] = 0x7F;
-			drumChn.insBank[0] = 0x7F;
-		}
 	}
 	_noteVis.Reset();
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
@@ -1735,24 +1802,24 @@ void MidiPlayer::InitializeChannels_Post(void)
 		{
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
-				UINT8 ins = 0x00;
-				
+				drumChn.insState[0] = 0x00;	// Bank MSB 0
 				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
-					drumChn.insBank[1] = 0x01 + MMASK_MOD(_options.srcType);
+					drumChn.insState[1] = 0x01 + MMASK_MOD(_options.srcType);
 				else if (_options.dstType == MODULE_SC8850)
-					drumChn.insBank[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
+					drumChn.insState[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
 				else
-					drumChn.insBank[1] = 0x01 + MMASK_MOD(_options.dstType);
+					drumChn.insState[1] = 0x01 + MMASK_MOD(_options.dstType);
+				drumChn.insState[2] = 0x00;	// Instrument: Standard Kit 1
 				
 				if (MMASK_TYPE(_options.srcType) == MODULE_MT32)
 				{
-					drumChn.insBank[1] = 0x01;
-					ins = 0x7F;	// select MT-32 drum kit
+					drumChn.insState[1] = 0x01;	// SC-55 map
+					drumChn.insState[2] = 0x7F;	// select MT-32 drum kit
 				}
 				
-				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x00, drumChn.insBank[0]);
-				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x20, drumChn.insBank[1]);
-				MidiOutPort_SendShortMsg(drumChn.outPort, 0xC9, ins, 0x00);
+				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x00, drumChn.insState[0]);
+				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x20, drumChn.insState[1]);
+				MidiOutPort_SendShortMsg(drumChn.outPort, 0xC9, drumChn.insState[2], 0x00);
 			}
 		}
 	}

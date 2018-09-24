@@ -34,14 +34,20 @@ public:
 		UINT8 vel;
 		UINT16 srcTrk;	// track that started the note
 	};
+	struct InstrumentInfo
+	{
+		UINT8 bank[2];	// 0 = Bank MSB, 1 = Bank LSB (current/patched state)
+		UINT8 ins;		// IDs 00..7F - melody, 80..FF - drum kits
+		const INS_DATA* bankPtr;	// original instrument
+	};
 	struct ChannelState
 	{
-		UINT8 flags;	// Bit 7 (80) - is drum channel
-		UINT8 curIns;
-		UINT8 insBank[2];	// 0 = Bank MSB, 1 = Bank LSB (current/patched state)
-		UINT16 userInsID;
-		const INS_DATA* insMapOPtr;	// original instrument
-		const INS_DATA* insMapPPtr;	// patched instrument
+		UINT8 flags;		// Bit 7 (80) - is drum channel
+		InstrumentInfo insOrg;	// original instrument set by the song
+		InstrumentInfo insSend;	// patched instrument as sent to the device
+		UINT8 insState[3];	// 0 = Bank MSB, 1 = Bank LSB, 2 = instrument (last sent state)
+		UINT8 curIns;		// instrument set by the MIDI file
+		UINT16 userInsID;	// 0xFFFF - not a user instrument
 		UINT8 ctrls[0x80];
 		UINT8 idCC[2];	// for SC-8820 CC1/CC2 remapping
 		
@@ -108,6 +114,9 @@ private:
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
+	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8* bankIgnore);
+	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
+	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
 	bool HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midiEvt);
