@@ -114,7 +114,8 @@ private:
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
-	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8* bankIgnore);
+	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID, UINT8 devType, UINT8& bankIgnore, const INS_BANK* insBank);
+	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8& bankIgnore);
 	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
 	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
 	bool HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
