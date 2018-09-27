@@ -952,6 +952,16 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 			}
 		}
 	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
+	{
+		// we're not as strict as in GetRemapped() here
+		if (chnSt->flags & 0x80)
+		{
+			// enforce drum mode
+			if (insInf->bank[0] < 0x7E)
+				insInf->bank[0] = 0x7F;
+		}
+	}
 	
 	insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType, bankIgnore);
 	if (insInf->bankPtr == NULL && insBank != NULL)
@@ -1042,7 +1052,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			}
 			if (_options.srcType == MODULE_GM_1 && (chnSt->flags & 0x80))
 			{
-				insInf->ins = 0x00 | 0x80;	// for GM, enforce to Standard Kit 1
+				if (false)	// TODO: make this an option
+					insInf->ins = 0x00 | 0x80;	// for GM, enforce to Standard Kit 1
 			}
 		}
 		if (chnSt->flags & 0x80)
@@ -1062,6 +1073,21 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			{
 				insInf->bank[0] = (chnSt->flags & 0x80) ? 0x7F : 0x00;
 				insInf->bank[1] = 0x00;
+			}
+			else
+			{
+				if (chnSt->flags & 0x80)
+				{
+					// enforce drum mode
+					if (insInf->bank[0] < 0x7E)
+						insInf->bank[0] = 0x7F;
+				}
+				else
+				{
+					// enforce capital tone
+					if (insInf->bank[0] >= 0x7E)
+						insInf->bank[0] = 0x00;
+				}
 			}
 		}
 		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
@@ -1097,6 +1123,11 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			if (true && MMASK_TYPE(fbDevType) == MODULE_TYPE_GS)
 				fbDevType = MODULE_SC55;	// use SC-55 fallback method for all GS devices
 			HandleIns_DoFallback(chnSt, insInf, fbDevType, insBank, bankIgnore);
+			if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
+			{
+				if (insInf->bank[0] > 0x00 && insInf->bank[0] < 0x40)
+					insInf->bank[0] = 0x00;	// additional Bank MSB fallback to prevent sounds from going silent
+			}
 			insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType, bankIgnore);
 		}
 	}
@@ -1154,12 +1185,15 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 			chnSt->flags |= 0x80;
 		else
 			chnSt->flags &= ~0x80;
-		if (chnID == 0x09 && ! (chnSt->flags & 0x80))
+		if (_options.flags & PLROPTS_STRICT)
 		{
-			// for now enforce drum mode on channel 9
-			// TODO: XG allows ch 9 to be melody - what are the exact conditions??
-			chnSt->flags |= 0x80;
-			vis_addstr("Keeping drum mode on ch 9!");
+			if (chnID == 0x09 && ! (chnSt->flags & 0x80))
+			{
+				// for now enforce drum mode on channel 9
+				// TODO: XG allows ch 9 to be melody - what are the exact conditions??
+				chnSt->flags |= 0x80;
+				vis_addstr("Keeping drum mode on ch 9!");
+			}
 		}
 		nvChn->_chnMode &= ~0x01;
 		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
@@ -1183,16 +1217,18 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		const char* newName;
 		UINT8 ctrlEvt = 0xB0 | chnID;
 		UINT8 insEvt = midiEvt->evtType;
-		bool didPatch = false;
+		UINT8 didPatch = 0x00;
 		bool showOrgIns = false;
 		
-		if (chnSt->insSend.bank[0] != chnSt->ctrls[0x00] || chnSt->insSend.bank[1] != chnSt->ctrls[0x20] || chnSt->insSend.bank[1] != chnSt->ctrls[0x20])
-			didPatch = true;
-		if (didPatch && (_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+		didPatch |= (chnSt->insSend.bank[0] != chnSt->ctrls[0x00]) << 0;
+		didPatch |= (chnSt->insSend.bank[1] != chnSt->ctrls[0x20]) << 1;
+		didPatch |= ((chnSt->insSend.bank[2] & 0x7F) != chnSt->curIns) << 2;
+		if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 		{
-			if (chnSt->ctrls[0x20] == 0x00 && chnSt->ctrls[0x00] == chnSt->insSend.bank[0] && chnSt->curIns == (chnSt->insSend.ins & 0x7F))
+			// only Bank LSB was patched and it was patched from 0 (default instrument map) to the "native" map
+			if (didPatch == 0x02 && chnSt->ctrls[0x20] == 0x00)
 			{
-				didPatch = false;	// hide default instrument map strict mode
+				didPatch = 0x00;	// hide patching default instrument map in strict mode
 				showOrgIns = true;
 			}
 		}
@@ -1499,6 +1535,8 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		case 0x00007F:	// SC-88 System Mode Set
 			InitializeChannels();	// it completely resets the device
 			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + midiEvt->evtData[0x07]);
+			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
+				return true;	// prevent GS reset on other devices
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
 			{
 				// for devices that don't understand the message, send GS reset instead
