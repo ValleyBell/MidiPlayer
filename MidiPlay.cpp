@@ -737,7 +737,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		nvChn->ClearNotes();
 		if (_evtCbFunc != NULL)
 		{
-			MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x7B, 0x00);
+			MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x01, 0x00);	// redraw channel
 			_evtCbFunc(_evtCbData, &noteEvt, chnSt - &_chnStates[0]);
 		}
 		break;
@@ -1154,7 +1154,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	return;
 }
 
-bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
+bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt, UINT8 noact)
 {
 	UINT8 chnID = midiEvt->evtType & 0x0F;
 	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | chnID);
@@ -1211,7 +1211,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	HandleIns_GetOriginal(chnSt, &chnSt->insOrg, chnID);
 	HandleIns_GetRemapped(chnSt, &chnSt->insSend, chnID);
 	
-	if (optShowInsChange)
+	if (optShowInsChange && ! (noact & 0x10))
 	{
 		const char* oldName;
 		const char* newName;
@@ -1263,6 +1263,9 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 	chnSt->insState[0] = chnSt->insSend.bank[0];
 	chnSt->insState[1] = chnSt->insSend.bank[1];
 	chnSt->insState[2] = chnSt->insSend.ins & 0x7F;
+	
+	if (noact & 0x01)
+		return false;
 	
 	// resend Bank MSB/LSB
 	if (oldMSB != chnSt->insState[0] || oldLSB != chnSt->insState[1])
@@ -1506,7 +1509,9 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	UINT32 addr;
+	UINT8 evtPort;
 	UINT8 evtChn;
+	UINT16 portChnID;
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
@@ -1567,9 +1572,13 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		if ((addr & 0x00F000) >= 0x001000)
 		{
 			addr &= ~0x000F00;	// remove channel ID
+			evtPort = trkSt->portID;
+			if (addr & 0x100000)
+				evtPort ^= 0x01;
 			evtChn = PART_ORDER[midiEvt->evtData[0x05] & 0x0F];
-			chnSt = &_chnStates[(trkSt->portID << 4) | evtChn];
-			nvChn = _noteVis.GetChannel((trkSt->portID << 4) | evtChn);
+			portChnID = (evtPort << 4) | evtChn;
+			chnSt = &_chnStates[portChnID];
+			nvChn = _noteVis.GetChannel(portChnID);
 		}
 		switch(addr)
 		{
@@ -1598,7 +1607,32 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 				chnSt->flags &= ~0x80;	// drum mode off
 			nvChn->_chnMode &= ~0x01;
 			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
-			// TODO: Refresh instrument
+			if (optShowInsChange)
+			{
+				if (! midiEvt->evtData[0x07])
+					vis_printf("Chn %c%02u: Part Mode: %s", 'A' + evtPort, 1 + evtChn, "Melody");
+				else
+					vis_printf("Chn %c%02u: Part Mode: %s %u", 'A' + evtPort, 1 + evtChn, "Drum", midiEvt->evtData[0x07]);
+			}
+			
+			{
+				UINT8 flags = 0x10;	// re-evaluate instrument, but don't print anything
+				if (true)	// option: emulate HW instrument reset
+				{
+					// The message always resets Bank MSB and the instrument to 0.
+					// Due to the way it works, the current Bank LSB value is also applied, even if it was changed
+					// since the last instrument change.
+					chnSt->ctrls[0x00] = 0x00;
+					chnSt->curIns = 0x00;
+					if (! (_options.flags & PLROPTS_STRICT))
+						flags |= 0x01;	// we don't need to resend anything either
+				}
+				
+				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
+				HandleInstrumentEvent(chnSt, trkSt, &insEvt, flags);
+				if (_evtCbFunc != NULL)
+					_evtCbFunc(_evtCbData, &insEvt, portChnID);
+			}
 			break;
 		case 0x401016:	// Pitch Key Shift
 			break;
@@ -1789,7 +1823,7 @@ void MidiPlayer::PrepareMidi(void)
 void MidiPlayer::InitializeChannels(void)
 {
 	size_t curChn;
-	MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x7B, 0x00);
+	MidiEvent chnInitEvt = MidiTrack::CreateEvent_Std(0x01, 0x00, 0x00);
 	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
@@ -1816,7 +1850,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.outPort = _outPorts[curChn / 0x10];
 		
 		if (_evtCbFunc != NULL)
-			_evtCbFunc(_evtCbData, &noteEvt, curChn);
+			_evtCbFunc(_evtCbData, &chnInitEvt, curChn);
 	}
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
 	{

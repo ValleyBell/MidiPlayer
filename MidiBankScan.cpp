@@ -299,11 +299,11 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 				}
 				break;
 			case 0xF0:
-				if (evtIt->evtData.size() < 0x03)
-					break;
 				switch(evtIt->evtType)
 				{
 				case 0xF0:	// SysEx message
+					if (evtIt->evtData.size() < 0x03)
+						break;
 					// XG reset enabled drums via Bank MSB == 0x7F
 					// special GS message can enable drum mode
 					switch(evtIt->evtData[0x00])

@@ -118,7 +118,7 @@ private:
 	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8& bankIgnore);
 	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
 	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
-	bool HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
+	bool HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEvt);

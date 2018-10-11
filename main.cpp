@@ -398,8 +398,12 @@ static char* GetAppFilePath(void)
 		appPathW[0] = L'\0';
 	
 	retVal = WideCharToMultiByte(CP_UTF8, 0, appPathW, -1, NULL, 0, NULL, NULL);
+	if (retVal < 0)
+		retVal = 1;
 	appPath = (char*)malloc(retVal);
-	WideCharToMultiByte(CP_UTF8, 0, appPathW, -1, appPath, retVal, NULL, NULL);
+	retVal = WideCharToMultiByte(CP_UTF8, 0, appPathW, -1, appPath, retVal, NULL, NULL);
+	if (retVal < 0)
+		appPath[0] = '\0';
 	free(appPathW);
 #else
 	appPath = (char*)malloc(MAX_PATH * sizeof(char));

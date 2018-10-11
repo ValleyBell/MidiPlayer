@@ -86,7 +86,7 @@ static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
 
 
-#define CHN_BASE_LINE	2
+#define CHN_BASE_LINE	3
 #define INS_COL_SIZE	14
 #define NOTE_BASE_COL	16
 #define NOTE_NAME_SPACE	3	// number of characters reserved for note names
@@ -301,20 +301,17 @@ void vis_new_song(void)
 	if (midFType != NULL)
 		mvprintw(1, 20, "(%.9s)", midFType);
 	
-	curYline = CHN_BASE_LINE;
-	for (curChn = 0; curChn < chnCnt; curChn ++, curYline ++)
-	{
-		sprintf(chnNameStr, "Channel %2u", 1 + (curChn & 0x0F));
-		dispChns[curChn].Initialize(curChn, COLS);
-		dispChns[curChn].ShowInsName(chnNameStr, true);
-		dispChns[curChn].ShowPan(0, true);
-		mvaddch(curYline, NOTE_BASE_COL - 1, ACS_VLINE);
-		//dispChns[curChn].RedrawAll();
-	}
-	mvhline(curYline, 0, ACS_HLINE, NOTE_BASE_COL - 1);
-	mvaddch(curYline, NOTE_BASE_COL - 1, ACS_LRCORNER);
-	curYline ++;
-	TEXT_BASE_LINE = curYline;
+	mvprintw(2, 0, "MIDI Format: %u, Tracks: %u, Resolution: %u",
+			midFile->GetMidiFormat(), midFile->GetTrackCount(), midFile->GetMidiResolution());
+	
+	mvvline(CHN_BASE_LINE, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
+	mvhline(CHN_BASE_LINE + chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);
+	mvaddch(CHN_BASE_LINE + chnCnt, NOTE_BASE_COL - 1, ACS_LRCORNER);
+	TEXT_BASE_LINE = CHN_BASE_LINE + chnCnt + 1;
+	
+	for (curChn = 0; curChn < chnCnt; curChn ++)
+		vis_do_channel_event(curChn, 0x00, 0x00);
+	curYline = TEXT_BASE_LINE;
 	
 	attron(A_BOLD);
 	if (trackCnt > 0)
@@ -361,21 +358,30 @@ void vis_new_song(void)
 
 void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data)
 {
-	size_t curChn;
+	if (chn >= dispChns.size())
+		return;
+	ChannelData& dispCh = dispChns[chn];
 	
 	switch(action)
 	{
-	case 0x01:	// redraw all notes:
-		for (curChn = 0; curChn < dispChns.size(); curChn ++)
-			dispChns[curChn].RedrawAll();
-		break;
-	case 0x7B:	// stop all notes
-		// TODO: I think this shouldn't be required anymore.
-		for (curChn = 0; curChn < dispChns.size(); curChn ++)
+	case 0x00:	// reinitialize
 		{
-			dispChns[curChn].RefreshNotes(NULL, NULL);
-			dispChns[curChn].RedrawAll();
+			char chnNameStr[0x10];
+			
+			if (dispChns.size() <= 0x10)
+				sprintf(chnNameStr, "Channel %2u", 1 + (chn & 0x0F));
+			else
+				sprintf(chnNameStr, "Channel %c%2u", 'A' + (chn >> 4), 1 + (chn & 0x0F));
+			dispCh.Initialize(chn, COLS);
+			dispCh.ShowInsName(chnNameStr, true);
+			dispCh.ShowPan(0, true);
+			dispCh.RefreshNotes(NULL, NULL);
+			for (size_t curNote = 0; curNote < dispCh._noteSlots.size(); curNote ++)
+				dispCh.DrawNoteName(curNote);
 		}
+		break;
+	case 0x01:	// redraw all notes
+		dispCh.RedrawAll();
 		break;
 	}
 	

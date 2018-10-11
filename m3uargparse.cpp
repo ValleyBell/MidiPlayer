@@ -178,13 +178,20 @@ static std::string WinStr2UTF8(const std::string& str)
 #ifdef _WIN32
 	std::wstring wtemp;
 	std::string out;
+	int numChars;
 	
 	// char -> wchar_t using local ANSI codepage
-	wtemp.resize(MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0) - 1);
+	numChars = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
+	if (numChars < 0)
+		return out;
+	wtemp.resize(numChars - 1);
 	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wtemp[0], wtemp.size());
 	
 	// convert wchar_t to char UTF-8
-	out.resize(WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, NULL, 0, NULL, NULL) - 1);
+	numChars = WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, NULL, 0, NULL, NULL);
+	if (numChars < 0)
+		return out;
+	out.resize(numChars - 1);
 	WideCharToMultiByte(CP_UTF8, 0, wtemp.c_str(), -1, &out[0], out.size(), NULL, NULL);
 	
 	return out;
