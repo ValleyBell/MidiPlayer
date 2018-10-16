@@ -154,6 +154,14 @@ std::string Vector2String(const std::vector<unsigned char>& data, size_t startPo
 	return std::string((const char*)basePtr + startPos, (const char*)basePtr + endPos);
 }
 
+// actually "Array2String", but it's convenient to have it called this way
+std::string Vector2String(const unsigned char* data, size_t startPos, size_t endPos)
+{
+	if (endPos <= startPos)
+		return std::string();
+	return std::string((const char*)data + startPos, (const char*)data + endPos);
+}
+
 char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inStr)
 {
 	if (inStr.empty() || hIConv == NULL)

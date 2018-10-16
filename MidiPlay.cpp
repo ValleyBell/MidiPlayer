@@ -397,8 +397,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	
 	switch(midiEvt->evtType)
 	{
-	case 0xF0:
-	case 0xF7:
+	case 0xF0:	// SysEx
 		if (midiEvt->evtData.size() < 0x03)
 			break;	// ignore invalid/empty SysEx messages
 		{
@@ -415,7 +414,15 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		if (_initChnPost)
 			InitializeChannels_Post();
 		break;
-	case 0xFF:
+	case 0xF7:	// SysEx continuation
+		{
+			std::vector<UINT8> msgData(0x01 + midiEvt->evtData.size());
+			msgData[0x00] = midiEvt->evtType;
+			memcpy(&msgData[0x01], &midiEvt->evtData[0x00], midiEvt->evtData.size());
+			MidiOutPort_SendLongMsg(outPort, msgData.size(), &msgData[0x00]);
+		}
+		break;
+	case 0xFF:	// Meta Event
 		switch(midiEvt->evtValA)
 		{
 		case 0x03:	// Text/Sequence Name
@@ -1300,42 +1307,86 @@ static void SanitizeSysExText(std::string& text)
 	return;
 }
 
+static void PrintHexDump(size_t bufSize, char* buffer, size_t dataLen, const UINT8* data, size_t maxVals)
+{
+	size_t curPos;
+	size_t remBufSize;
+	int printChrs;
+	char* bufPtr;
+	
+	if (maxVals > dataLen)
+		maxVals = dataLen;
+	if (maxVals > bufSize / 3)
+		maxVals = bufSize / 3;
+	remBufSize = bufSize;
+	bufPtr = buffer;
+	for (curPos = 0x00; curPos < maxVals; curPos ++)
+	{
+		printChrs = snprintf(bufPtr, remBufSize, "%02X ", data[curPos]);
+		if (printChrs <= 0 || printChrs >= remBufSize)
+			break;
+		bufPtr += printChrs;
+		remBufSize -= printChrs;
+	}
+	if (bufPtr > buffer && bufPtr[-1] == ' ')
+		bufPtr[-1] = '\0';
+	
+	return;
+}
+
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
-	if (midiEvt->evtData.size() < 0x03)
-		return false;	// ignore incomplete SysEx messages
-	if (midiEvt->evtData[0x00] & 0x80)
+	size_t syxSize = midiEvt->evtData.size();
+	const UINT8* syxData = midiEvt->evtData.data();
+	
+	if (syxSize >= 1 && syxData[0x00] == 0xF0)
 	{
-		vis_printf("Warning: Can't parse bad SysEx message! (begins with %02X %02X %02X %02X ...)\n",
-				midiEvt->evtType, midiEvt->evtData[0x00], midiEvt->evtData[0x01], midiEvt->evtData[0x02]);
+		char syxStr[0x10];
+		PrintHexDump(0x10, syxStr, midiEvt->evtData.size(), midiEvt->evtData.data(), 0x03);
+		vis_printf("Warning: Repeated SysEx start command byte (%02X %s ...)\n", midiEvt->evtType, syxStr);
+		
+		// skip repeated F0 byte
+		while(syxSize >= 1 && syxData[0x00] == 0xF0)
+		{
+			syxSize --;
+			syxData ++;
+		}
+	}
+	if (syxSize >= 1 && (syxData[0x00] & 0x80))
+	{
+		char syxStr[0x10];
+		PrintHexDump(0x10, syxStr, midiEvt->evtData.size(), midiEvt->evtData.data(), 0x03);
+		vis_printf("Warning: Can't parse bad SysEx message! (begins with %02X %s ...)\n", midiEvt->evtType, syxStr);
 		return false;
 	}
+	if (syxSize < 0x03)
+		return false;	// ignore incomplete SysEx messages
 	
-	switch(midiEvt->evtData[0x00])
+	switch(syxData[0x00])
 	{
 	case 0x41:	// Roland ID
 		// Data[0x01] == 0x1n - Device Number n
 		// Data[0x02] == Model ID (MT-32 = 0x16, GS = 0x42)
 		// Data[0x03] == Command ID (reqest data RQ1 = 0x11, data set DT1 = 0x12)
-		if (midiEvt->evtData[0x03] == 0x12)
+		if (syxData[0x03] == 0x12)
 		{
-			if (midiEvt->evtData.size() < 0x08)
+			if (syxSize < 0x08)
 				break;	// We need enough bytes for a full address.
-			if (midiEvt->evtData[0x02] == 0x16)
-				return HandleSysEx_MT32(trkSt, midiEvt);
-			else if (midiEvt->evtData[0x02] == 0x42)
-				return HandleSysEx_GS(trkSt, midiEvt);
-			else if (midiEvt->evtData[0x02] == 0x45)
+			if (syxData[0x02] == 0x16)
+				return HandleSysEx_MT32(trkSt, syxSize, syxData);
+			else if (syxData[0x02] == 0x42)
+				return HandleSysEx_GS(trkSt, syxSize, syxData);
+			else if (syxData[0x02] == 0x45)
 			{
 				UINT32 addr;
-				addr =	(midiEvt->evtData[0x04] << 16) |
-						(midiEvt->evtData[0x05] <<  8) |
-						(midiEvt->evtData[0x06] <<  0);
+				addr =	(syxData[0x04] << 16) |
+						(syxData[0x05] <<  8) |
+						(syxData[0x06] <<  0);
 				switch(addr & 0xFFFF00)
 				{
 				case 0x100000:	// ASCII Display
 				{
-					std::string dispMsg = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
+					std::string dispMsg = Vector2String(syxData, 0x07, syxSize - 2);
 					
 					SanitizeSysExText(dispMsg);
 					vis_printf("SC SysEx: Display = \"%s\"", dispMsg.c_str());
@@ -1361,14 +1412,14 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 					{
 						UINT8 pageID;
 						
-						pageID = midiEvt->evtData[0x07];	// 00 = bar display, 01..0A = page 1..10
+						pageID = syxData[0x07];	// 00 = bar display, 01..0A = page 1..10
 						vis_printf("SC SysEx: Dot Display: Show Page %u", pageID);
 					}
 					else if (addr == 0x102001)	// Dot Display: set display time
 					{
 						float dispTime;
 						
-						dispTime = midiEvt->evtData[0x07] * 0.48f;
+						dispTime = syxData[0x07] * 0.48f;
 						vis_printf("SC SysEx: Dot Display: set display time = %.2f sec", dispTime);
 					}
 					break;
@@ -1378,18 +1429,18 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		break;
 	case 0x43:	// YAMAHA ID
 		// Data[0x01] == 0x1n - Device Number n
-		if (midiEvt->evtData.size() < 0x07)
+		if (syxSize < 0x07)
 			break;	// We need enough bytes for a full address.
-		if (midiEvt->evtData[0x02] == 0x4C)
-			return HandleSysEx_XG(trkSt, midiEvt);
+		if (syxData[0x02] == 0x4C)
+			return HandleSysEx_XG(trkSt, syxSize, syxData);
 		break;
 	case 0x7E:	// Universal Non-Realtime Message
 		// GM Lvl 1 On:  F0 7E 7F 09 01 F7
 		// GM Lvl 1 Off: F0 7E 7F 09 00 F7
 		// GM Lvl 2 On:  F0 7E 7F 09 03 F7
-		if (midiEvt->evtData[0x01] == 0x7F && midiEvt->evtData[0x02] == 0x09)
+		if (syxData[0x01] == 0x7F && syxData[0x02] == 0x09)
 		{
-			UINT8 gmMode = midiEvt->evtData[0x03];
+			UINT8 gmMode = syxData[0x03];
 			if (gmMode == 0x01)	// GM Level 1 On
 			{
 				InitializeChannels();
@@ -1406,9 +1457,9 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		}
 		break;
 	case 0x7F:	// Universal Realtime Message
-		if (midiEvt->evtData[0x01] == 0x7F && midiEvt->evtData[0x02] == 0x04)
+		if (syxData[0x01] == 0x7F && syxData[0x02] == 0x04)
 		{
-			switch(midiEvt->evtData[0x03])
+			switch(syxData[0x03])
 			{
 			case 0x01:	// Master Volume
 				// F0 7F 7F 04 01 ll mm F7
@@ -1421,7 +1472,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 	return false;
 }
 
-bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midiEvt)
+bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
 	const UINT8* dataPtr;
@@ -1429,15 +1480,15 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 	// Data[0x04]	Address High
 	// Data[0x05]	Address Mid
 	// Data[0x06]	Address Low
-	addr =	(midiEvt->evtData[0x04] << 16) |
-			(midiEvt->evtData[0x05] <<  8) |
-			(midiEvt->evtData[0x06] <<  0);
+	addr =	(syxData[0x04] << 16) |
+			(syxData[0x05] <<  8) |
+			(syxData[0x06] <<  0);
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x030000:	// Patch Temporary Area
 		if ((addr & 0x0F) > 0x00)
 			break;	// Right now we can only handle bulk writes.
-		dataPtr = &midiEvt->evtData[0x07];
+		dataPtr = &syxData[0x07];
 		if (addr < 0x030110)
 		{
 			UINT8 evtChn;
@@ -1486,7 +1537,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 	case 0x080000:	// Timbre Memory
 		{
 			UINT8 timID = (addr & 0x007E00) >> 9;
-			dataPtr = &midiEvt->evtData[0x07];
+			dataPtr = &syxData[0x07];
 		}
 		break;
 	case 0x100000:	// System area
@@ -1494,7 +1545,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 	case 0x200000:	// Display
 		if (addr < 0x200100)
 		{
-			std::string dispMsg = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
+			std::string dispMsg = Vector2String(syxData, 0x07, syxSize - 2);
 			
 			SanitizeSysExText(dispMsg);
 			vis_printf("MT-32 SysEx: Display = \"%s\"", dispMsg.c_str());
@@ -1513,7 +1564,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 	return false;
 }
 
-bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEvt)
+bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
 	UINT8 evtPort;
@@ -1525,7 +1576,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
 	{
 		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
-		if (! ((midiEvt->evtData[0x04] & 0x3F) == 0x00 && midiEvt->evtData[0x05] == 0x00))
+		if (! ((syxData[0x04] & 0x3F) == 0x00 && syxData[0x05] == 0x00))
 		{
 			// fixes Steam-Heart's SH03_MMT.MID
 			vis_addstr("Ignoring stray GS SysEx message!");
@@ -1536,9 +1587,9 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 	// Data[0x04]	Address High
 	// Data[0x05]	Address Mid
 	// Data[0x06]	Address Low
-	addr =	(midiEvt->evtData[0x04] << 16) |
-			(midiEvt->evtData[0x05] <<  8) |
-			(midiEvt->evtData[0x06] <<  0);
+	addr =	(syxData[0x04] << 16) |
+			(syxData[0x05] <<  8) |
+			(syxData[0x06] <<  0);
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x000000:	// System
@@ -1546,7 +1597,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		{
 		case 0x00007F:	// SC-88 System Mode Set
 			InitializeChannels();	// it completely resets the device
-			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + midiEvt->evtData[0x07]);
+			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + syxData[0x07]);
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
@@ -1565,11 +1616,11 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 		{
 		case 0x210000:	// Drum Set Name
 		{
-			std::string drmName = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
-			if (midiEvt->evtData[0x06] == 0x00 && drmName.length() > 1)
+			std::string drmName = Vector2String(syxData, 0x07, syxSize - 2);
+			if (syxData[0x06] == 0x00 && drmName.length() > 1)
 				vis_printf("SC-88 SysEx: Set User Drum Set %u Name = \"%s\"\n", evtChn, drmName.c_str());
 			else
-				vis_printf("SC-88 SysEx: Set User Drum Set %u Name [%X] = \"%s\"\n", evtChn, midiEvt->evtData[0x06], drmName.c_str());
+				vis_printf("SC-88 SysEx: Set User Drum Set %u Name [%X] = \"%s\"\n", evtChn, syxData[0x06], drmName.c_str());
 		}
 			break;
 		}
@@ -1582,7 +1633,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			evtPort = trkSt->portID;
 			if (addr & 0x100000)
 				evtPort ^= 0x01;
-			evtChn = PART_ORDER[midiEvt->evtData[0x05] & 0x0F];
+			evtChn = PART_ORDER[syxData[0x05] & 0x0F];
 			portChnID = (evtPort << 4) | evtChn;
 			chnSt = &_chnStates[portChnID];
 			nvChn = _noteVis.GetChannel(portChnID);
@@ -1600,7 +1651,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			break;
 		case 0x400100:	// Patch Name
 		{
-			std::string dispMsg = Vector2String(midiEvt->evtData, 0x07, midiEvt->evtData.size() - 2);
+			std::string dispMsg = Vector2String(syxData, 0x07, syxSize - 2);
 			
 			SanitizeSysExText(dispMsg);
 			vis_printf("SC SysEx: ALL Display = \"%s\"", dispMsg.c_str());
@@ -1608,7 +1659,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
 			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
-			if (midiEvt->evtData[0x07])
+			if (syxData[0x07])
 				chnSt->flags |= 0x80;	// drum mode on
 			else
 				chnSt->flags &= ~0x80;	// drum mode off
@@ -1616,10 +1667,10 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 			if (optShowInsChange)
 			{
-				if (! midiEvt->evtData[0x07])
+				if (! syxData[0x07])
 					vis_printf("SysEx: Chn %c%02u Part Mode: %s", 'A' + evtPort, 1 + evtChn, "Normal");
 				else
-					vis_printf("SysEx: Chn %c%02u Part Mode: %s %u", 'A' + evtPort, 1 + evtChn, "Drum", midiEvt->evtData[0x07]);
+					vis_printf("SysEx: Chn %c%02u Part Mode: %s %u", 'A' + evtPort, 1 + evtChn, "Drum", syxData[0x07]);
 			}
 			
 			if (chnSt->curIns == 0xFF)
@@ -1654,13 +1705,13 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 				// On the SC-8820, CC1/CC2 number reprogramming is broken.
 				// It's best to ignore the message and manually remap the controllers to CC#16/CC#17.
 				ccNo = addr - 0x40101F;
-				if (midiEvt->evtData[0x07] < 0x0C)
+				if (syxData[0x07] < 0x0C)
 				{
 					vis_printf("Warning: Channel %u: CC%u reprogramming to CC#%u might not work!",
-								1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
+								1 + evtChn, 1 + ccNo, syxData[0x07]);
 					break;	// ignore stuff like Modulation
 				}
-				chnSt->idCC[ccNo] = midiEvt->evtData[0x07];
+				chnSt->idCC[ccNo] = syxData[0x07];
 				if (chnSt->idCC[ccNo] == 0x10 + ccNo)
 				{
 					chnSt->idCC[ccNo] = 0xFF;
@@ -1668,7 +1719,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 				}
 				
 				vis_printf("Warning: Channel %u: Ignoring CC%u reprogramming to CC#%u!",
-							1 + evtChn, 1 + ccNo, midiEvt->evtData[0x07]);
+							1 + evtChn, 1 + ccNo, syxData[0x07]);
 				return true;
 			}
 			break;
@@ -1682,13 +1733,13 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 	return false;
 }
 
-bool MidiPlayer::HandleSysEx_XG(const TrackState* trkSt, const MidiEvent* midiEvt)
+bool MidiPlayer::HandleSysEx_XG(const TrackState* trkSt, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
 	
-	addr =	(midiEvt->evtData[0x03] << 16) |
-			(midiEvt->evtData[0x04] <<  8) |
-			(midiEvt->evtData[0x05] <<  0);
+	addr =	(syxData[0x03] << 16) |
+			(syxData[0x04] <<  8) |
+			(syxData[0x05] <<  0);
 	switch(addr)
 	{
 	case 0x00007E:	// XG System On

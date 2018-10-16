@@ -120,9 +120,9 @@ private:
 	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
 	bool HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
-	bool HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midiEvt);
-	bool HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEvt);
-	bool HandleSysEx_XG(const TrackState* trkSt, const MidiEvent* midiEvt);
+	bool HandleSysEx_MT32(const TrackState* trkSt, size_t syxSize, const UINT8* syxData);
+	bool HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const UINT8* syxData);
+	bool HandleSysEx_XG(const TrackState* trkSt, size_t syxSize, const UINT8* syxData);
 	void AllNotesStop(void);
 	void AllNotesRestart(void);
 	void SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk = NULL);
