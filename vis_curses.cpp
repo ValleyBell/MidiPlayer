@@ -301,8 +301,9 @@ void vis_new_song(void)
 	if (midFType != NULL)
 		mvprintw(1, 20, "(%.9s)", midFType);
 	
-	mvprintw(2, 0, "MIDI Format: %u, Tracks: %u, Resolution: %u",
-			midFile->GetMidiFormat(), midFile->GetTrackCount(), midFile->GetMidiResolution());
+	mvprintw(2, 0, "%u %s (Format %u), %u TpQ",
+			midFile->GetTrackCount(), (midFile->GetTrackCount() == 1) ? "Track" : "Tracks",
+			midFile->GetMidiFormat(), midFile->GetMidiResolution());
 	
 	mvvline(CHN_BASE_LINE, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
 	mvhline(CHN_BASE_LINE + chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);

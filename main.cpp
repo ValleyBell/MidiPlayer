@@ -699,8 +699,9 @@ void PlayMidi(void)
 	}
 	
 	midPlay.SetEventCallback(&MidiEventCallback, &midPlay);
-	midPlay.Start();
 	vis_new_song();
+	
+	midPlay.Start();
 	if (! syxData.empty())
 	{
 		vis_addstr("Sending SYX data ...");
@@ -757,7 +758,6 @@ void PlayMidi(void)
 			{
 				midPlay.Stop();
 				midPlay.Start();
-				//vis_new_song();
 			}
 		}
 		Sleep(1);

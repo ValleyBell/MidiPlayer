@@ -27,11 +27,14 @@
 #define TICK_FP_SHIFT	8
 #define TICK_FP_MUL		(1 << TICK_FP_SHIFT)
 
-#define BNKIGN_NONE		0x00
-#define BNKIGN_MSB		0x01
-#define BNKIGN_LSB		0x02
-#define BNKIGN_ALLBNK	(BNKIGN_MSB | BNKIGN_LSB)
-#define BNKIGN_INS		0x04
+#define BNKBIT_MSB		0
+#define BNKBIT_LSB		1
+#define BNKBIT_INS		2
+#define BNKMSK_NONE		0x00
+#define BNKMSK_MSB		(1 << BNKBIT_MSB)	// 0x01
+#define BNKMSK_LSB		(1 << BNKBIT_LSB)	// 0x02
+#define BNKMSK_ALLBNK	(BNKMSK_MSB | BNKMSK_LSB)
+#define BNKMSK_INS		(1 << BNKBIT_INS)	// 0x04
 
 static const UINT8 PART_ORDER[0x10] =
 {	0x9, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF};
@@ -73,12 +76,16 @@ void MidiPlayer::SetOutputPort(MIDIOUT_PORT* outPort)
 {
 	_outPorts.clear();
 	_outPorts.push_back(outPort);
+	_chnStates.resize(_outPorts.size() * 0x10);
+	_noteVis.Initialize(_outPorts.size());
 	return;
 }
 
 void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts)
 {
 	_outPorts = outPorts;
+	_chnStates.resize(_outPorts.size() * 0x10);
+	_noteVis.Initialize(_outPorts.size());
 	return;
 }
 
@@ -179,11 +186,11 @@ UINT8 MidiPlayer::Start(void)
 		return 0xF1;
 	if (! _cMidi->GetTrackCount())
 		return 0xF0;
+	if (_chnStates.empty())
+		return 0xF2;
 	
 	size_t curTrk;
 	
-	_chnStates.resize(_outPorts.size() * 0x10);
-	_noteVis.Initialize(_outPorts.size());
 	_loopPt.used = false;
 	_curLoop = 0;
 	
@@ -797,9 +804,9 @@ static const INS_DATA* GetExactInstrument(const INS_BANK* insBank, const MidiPla
 	if (insData != NULL || ! bankIgnore)
 		return insData;
 	
-	msb = (bankIgnore & BNKIGN_MSB) ? 0xFF : insInf->bank[0];
-	lsb = (bankIgnore & BNKIGN_LSB) ? 0xFF : insInf->bank[1];
-	ins = (bankIgnore & BNKIGN_INS) ? (insInf->ins & 0x80) : insInf->ins;
+	msb = (bankIgnore & BNKMSK_MSB) ? 0xFF : insInf->bank[0];
+	lsb = (bankIgnore & BNKMSK_LSB) ? 0xFF : insInf->bank[1];
+	ins = (bankIgnore & BNKMSK_INS) ? (insInf->ins & 0x80) : insInf->ins;
 	return GetInsMapData(&insBank->prg[ins], msb, lsb, maxModuleID);
 }
 
@@ -807,26 +814,26 @@ void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentIn
 {
 	if (devType == MODULE_GM_1)
 	{
-		bankIgnore = BNKIGN_ALLBNK;
+		bankIgnore = BNKMSK_ALLBNK;
 		if (chnSt->flags & 0x80)
-			bankIgnore |= BNKIGN_INS;	// there is only 1 drum kit
+			bankIgnore |= BNKMSK_INS;	// there is only 1 drum kit
 	}
 	else if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 	{
 		if (chnSt->flags & 0x80)
-			bankIgnore |= BNKIGN_MSB;	// ignore MSB on drum channels
+			bankIgnore |= BNKMSK_MSB;	// ignore MSB on drum channels
 	}
 	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
 	{
 		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
-			bankIgnore |= BNKIGN_LSB;	// ignore LSB on drum channels and SFX banks
+			bankIgnore |= BNKMSK_LSB;	// ignore LSB on drum channels and SFX banks
 	}
 	else if (devType == MODULE_MT32)
 	{
 		if (insBank != NULL && insBank->maxBankMSB >= 0x01)
 		{
 			// when supported by the instrument bank, do CM-32L/P instrument set selection
-			bankIgnore = BNKIGN_LSB;
+			bankIgnore = BNKMSK_LSB;
 			if (chnID <= 0x09)
 				insInf->bank[0] = 0x00;	// MT-32/CM-32L set
 			else
@@ -834,20 +841,20 @@ void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentIn
 		}
 		else
 		{
-			bankIgnore = BNKIGN_ALLBNK;
+			bankIgnore = BNKMSK_ALLBNK;
 		}
 		if (chnSt->flags & 0x80)
-			bankIgnore |= BNKIGN_INS;	// there is only 1 drum kit
+			bankIgnore |= BNKMSK_INS;	// there is only 1 drum kit
 	}
 	else
 	{
 		// generic handler
 		if (insBank == NULL || insBank->maxBankMSB == 0x00)
-			bankIgnore |= BNKIGN_MSB;
+			bankIgnore |= BNKMSK_MSB;
 		if (insBank == NULL || insBank->maxBankLSB == 0x00)
-			bankIgnore |= BNKIGN_LSB;
+			bankIgnore |= BNKMSK_LSB;
 		if ((chnSt->flags & 0x80) && (insBank == NULL || insBank->maxDrumKit == 0x00))
-			bankIgnore |= BNKIGN_INS;
+			bankIgnore |= BNKMSK_INS;
 	}
 	
 	return;
@@ -909,7 +916,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 	else
 	{
 		// generic fallback code
-		bankIgnore |= BNKIGN_ALLBNK;
+		bankIgnore |= BNKMSK_ALLBNK;
 	}
 	
 	return;
@@ -925,7 +932,7 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 	insInf->bank[0] = chnSt->ctrls[0x00];
 	insInf->bank[1] = chnSt->ctrls[0x20];
 	insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
-	bankIgnore = BNKIGN_NONE;
+	bankIgnore = BNKMSK_NONE;
 	insBank = SelectInsMap(devType, &mapModType);
 	
 	HandleIns_CommonPatches(chnSt, insInf, chnID, devType, bankIgnore, insBank);
@@ -937,7 +944,7 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 			if (insBank != NULL && insBank->maxBankLSB > 0x00)
 				insInf->bank[1] = 0x01;	// instrument bank has SC-55/88/... maps - default to the SC-55 one
 			else
-				bankIgnore |= BNKIGN_LSB;
+				bankIgnore |= BNKMSK_LSB;
 		}
 		else
 		{
@@ -948,7 +955,7 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 				if (MMASK_MOD(devType) < MT_UNKNOWN)
 					insInf->bank[1] = 0x01 + MMASK_MOD(devType);
 				else
-					bankIgnore |= BNKIGN_LSB;	// unknown device - find anything
+					bankIgnore |= BNKMSK_LSB;	// unknown device - find anything
 			}
 		}
 	}
@@ -1008,8 +1015,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
 	}
 	insIOld = *insInf;
-	bankIgnore = BNKIGN_NONE;
-	strictPatch = BNKIGN_NONE;
+	bankIgnore = BNKMSK_NONE;
+	strictPatch = BNKMSK_NONE;
 	insBank = SelectInsMap(devType, &mapModType);
 	
 	HandleIns_CommonPatches(chnSt, insInf, chnID, devType, bankIgnore, insBank);
@@ -1048,7 +1055,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 						defaultDev = MTGS_SC88PRO;	// TODO: make configurable
 				}
 				insInf->bank[1] = 0x01 + defaultDev;
-				strictPatch |= BNKIGN_LSB;	// mark for undo when not strict
+				strictPatch |= BNKMSK_LSB;	// mark for undo when not strict
 			}
 			if (_options.srcType == MODULE_GM_1 && (chnSt->flags & 0x80))
 			{
@@ -1063,7 +1070,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 				insInf->bank[0] = 0x00;
 		}
 		if (insBank != NULL && insBank->maxBankLSB == 0x00)
-			bankIgnore |= BNKIGN_LSB;
+			bankIgnore |= BNKMSK_LSB;
 	}
 	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
 	{
@@ -1099,7 +1106,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	}
 	else if (devType == MODULE_MT32)
 	{
-		strictPatch = ~bankIgnore & BNKIGN_ALLBNK;	// mark for undo when not strict
+		strictPatch = ~bankIgnore & BNKMSK_ALLBNK;	// mark for undo when not strict
 	}
 	
 	insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType, bankIgnore);
@@ -1134,11 +1141,11 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	
 	if (! (_options.flags & PLROPTS_STRICT))
 	{
-		if (strictPatch & BNKIGN_MSB)
+		if (strictPatch & BNKMSK_MSB)
 			insInf->bank[0] = insIOld.bank[0];
-		if (strictPatch & BNKIGN_LSB)
+		if (strictPatch & BNKMSK_LSB)
 			insInf->bank[1] = insIOld.bank[1];
-		if (strictPatch & BNKIGN_MSB)
+		if (strictPatch & BNKMSK_MSB)
 			insInf->ins = insIOld.ins;
 	}
 	else //if (_options.flags & PLROPTS_STRICT)
@@ -1217,18 +1224,18 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* tr
 		const char* newName;
 		UINT8 ctrlEvt = 0xB0 | chnID;
 		UINT8 insEvt = midiEvt->evtType;
-		UINT8 didPatch = 0x00;
+		UINT8 didPatch = BNKMSK_NONE;
 		bool showOrgIns = false;
 		
-		didPatch |= (chnSt->insSend.bank[0] != chnSt->ctrls[0x00]) << 0;
-		didPatch |= (chnSt->insSend.bank[1] != chnSt->ctrls[0x20]) << 1;
-		didPatch |= ((chnSt->insSend.bank[2] & 0x7F) != chnSt->curIns) << 2;
+		didPatch |= (chnSt->insSend.bank[0] != chnSt->ctrls[0x00]) << BNKBIT_MSB;
+		didPatch |= (chnSt->insSend.bank[1] != chnSt->ctrls[0x20]) << BNKBIT_LSB;
+		didPatch |= ((chnSt->insSend.bank[2] & 0x7F) != chnSt->curIns) << BNKBIT_INS;
 		if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 		{
 			// only Bank LSB was patched and it was patched from 0 (default instrument map) to the "native" map
-			if (didPatch == 0x02 && chnSt->ctrls[0x20] == 0x00)
+			if (didPatch == BNKMSK_LSB && chnSt->ctrls[0x20] == 0x00)
 			{
-				didPatch = 0x00;	// hide patching default instrument map in strict mode
+				didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
 				showOrgIns = true;
 			}
 		}
@@ -1450,7 +1457,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, const MidiEvent* midi
 				//HandleIns_GetOriginal(chnSt, &chnSt->insOrg, evtChn);
 				//HandleIns_GetRemapped(chnSt, &chnSt->insSend, evtChn);
 				insBank = SelectInsMap(_options.dstType, &mapModType);
-				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &chnSt->insSend, mapModType, BNKIGN_ALLBNK);
+				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &chnSt->insSend, mapModType, BNKMSK_ALLBNK);
 			}
 			else
 			{
@@ -1610,11 +1617,13 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, const MidiEvent* midiEv
 			if (optShowInsChange)
 			{
 				if (! midiEvt->evtData[0x07])
-					vis_printf("Chn %c%02u: Part Mode: %s", 'A' + evtPort, 1 + evtChn, "Melody");
+					vis_printf("SysEx: Chn %c%02u Part Mode: %s", 'A' + evtPort, 1 + evtChn, "Normal");
 				else
-					vis_printf("Chn %c%02u: Part Mode: %s %u", 'A' + evtPort, 1 + evtChn, "Drum", midiEvt->evtData[0x07]);
+					vis_printf("SysEx: Chn %c%02u Part Mode: %s %u", 'A' + evtPort, 1 + evtChn, "Drum", midiEvt->evtData[0x07]);
 			}
 			
+			if (chnSt->curIns == 0xFF)
+				break;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
 			{
 				UINT8 flags = 0x10;	// re-evaluate instrument, but don't print anything
 				if (true)	// option: emulate HW instrument reset
@@ -1834,7 +1843,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.insSend.bank[0] = chnSt.insSend.bank[1] = chnSt.insSend.ins = 0xFF;	// initialize to "not set"
 		chnSt.insSend.bankPtr = NULL;
 		chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;
-		chnSt.curIns = 0x00;
+		chnSt.curIns = 0xFF;
 		chnSt.userInsID = 0xFFFF;
 		memset(&chnSt.ctrls[0], 0x00, 0x80);
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
