@@ -308,6 +308,7 @@ int main(int argc, char* argv[])
 	}
 	vis_init();
 	vis_set_locales(2, hCurIConv);
+	vis_set_midi_modules(&midiModColl);
 	
 	resVal = 0;
 	controlVal = +1;	// default: next song

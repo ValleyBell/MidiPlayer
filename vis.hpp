@@ -14,6 +14,7 @@ void vis_printf(const char* format, ...);
 void vis_set_locales(size_t numLocales, void* localeArrPtr);
 void vis_set_track_number(UINT32 trkNo);
 void vis_set_track_count(UINT32 trkCnt);
+void vis_set_midi_modules(MidiModuleCollection* mmc);
 void vis_set_midi_file(const char* fileName, MidiFile* mFile);
 void vis_set_midi_player(MidiPlayer* mPlay);
 void vis_set_type_str(UINT8 key, const char* typeStr);

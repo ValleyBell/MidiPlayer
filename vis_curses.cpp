@@ -89,8 +89,11 @@ public:
 };
 
 
+typedef int (*KEYHANDLER)(void);
+
 static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
+static int vis_keyhandler_normal(void);
 
 
 #define CHN_BASE_LINE	3
@@ -103,6 +106,7 @@ static void vis_mvprintms(int row, int col, double time);
 static int TEXT_BASE_LINE = 0;
 static int curYline = 0;
 
+static MidiModuleCollection* midiModColl = NULL;
 static MidiFile* midFile = NULL;
 static std::vector<iconv_t> hLocales;
 static UINT32 trackNo = 0;	// 1 = first track
@@ -121,6 +125,8 @@ static std::string lastMeta03;
 static std::string lastMeta04;
        std::vector<UINT8> optShowMeta;
        UINT8 optShowInsChange;
+
+static std::vector<KEYHANDLER> currentKeyHandler;
 
 static void refresh_cursor_y(void)
 {
@@ -251,6 +257,11 @@ void vis_set_track_count(UINT32 trkCnt)
 	return;
 }
 
+void vis_set_midi_modules(MidiModuleCollection* mmc)
+{
+	midiModColl = mmc;
+}
+
 void vis_set_midi_file(const char* fileName, MidiFile* mFile)
 {
 	midFName = fileName;
@@ -359,6 +370,8 @@ void vis_new_song(void)
 	lastMeta03.clear();
 	lastMeta04.clear();
 	
+	currentKeyHandler.clear();
+	currentKeyHandler.push_back(&vis_keyhandler_normal);
 	lastUpdateTime = 0;
 	
 	return;
@@ -665,6 +678,45 @@ void vis_update(void)
 	return;
 }
 
+static int vis_keyhandler_normal(void)
+{
+	int inkey;
+	
+	inkey = vis_getch();
+	if (! inkey)
+		return 0;
+	
+	if (inkey < 0x100 && isalpha(inkey))
+		inkey = toupper(inkey);
+	
+	switch(inkey)
+	{
+	case 0x1B:	// ESC
+	case 'Q':
+		return 9;	// quit
+	case ' ':
+		if (midPlay->GetState() & 0x02)
+			midPlay->Resume();
+		else
+			midPlay->Pause();
+		break;
+	case 'B':
+		if (trackNo > 1)
+			return -1;	// previous song
+		break;
+	case 'N':
+		if (trackNo < trackCnt)
+			return +1;	// next song
+		break;
+	case 'R':
+		midPlay->Stop();
+		midPlay->Start();
+		break;
+	}
+	
+	return 0;
+}
+
 int vis_main(void)
 {
 	// Note: returns playback command
@@ -676,7 +728,7 @@ int vis_main(void)
 	lastUpdateTime = 0;
 	while(midPlay->GetState() & 0x01)
 	{
-		int inkey;
+		int retval = 0;
 		
 		midPlay->DoPlaybackStep();
 		
@@ -685,40 +737,9 @@ int vis_main(void)
 		if (newUpdateTime < lastUpdateTime || newUpdateTime >= lastUpdateTime + 20)
 			vis_update();
 		
-		inkey = vis_getch();
-		if (inkey)
-		{
-			if (inkey < 0x100 && isalpha(inkey))
-				inkey = toupper(inkey);
-			
-			if (inkey == 0x1B || inkey == 'Q')
-			{
-				return 9;	// quit
-			}
-			else if (inkey == ' ')
-			{
-				if (midPlay->GetState() & 0x02)
-					midPlay->Resume();
-				else
-					midPlay->Pause();
-			}
-			else if (inkey == 'B')
-			{
-				if (trackNo > 1)
-					return -1;	// previous song
-			}
-			else if (inkey == 'N')
-			{
-				if (trackNo < trackCnt)
-					return +1;	// next song
-			}
-			else if (inkey == 'R')
-			{
-				midPlay->Stop();
-				midPlay->Start();
-			}
-		}
-		
+		retval = currentKeyHandler.back()();
+		if (retval != 0)
+			return retval;
 		Sleep(1);
 	}
 	
