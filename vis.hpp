@@ -24,5 +24,6 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value);
 void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume);
 void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data);
 void vis_update(void);
+int vis_main(void);
 
 #endif	// __VIS_HPP__

@@ -625,7 +625,7 @@ void PlayMidi(void)
 			resetOff = false;	// disable GM reset
 		else if (MMASK_TYPE(scanRes.hasReset) != MMASK_TYPE(mMod->modType))
 			resetOff = false;	// enforce manual reset when MIDI and device types differ
-		else if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_GS && scanRes.modType >= MODULE_SC88)
+		else if (MMASK_TYPE(mMod->modType) == MODULE_TYPE_GS && mMod->modType >= MODULE_SC88)
 			resetOff = false;	// enforce manual reset with SC-88 and later for now (TODO: enforce SC-88 reset when only GS reset is present)
 		if (resetOff)
 			plrOpts.flags &= ~PLROPTS_RESET;
@@ -712,59 +712,9 @@ void PlayMidi(void)
 	}
 	Sleep(100);
 	
-	controlVal = +1;	// default: next song
-	while(midPlay.GetState() & 0x01)
-	{
-		int inkey;
-		
-		midPlay.DoPlaybackStep();
-		vis_update();
-		
-		inkey = vis_getch();
-		if (inkey)
-		{
-			if (inkey < 0x100 && isalpha(inkey))
-				inkey = toupper(inkey);
-			
-			if (inkey == 0x1B || inkey == 'Q')
-			{
-				controlVal = 9;
-				break;
-			}
-			else if (inkey == ' ')
-			{
-				if (midPlay.GetState() & 0x02)
-					midPlay.Resume();
-				else
-					midPlay.Pause();
-			}
-			else if (inkey == 'B')
-			{
-				if (curSong > 0)
-				{
-					controlVal = -1;
-					break;
-				}
-			}
-			else if (inkey == 'N')
-			{
-				if (curSong  + 1 < songList.size())
-				{
-					controlVal = +1;
-					break;
-				}
-			}
-			else if (inkey == 'R')
-			{
-				midPlay.Stop();
-				midPlay.Start();
-			}
-		}
-		Sleep(1);
-	}
+	controlVal = vis_main();
 	midPlay.Stop();
 	
-	//Sleep(500);
 	vis_addstr("Cleaning ...");
 	vis_update();
 	CMidi.ClearAll();

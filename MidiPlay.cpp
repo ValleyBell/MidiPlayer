@@ -23,6 +23,9 @@
 #else
 #define U64_TO_DBL(x)	(double)(x)
 #endif
+#ifdef _MSC_VER
+#define snprintf	_snprintf
+#endif
 
 #define TICK_FP_SHIFT	8
 #define TICK_FP_MUL		(1 << TICK_FP_SHIFT)
@@ -217,6 +220,7 @@ UINT8 MidiPlayer::Start(void)
 	if (_options.flags & PLROPTS_RESET)
 	{
 		size_t curPort;
+		vis_addstr("Sending Device Reset");
 		if (_options.dstType == MODULE_MT32)
 		{
 			// MT-32 mode - nothing to do right now
@@ -688,6 +692,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	case 0x63:	// NRPN MSB
 		chnSt->rpnCtrl[0] = 0x80 | midiEvt->evtValB;
+		if (true)
+			break;
 		if (midiEvt->evtValB == 20)
 		{
 			vis_addstr("NRPN Loop Start found.");
@@ -1323,7 +1329,7 @@ static void PrintHexDump(size_t bufSize, char* buffer, size_t dataLen, const UIN
 	for (curPos = 0x00; curPos < maxVals; curPos ++)
 	{
 		printChrs = snprintf(bufPtr, remBufSize, "%02X ", data[curPos]);
-		if (printChrs <= 0 || printChrs >= remBufSize)
+		if (printChrs <= 0 || (size_t)printChrs >= remBufSize)
 			break;
 		bufPtr += printChrs;
 		remBufSize -= printChrs;

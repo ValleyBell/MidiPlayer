@@ -9,6 +9,13 @@
 #include <curses.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <unistd.h>
+#define Sleep(x)	usleep(x * 1000)
+#endif
+
 #include <stdtype.h>
 #include "MidiLib.hpp"
 #include "MidiPlay.hpp"
@@ -98,7 +105,7 @@ static int curYline = 0;
 
 static MidiFile* midFile = NULL;
 static std::vector<iconv_t> hLocales;
-static UINT32 trackNo = 0;
+static UINT32 trackNo = 0;	// 1 = first track
 static UINT32 trackCnt = 0;
 static UINT32 trackNoDigits = 1;
 static const char* midFName = NULL;
@@ -638,16 +645,14 @@ void vis_update(void)
 		refresh();
 		return;
 	}
-	noteVis = midPlay->GetNoteVis();
 	
 	newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
 	if (newUpdateTime < lastUpdateTime)
 		lastUpdateTime = 0;	// fix looping
 	updateTicks = (int)(newUpdateTime - lastUpdateTime);
-	if (updateTicks < 20)
-		return;	// update with 50 Hz maximum
 	lastUpdateTime = newUpdateTime;
 	
+	noteVis = midPlay->GetNoteVis();
 	noteVis->AdvanceAge(updateTicks);
 	for (curChn = 0; curChn < dispChns.size(); curChn ++)
 		dispChns[curChn].RefreshNotes(noteVis, noteVis->GetChannel(curChn));
@@ -658,6 +663,66 @@ void vis_update(void)
 	refresh();
 	
 	return;
+}
+
+int vis_main(void)
+{
+	// Note: returns playback command
+	//	+1 - next song (default)
+	//	-1 - previous song
+	//	+9 - quit
+	UINT64 newUpdateTime;
+	
+	lastUpdateTime = 0;
+	while(midPlay->GetState() & 0x01)
+	{
+		int inkey;
+		
+		midPlay->DoPlaybackStep();
+		
+		newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
+		// update after reset OR when 20 ms have passed
+		if (newUpdateTime < lastUpdateTime || newUpdateTime >= lastUpdateTime + 20)
+			vis_update();
+		
+		inkey = vis_getch();
+		if (inkey)
+		{
+			if (inkey < 0x100 && isalpha(inkey))
+				inkey = toupper(inkey);
+			
+			if (inkey == 0x1B || inkey == 'Q')
+			{
+				return 9;	// quit
+			}
+			else if (inkey == ' ')
+			{
+				if (midPlay->GetState() & 0x02)
+					midPlay->Resume();
+				else
+					midPlay->Pause();
+			}
+			else if (inkey == 'B')
+			{
+				if (trackNo > 1)
+					return -1;	// previous song
+			}
+			else if (inkey == 'N')
+			{
+				if (trackNo < trackCnt)
+					return +1;	// next song
+			}
+			else if (inkey == 'R')
+			{
+				midPlay->Stop();
+				midPlay->Start();
+			}
+		}
+		
+		Sleep(1);
+	}
+	
+	return +1;	// finished normally - next song
 }
 
 
