@@ -89,7 +89,9 @@ public:
 	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts);
 	void SetOutPortMapping(size_t numPorts, const size_t* outPorts);
 	void SetOptions(const PlayerOpts& plrOpts);
-	UINT8 GetModuleType(void);	// current MIDI module type used for playback
+	const PlayerOpts& GetOptions(void) const;
+	UINT8 GetModuleType(void) const;	// current MIDI module type used for playback
+	void SetSrcModuleType(UINT8 modType, bool insRefresh = false);
 	UINT32 _numLoops;
 	void SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);
@@ -118,13 +120,14 @@ private:
 	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8& bankIgnore);
 	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
 	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
-	bool HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
+	bool HandleInstrumentEvent(ChannelState* chnSt, UINT8 portID, const MidiEvent* midiEvt, UINT8 noact = 0x00);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
-	bool HandleSysEx_MT32(const TrackState* trkSt, size_t syxSize, const UINT8* syxData);
-	bool HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const UINT8* syxData);
-	bool HandleSysEx_XG(const TrackState* trkSt, size_t syxSize, const UINT8* syxData);
+	bool HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syxData);
+	bool HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxData);
+	bool HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxData);
 	void AllNotesStop(void);
 	void AllNotesRestart(void);
+	void AllInsRefresh(void);
 	void SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk = NULL);
 	void RestoreLoopState(const LoopPoint& lp);
 	

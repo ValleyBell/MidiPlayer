@@ -645,7 +645,7 @@ void PlayMidi(void)
 	}
 	vis_set_midi_file(midFileName.c_str(), &CMidi);
 	vis_set_midi_player(&midPlay);
-	vis_set_type_str(1, GetModuleTypeNameS(scanRes.modType));
+	//vis_set_type_str(1, GetModuleTypeNameS(scanRes.modType));
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
 	if (! strmSrv_metaFile.empty())

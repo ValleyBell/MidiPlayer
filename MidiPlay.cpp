@@ -102,9 +102,23 @@ void MidiPlayer::SetOptions(const PlayerOpts& plrOpts)
 	_options = plrOpts;
 }
 
-UINT8 MidiPlayer::GetModuleType(void)
+const PlayerOpts& MidiPlayer::GetOptions(void) const
+{
+	return _options;
+}
+
+UINT8 MidiPlayer::GetModuleType(void) const
 {
 	return _options.dstType;
+}
+
+void MidiPlayer::SetSrcModuleType(UINT8 modType, bool insRefresh)
+{
+	_options.srcType = modType;
+	if (insRefresh)
+		AllInsRefresh();
+	
+	return;
 }
 
 void MidiPlayer::SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData)
@@ -381,7 +395,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			didEvt = HandleControlEvent(chnSt, trkState, midiEvt);
 			break;
 		case 0xC0:
-			didEvt = HandleInstrumentEvent(chnSt, trkState, midiEvt);
+			didEvt = HandleInstrumentEvent(chnSt, trkState->portID, midiEvt);
 			break;
 		case 0xE0:
 			{
@@ -1174,10 +1188,10 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	return;
 }
 
-bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt, UINT8 noact)
+bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, UINT8 portID, const MidiEvent* midiEvt, UINT8 noact)
 {
 	UINT8 chnID = midiEvt->evtType & 0x0F;
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | chnID);
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((portID << 4) | chnID);
 	UINT8 oldMSB = chnSt->insState[0];
 	UINT8 oldLSB = chnSt->insState[1];
 	UINT8 oldIns = chnSt->insState[2];
@@ -1379,9 +1393,9 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			if (syxSize < 0x08)
 				break;	// We need enough bytes for a full address.
 			if (syxData[0x02] == 0x16)
-				return HandleSysEx_MT32(trkSt, syxSize, syxData);
+				return HandleSysEx_MT32(trkSt->portID, syxSize, syxData);
 			else if (syxData[0x02] == 0x42)
-				return HandleSysEx_GS(trkSt, syxSize, syxData);
+				return HandleSysEx_GS(trkSt->portID, syxSize, syxData);
 			else if (syxData[0x02] == 0x45)
 			{
 				UINT32 addr;
@@ -1438,7 +1452,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		if (syxSize < 0x07)
 			break;	// We need enough bytes for a full address.
 		if (syxData[0x02] == 0x4C)
-			return HandleSysEx_XG(trkSt, syxSize, syxData);
+			return HandleSysEx_XG(trkSt->portID, syxSize, syxData);
 		break;
 	case 0x7E:	// Universal Non-Realtime Message
 		// GM Lvl 1 On:  F0 7E 7F 09 01 F7
@@ -1478,7 +1492,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 	return false;
 }
 
-bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, size_t syxSize, const UINT8* syxData)
+bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
 	const UINT8* dataPtr;
@@ -1502,7 +1516,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, size_t syxSize, const
 			UINT8 newIns;
 			
 			evtChn = 1 + ((addr & 0x0000F0) >> 4);
-			chnSt = &_chnStates[(trkSt->portID << 4) | evtChn];
+			chnSt = &_chnStates[(portID << 4) | evtChn];
 			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
 			if (newIns < 0x80)
 			{
@@ -1531,7 +1545,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, size_t syxSize, const
 			if (_evtCbFunc != NULL)
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
-				_evtCbFunc(_evtCbData, &insEvt, (trkSt->portID << 4) | evtChn);
+				_evtCbFunc(_evtCbData, &insEvt, (portID << 4) | evtChn);
 			}
 			break;
 		}
@@ -1570,7 +1584,7 @@ bool MidiPlayer::HandleSysEx_MT32(const TrackState* trkSt, size_t syxSize, const
 	return false;
 }
 
-bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const UINT8* syxData)
+bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
 	UINT8 evtPort;
@@ -1609,7 +1623,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const U
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
 			{
 				// for devices that don't understand the message, send GS reset instead
-				MidiOutPort_SendLongMsg(_outPorts[trkSt->portID], sizeof(RESET_GS), RESET_GS);
+				MidiOutPort_SendLongMsg(_outPorts[portID], sizeof(RESET_GS), RESET_GS);
 				return true;
 			}
 			break;
@@ -1633,12 +1647,13 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const U
 		break;
 	case 0x400000:	// Patch (port A)
 	case 0x500000:	// Patch (port B)
+		evtPort = portID;
+		if (addr & 0x100000)
+			evtPort ^= 0x01;
+		addr &= ~0x100000;	// remove port bit
 		if ((addr & 0x00F000) >= 0x001000)
 		{
 			addr &= ~0x000F00;	// remove channel ID
-			evtPort = trkSt->portID;
-			if (addr & 0x100000)
-				evtPort ^= 0x01;
 			evtChn = PART_ORDER[syxData[0x05] & 0x0F];
 			portChnID = (evtPort << 4) | evtChn;
 			chnSt = &_chnStates[portChnID];
@@ -1695,7 +1710,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const U
 				}
 				
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
-				HandleInstrumentEvent(chnSt, trkSt, &insEvt, flags);
+				HandleInstrumentEvent(chnSt, portID, &insEvt, flags);
 				if (_evtCbFunc != NULL)
 					_evtCbFunc(_evtCbData, &insEvt, portChnID);
 			}
@@ -1739,7 +1754,7 @@ bool MidiPlayer::HandleSysEx_GS(const TrackState* trkSt, size_t syxSize, const U
 	return false;
 }
 
-bool MidiPlayer::HandleSysEx_XG(const TrackState* trkSt, size_t syxSize, const UINT8* syxData)
+bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
 	
@@ -1802,6 +1817,25 @@ void MidiPlayer::AllNotesRestart(void)
 		
 		for (ntIt = chnSt->notes.begin(); ntIt != chnSt->notes.end(); ++ntIt)
 			MidiOutPort_SendShortMsg(chnSt->outPort, 0x90 | ntIt->chn, ntIt->note, ntIt->vel);
+	}
+	
+	return;
+}
+
+void MidiPlayer::AllInsRefresh(void)
+{
+	size_t curChn;
+	std::list<NoteInfo>::iterator ntIt;
+	
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+	{
+		ChannelState* chnSt = &_chnStates[curChn];
+		UINT8 evtChn = curChn & 0x0F;
+		
+		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
+		HandleInstrumentEvent(chnSt, curChn >> 4, &insEvt, 0x10);
+		if (_evtCbFunc != NULL)
+			_evtCbFunc(_evtCbData, &insEvt, curChn);
 	}
 	
 	return;

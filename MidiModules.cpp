@@ -43,7 +43,7 @@ ModuleNames::ModuleNames()
 	longIDName = shortIDName;
 	longIDName[ MODULE_GM_2     ] = "GM Level 2";
 	longIDName[ MODULE_SC8850   ] = "SC-8820/8850";
-	longIDName[ MODULE_MU1000   ] = "MU1000/MU2000";
+	longIDName[ MODULE_MU1000   ] = "MU1000/2000";
 	longIDName[ MODULE_TYPE_GS | MT_UNKNOWN] = "GS/unknown";
 	longIDName[ MODULE_TYPE_XG | MT_UNKNOWN] = "XG/unknown";
 	

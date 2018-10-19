@@ -2,6 +2,7 @@
 #define __VIS_HPP__
 
 #include <stdtype.h>
+class MidiModuleCollection;
 class MidiFile;
 class MidiPlayer;
 

@@ -7,6 +7,7 @@
 #include <vector>
 #include <map>
 #include <curses.h>
+#include <panel.h>
 #include <stdarg.h>
 
 #ifdef _WIN32
@@ -17,6 +18,7 @@
 #endif
 
 #include <stdtype.h>
+#include "MidiModules.hpp"
 #include "MidiLib.hpp"
 #include "MidiPlay.hpp"
 #include "NoteVis.hpp"
@@ -94,6 +96,8 @@ typedef int (*KEYHANDLER)(void);
 static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
 static int vis_keyhandler_normal(void);
+static int vis_keyhandler_mapsel(void);
+static void vis_show_map_selection(void);
 
 
 #define CHN_BASE_LINE	3
@@ -114,7 +118,6 @@ static UINT32 trackCnt = 0;
 static UINT32 trackNoDigits = 1;
 static const char* midFName = NULL;
 static MidiPlayer* midPlay = NULL;
-static const char* midFType = NULL;
 static const char* midDevType = NULL;
 
 static std::vector<ChannelData> dispChns;
@@ -127,6 +130,12 @@ static std::string lastMeta04;
        UINT8 optShowInsChange;
 
 static std::vector<KEYHANDLER> currentKeyHandler;
+
+// MIDI map selection
+static WINDOW* mmsWin = NULL;
+static PANEL* mmsPan = NULL;
+static int mmsSelection;
+static std::vector<UINT8> mapSelTypes;
 
 static void refresh_cursor_y(void)
 {
@@ -143,6 +152,9 @@ static void refresh_cursor_y(void)
 
 void vis_init(void)
 {
+	mmsPan = NULL;
+	mmsWin = NULL;
+	
 	initscr();
 	cbreak();
 	keypad(stdscr, TRUE);
@@ -165,8 +177,26 @@ void vis_init(void)
 	return;
 }
 
+static void vis_clear_all_menus(void)
+{
+	if (mmsPan != NULL)
+	{
+		del_panel(mmsPan);
+		mmsPan = NULL;
+	}
+	if (mmsWin != NULL)
+	{
+		delwin(mmsWin);
+		mmsWin = NULL;
+	}
+	update_panels();
+	
+	return;
+}
+
 void vis_deinit(void)
 {
+	vis_clear_all_menus();
 	attrset(A_NORMAL);
 	refresh();
 	endwin();
@@ -280,9 +310,6 @@ void vis_set_type_str(UINT8 key, const char* typeStr)
 	case 0:
 		midDevType = typeStr;
 		break;
-	case 1:
-		midFType = typeStr;
-		break;
 	}
 	
 	return;
@@ -296,12 +323,24 @@ void vis_new_song(void)
 	int titlePosX;
 	size_t maxTitleLen;
 	char chnNameStr[0x10];
+	const PlayerOpts* midOpts;
 	
 	nTrks = (midFile != NULL) ? midFile->GetTrackCount() : 0;
 	chnCnt = (midPlay != NULL) ? midPlay->GetChannelStates().size() : 0x10;
 	dispChns.clear();
 	dispChns.resize(chnCnt);
 	
+	midOpts = (midPlay != NULL) ? &midPlay->GetOptions() : NULL;
+	mapSelTypes.clear();
+	for (UINT8 curMap = 0x00; curMap < 0xFF; curMap ++)
+	{
+		if (! midiModColl->GetShortModName(curMap).empty())
+			mapSelTypes.push_back(curMap);
+		else if (midOpts != NULL && (curMap == midOpts->srcType || curMap == midOpts->dstType))
+			mapSelTypes.push_back(curMap);
+	}
+	
+	vis_clear_all_menus();
 	clear();
 	curs_set(0);
 	attrset(A_NORMAL);
@@ -309,15 +348,18 @@ void vis_new_song(void)
 	mvprintw(0, 32, "Now Playing: ");
 	titlePosX = getcurx(stdscr);
 	mvprintw(1, 32, "[Q]uit [ ]Pause [B]Previous [N]ext");
-	//mvprintw(1, 0, "00:00.0 / 00:00.0, %u %s", nTrks, (nTrks == 1) ? "track" : "tracks");
 	mvprintw(1, 0, "00:00.0 / 00:00.0");
 	if (midPlay != NULL)
 		vis_mvprintms(1, 10, midPlay->GetSongLength());
 	
 	if (midDevType != NULL)
 		mvprintw(0, 16, "Dev: %.10s", midDevType);
-	if (midFType != NULL)
-		mvprintw(1, 20, "(%.9s)", midFType);
+	if (midOpts != NULL)
+	{
+		const std::string& mapStr = midiModColl->GetShortModName(midOpts->srcType);
+		const char* mapStr2 = (! mapStr.empty()) ? mapStr.c_str() : "unknown";
+		mvprintw(1, 20, "(%.9s)", mapStr2);
+	}
 	
 	mvprintw(2, 0, "%u %s (Format %u), %u TpQ",
 			midFile->GetTrackCount(), (midFile->GetTrackCount() == 1) ? "Track" : "Tracks",
@@ -712,6 +754,9 @@ static int vis_keyhandler_normal(void)
 		midPlay->Stop();
 		midPlay->Start();
 		break;
+	case 'M':
+		vis_show_map_selection();
+		break;
 	}
 	
 	return 0;
@@ -744,6 +789,126 @@ int vis_main(void)
 	}
 	
 	return +1;	// finished normally - next song
+}
+
+static int vis_keyhandler_mapsel(void)
+{
+	int inkey;
+	int cursorPos;
+	
+	inkey = vis_getch();
+	if (! inkey)
+		return 0;
+	
+	if (inkey < 0x100 && isalpha(inkey))
+		inkey = toupper(inkey);
+	
+	cursorPos = mmsSelection;
+	switch(inkey)
+	{
+	case 0x1B:	// ESC
+	case 'Q':
+	case '\n':
+		del_panel(mmsPan);	mmsPan = NULL;
+		delwin(mmsWin);		mmsWin = NULL;
+		currentKeyHandler.pop_back();
+		
+		if (inkey == '\n')
+		{
+			// confirm selection
+			UINT8 mapType = mapSelTypes[mmsSelection];
+			midPlay->SetSrcModuleType(mapType, true);
+			
+			const PlayerOpts& midOpts = midPlay->GetOptions();
+			const std::string& mapStr = midiModColl->GetShortModName(midOpts.srcType);
+			const char* mapStr2 = (! mapStr.empty()) ? mapStr.c_str() : "unknown";
+			mvhline(1, 20, ' ', 11);
+			mvprintw(1, 20, "(%.9s)", mapStr2);
+		}
+		
+		update_panels();
+		refresh();
+		return 0;
+	case KEY_UP:
+		cursorPos --;
+		if (cursorPos < 0)
+			cursorPos = 0;
+		break;
+	case KEY_DOWN:
+		cursorPos ++;
+		if (cursorPos >= mapSelTypes.size())
+			cursorPos = mapSelTypes.size() - 1;
+		break;
+	case KEY_PPAGE:
+		cursorPos = 0;
+		break;
+	case KEY_NPAGE:
+		cursorPos = mapSelTypes.size() - 1;
+		break;
+	}
+	if (cursorPos != mmsSelection)
+	{
+		int sizeX, sizeY;
+		
+		getmaxyx(mmsWin, sizeY, sizeX);
+		mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_NORMAL, 0, NULL);
+		mmsSelection = cursorPos;
+		mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+		
+		wrefresh(mmsWin);
+	}
+	
+	return 0;
+}
+
+static void vis_show_map_selection(void)
+{
+	int centerX, centerY;
+	int sizeX, sizeY;
+	int wsx, wsy;
+	UINT8 midMapType;
+	
+	midMapType = (midPlay != NULL) ? midPlay->GetOptions().srcType : 0x00;
+	mmsSelection = 0;
+	sizeX = 14;
+	for (size_t curMap = 0; curMap < mapSelTypes.size(); curMap ++)
+	{
+		UINT8 mapType = mapSelTypes[curMap];
+		const std::string& mapStr = midiModColl->GetLongModName(mapType);
+		if (sizeX < mapStr.length())
+			sizeX = mapStr.length();
+		if (mapType == midMapType)
+			mmsSelection = (int)curMap;
+	}
+	sizeX += 3;	// 3 for map ID number
+	sizeX = (sizeX + 2) | 1;	// add additional space + make title nicely aligned
+	sizeY = mapSelTypes.size() + 2;
+	
+	wsx = (COLS - sizeX) / 2;	wsy = (LINES - sizeY) / 2;
+	mmsWin = newwin(sizeY, sizeX, wsy, wsx);
+	mmsPan = new_panel(mmsWin);
+	box(mmsWin, 0, 0);
+	
+	wattron(mmsWin, A_BOLD | COLOR_PAIR(0));
+	mvwaddstr(mmsWin, 0, (sizeX - 15) / 2, "Select Ins. Map");
+	wattroff(mmsWin, A_BOLD | COLOR_PAIR(0));
+	
+	for (size_t curMap = 0; curMap < mapSelTypes.size(); curMap ++)
+	{
+		UINT8 mapType = mapSelTypes[curMap];
+		const std::string& mapStr = midiModColl->GetLongModName(mapType);
+		const char* mapStr2 = (! mapStr.empty()) ? mapStr.c_str() : "unknown";
+		
+		mvwprintw(mmsWin, 1 + curMap, 2, "%02X %s", mapType, mapStr2);
+	}
+	mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+	
+	update_panels();
+	refresh();
+	
+	currentKeyHandler.push_back(&vis_keyhandler_mapsel);
+	
+	return;
 }
 
 
