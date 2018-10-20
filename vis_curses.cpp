@@ -11,6 +11,8 @@
 #include <stdarg.h>
 
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define _WINCON_	// wincon.h from being included (want to redefine curses constants)
 #include <Windows.h>
 #else
 #include <unistd.h>
@@ -93,6 +95,7 @@ public:
 
 typedef int (*KEYHANDLER)(void);
 
+static void refresh_cursor_y(void);
 static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
 static int vis_keyhandler_normal(void);
@@ -107,7 +110,6 @@ static void vis_show_map_selection(void);
 #define NOTES_PER_COL	2	// number of notes that share the same column
 #define CENTER_NOTE		60	// middle C
 //static char textbuf[1024];
-static int TEXT_BASE_LINE = 0;
 static int curYline = 0;
 
 static MidiModuleCollection* midiModColl = NULL;
@@ -131,29 +133,23 @@ static std::string lastMeta04;
 
 static std::vector<KEYHANDLER> currentKeyHandler;
 
+// Note Visualiztion
+static WINDOW* nvWin = NULL;
+static PANEL* nvPan = NULL;
+
+// Log Window
+static WINDOW* logWin = NULL;
+static PANEL* logPan = NULL;
+
 // MIDI map selection
 static WINDOW* mmsWin = NULL;
 static PANEL* mmsPan = NULL;
 static int mmsSelection;
 static std::vector<UINT8> mapSelTypes;
 
-static void refresh_cursor_y(void)
-{
-	int x, y;
-	
-	getyx(stdscr, y, x);
-	if (y > curYline)
-		curYline = y;
-	if (curYline >= LINES)
-		curYline = TEXT_BASE_LINE;
-	
-	return;
-}
-
 void vis_init(void)
 {
-	mmsPan = NULL;
-	mmsWin = NULL;
+	int posY, sizeY;
 	
 	initscr();
 	cbreak();
@@ -171,7 +167,17 @@ void vis_init(void)
 	init_pair(7, COLOR_WHITE, COLOR_BLACK);
 	attrset(A_NORMAL);
 	
-	TEXT_BASE_LINE = 0;
+	posY = CHN_BASE_LINE;	sizeY = 16 + 1;
+	nvWin = newwin(sizeY, COLS, posY, 0);
+	nvPan = new_panel(nvWin);
+	
+	posY += sizeY;	sizeY = LINES - posY;
+	logWin = newwin(sizeY, COLS, posY, 0);
+	logPan = new_panel(logWin);
+	
+	mmsPan = NULL;
+	mmsWin = NULL;
+	
 	curYline = 0;
 	
 	return;
@@ -197,7 +203,11 @@ static void vis_clear_all_menus(void)
 void vis_deinit(void)
 {
 	vis_clear_all_menus();
+	del_panel(nvPan);	delwin(nvWin);
+	del_panel(logPan);	delwin(logWin);
+	
 	attrset(A_NORMAL);
+	update_panels();
 	refresh();
 	endwin();
 	
@@ -230,11 +240,11 @@ int vis_getch_wait(void)
 
 void vis_addstr(const char* text)
 {
-	move(curYline, 0);	clrtoeol();
-	addstr(text);
+	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
+	waddstr(logWin, text);
 	curYline ++;
 	refresh_cursor_y();
-	move(curYline, 0);	clrtoeol();
+	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
 	
 	return;
 }
@@ -243,15 +253,15 @@ void vis_printf(const char* format, ...)
 {
 	va_list args;
 	
-	move(curYline, 0);	clrtoeol();
+	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
 	
 	va_start(args, format);
-	vwprintw(stdscr, format, args);
+	vwprintw(logWin, format, args);
 	va_end(args);
 	
 	curYline ++;
 	refresh_cursor_y();
-	move(curYline, 0);	clrtoeol();
+	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
 	
 	return;
 }
@@ -322,13 +332,29 @@ void vis_new_song(void)
 	unsigned int curChn;
 	int titlePosX;
 	size_t maxTitleLen;
-	char chnNameStr[0x10];
 	const PlayerOpts* midOpts;
+	int posY, sizeY;
+	WINDOW* oldWin;
 	
 	nTrks = (midFile != NULL) ? midFile->GetTrackCount() : 0;
 	chnCnt = (midPlay != NULL) ? midPlay->GetChannelStates().size() : 0x10;
 	dispChns.clear();
 	dispChns.resize(chnCnt);
+	
+	oldWin = nvWin;
+	posY = CHN_BASE_LINE;
+	sizeY = chnCnt + 1;
+	if (posY + sizeY + 1 >= LINES)
+		sizeY = 0x10 + 1;
+	nvWin = newwin(sizeY, COLS, posY, 0);
+	replace_panel(nvPan, nvWin);
+	delwin(oldWin);
+	
+	oldWin = logWin;
+	posY += sizeY;	sizeY = LINES - posY;
+	logWin = newwin(sizeY, COLS, posY, 0);
+	replace_panel(logPan, logWin);
+	delwin(oldWin);
 	
 	midOpts = (midPlay != NULL) ? &midPlay->GetOptions() : NULL;
 	mapSelTypes.clear();
@@ -344,6 +370,7 @@ void vis_new_song(void)
 	clear();
 	curs_set(0);
 	attrset(A_NORMAL);
+	
 	mvprintw(0, 0, "MIDI Player");
 	mvprintw(0, 32, "Now Playing: ");
 	titlePosX = getcurx(stdscr);
@@ -365,14 +392,13 @@ void vis_new_song(void)
 			midFile->GetTrackCount(), (midFile->GetTrackCount() == 1) ? "Track" : "Tracks",
 			midFile->GetMidiFormat(), midFile->GetMidiResolution());
 	
-	mvvline(CHN_BASE_LINE, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
-	mvhline(CHN_BASE_LINE + chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);
-	mvaddch(CHN_BASE_LINE + chnCnt, NOTE_BASE_COL - 1, ACS_LRCORNER);
-	TEXT_BASE_LINE = CHN_BASE_LINE + chnCnt + 1;
-	
+	mvwvline(nvWin, 0, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
+	mvwhline(nvWin, chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);
+	mvwaddch(nvWin, chnCnt, NOTE_BASE_COL - 1, ACS_LRCORNER);
 	for (curChn = 0; curChn < chnCnt; curChn ++)
 		vis_do_channel_event(curChn, 0x00, 0x00);
-	curYline = TEXT_BASE_LINE;
+	
+	curYline = 0;
 	
 	attron(A_BOLD);
 	if (trackCnt > 0)
@@ -405,7 +431,8 @@ void vis_new_song(void)
 	mvaddch(1, 49, 'B');
 	mvaddch(1, 61, 'N');
 	attroff(A_BOLD);
-	move(curYline, 0);
+	wmove(logWin, curYline, 0);
+	update_panels();
 	refresh();
 	
 	lastMeta01.clear();
@@ -455,7 +482,6 @@ void vis_do_ins_change(UINT16 chn)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
 	const MidiPlayer::InstrumentInfo* insInf = &chnSt->insSend;
-	int posY = CHN_BASE_LINE + chn;
 	int color = (chn % 6) + 1;
 	std::string insName;
 	char userInsName[20];
@@ -542,7 +568,7 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 	return;
 }
 
-void str_locale_conv(std::string& text)
+static void str_locale_conv(std::string& text)
 {
 	std::string newtxt;
 	size_t curLoc;
@@ -584,8 +610,8 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	if (! optShowMeta[0] && (metaType != 1 && metaType != 6))
 		return;
 	
-	move(curYline, 0);	clrtoeol();
-	attron(COLOR_PAIR(metaType % 8));
+	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
+	wattron(logWin, COLOR_PAIR(metaType % 8));
 	switch(metaType)
 	{
 	case 0x01:	// Text
@@ -596,12 +622,12 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		lastMeta01 = text;
 		
 		str_locale_conv(text);
-		printw("Text: %s", text.c_str());
+		wprintw(logWin, "Text: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x02:	// Copyright Notice
 		str_locale_conv(text);
-		printw("Copyright: %s", text.c_str());
+		wprintw(logWin, "Copyright: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x03:	// Sequence/Track Name
@@ -611,10 +637,10 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		
 		if (trk == 0 || midFile->GetMidiFormat() == 2)
 		{
-			attron(A_BOLD);
+			wattron(logWin, A_BOLD);
 			str_locale_conv(text);
-			printw("Title: %s", text.c_str());
-			attroff(A_BOLD);
+			wprintw(logWin, "Title: %s", text.c_str());
+			wattroff(logWin, A_BOLD);
 			curYline ++;
 		}
 		else if (true)
@@ -624,7 +650,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			if (string_is_empty(text))
 				break;
 			str_locale_conv(text);
-			printw("Track %u Name: %s", trk, text.c_str());
+			wprintw(logWin, "Track %u Name: %s", trk, text.c_str());
 			curYline ++;
 		}
 		break;
@@ -636,7 +662,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		lastMeta04 = text;
 		
 		str_locale_conv(text);
-		printw("Instrument Name: %s", text.c_str());
+		wprintw(logWin, "Instrument Name: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x05:	// Lyric
@@ -646,7 +672,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		if (! optShowMeta[6])
 			break;
 		str_locale_conv(text);
-		printw("Marker: %s", text.c_str());
+		wprintw(logWin, "Marker: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x51:	// Tempo
@@ -656,9 +682,20 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	case 0x59:	// Key Signature
 		break;
 	}
-	attroff(COLOR_PAIR(metaType % 8));
+	wattroff(logWin, COLOR_PAIR(metaType % 8));
 	refresh_cursor_y();
-	move(curYline, 0);	clrtoeol();
+	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
+	
+	return;
+}
+
+static void refresh_cursor_y(void)
+{
+	if (curYline < getcury(logWin))
+		curYline = getcury(logWin);	// for Y position after multi-line print
+	
+	if (curYline >= getmaxy(logWin))
+		curYline = 0;	// wrap around
 	
 	return;
 }
@@ -697,6 +734,7 @@ void vis_update(void)
 	
 	if (midPlay == NULL)
 	{
+		update_panels();
 		refresh();
 		return;
 	}
@@ -714,7 +752,7 @@ void vis_update(void)
 	
 	vis_mvprintms(1, 0, midPlay->GetPlaybackPos());
 	vis_mvprintms(1, 10, midPlay->GetSongLength());
-	move(curYline, 0);
+	update_panels();
 	refresh();
 	
 	return;
@@ -848,9 +886,7 @@ static int vis_keyhandler_mapsel(void)
 	}
 	if (cursorPos != mmsSelection)
 	{
-		int sizeX, sizeY;
-		
-		getmaxyx(mmsWin, sizeY, sizeX);
+		int sizeX = getmaxx(mmsWin);
 		mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_NORMAL, 0, NULL);
 		mmsSelection = cursorPos;
 		mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
@@ -863,7 +899,6 @@ static int vis_keyhandler_mapsel(void)
 
 static void vis_show_map_selection(void)
 {
-	int centerX, centerY;
 	int sizeX, sizeY;
 	int wsx, wsy;
 	UINT8 midMapType;
@@ -916,7 +951,7 @@ void ChannelData::Initialize(UINT16 chnID, size_t screenWidth)
 {
 	_flags = 0x00;
 	_chnID = chnID;
-	_posY = CHN_BASE_LINE + _chnID;
+	_posY = _chnID;
 	_color = (_chnID % 6) + 1;
 	_insName = std::string(INS_COL_SIZE, ' ');
 	_pan = 0;
@@ -938,15 +973,15 @@ void ChannelData::ShowInsName(const char* insName, bool grey)
 	
 	if (grey)
 	{
-		mvaddstr(_posY, 0, _insName.c_str());
+		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
 		_flags |= 0x01;
 	}
 	else
 	{
 		_flags &= ~0x01;
-		attron(A_BOLD | COLOR_PAIR(_color));
-		mvaddstr(_posY, 0, _insName.c_str());
-		attroff(A_BOLD | COLOR_PAIR(_color));
+		wattron(nvWin, A_BOLD | COLOR_PAIR(_color));
+		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
+		wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
 	}
 	
 	return;
@@ -966,15 +1001,15 @@ void ChannelData::ShowPan(INT8 pan, bool grey)
 		pChar = ACS_BULLET;	// ' '
 	if (grey)
 	{
-		mvaddch(_posY, NOTE_BASE_COL - 2, pChar);
+		mvwaddch(nvWin, _posY, NOTE_BASE_COL - 2, pChar);
 		_flags |= 0x02;
 	}
 	else
 	{
 		_flags &= ~0x02;
-		attron(A_BOLD | COLOR_PAIR(_color));
-		mvaddch(_posY, NOTE_BASE_COL - 2, pChar);
-		attroff(A_BOLD | COLOR_PAIR(_color));
+		wattron(nvWin, A_BOLD | COLOR_PAIR(_color));
+		mvwaddch(nvWin, _posY, NOTE_BASE_COL - 2, pChar);
+		wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
 	}
 	
 	return;
@@ -1098,7 +1133,7 @@ void ChannelData::DrawNoteName(size_t slot)
 	
 	if (nDisp.vol == 0)
 	{
-		mvhline(_posY, posX, ' ', NOTE_NAME_SPACE);
+		mvwhline(nvWin, _posY, posX, ' ', NOTE_NAME_SPACE);
 		return;
 	}
 	
@@ -1123,31 +1158,31 @@ void ChannelData::DrawNoteName(size_t slot)
 	}
 	
 	PadString(noteName, NOTE_NAME_SPACE, ' ', nDisp.subcol);
-	attron(COLOR_PAIR(_color));
+	wattron(nvWin, COLOR_PAIR(_color));
 	if (nDisp.vol >= 2)
-		attron(A_BOLD);
-	mvaddstr(_posY, posX, noteName);
-	attroff(A_BOLD | COLOR_PAIR(_color));
+		wattron(nvWin, A_BOLD);
+	mvwaddstr(nvWin, _posY, posX, noteName);
+	wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
 	
 	return;
 }
 
 void ChannelData::RedrawAll(void)
 {
-	//move(_posY, 0);	clrtoeol();
+	//wmove(nvWin, _posY, 0);	wclrtoeol(nvWin);
 	
 	if (_flags & 0x01)
 	{
-		mvaddstr(_posY, 0, _insName.c_str());
+		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
 	}
 	else
 	{
-		attron(A_BOLD | COLOR_PAIR(_color));
-		mvaddstr(_posY, 0, _insName.c_str());
-		attroff(A_BOLD | COLOR_PAIR(_color));
+		wattron(nvWin, A_BOLD | COLOR_PAIR(_color));
+		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
+		wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
 	}
 	ShowPan(_pan, (_flags & 0x02) ? true : false);
-	mvaddch(_posY, NOTE_BASE_COL - 1, ACS_VLINE);
+	mvwaddch(nvWin, _posY, NOTE_BASE_COL - 1, ACS_VLINE);
 	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
 		DrawNoteName(curNote);
 	

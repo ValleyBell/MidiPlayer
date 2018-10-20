@@ -1832,6 +1832,8 @@ void MidiPlayer::AllInsRefresh(void)
 		ChannelState* chnSt = &_chnStates[curChn];
 		UINT8 evtChn = curChn & 0x0F;
 		
+		if (chnSt->curIns == 0xFF)
+			continue;
 		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 		HandleInstrumentEvent(chnSt, curChn >> 4, &insEvt, 0x10);
 		if (_evtCbFunc != NULL)
