@@ -155,6 +155,7 @@ void vis_init(void)
 	cbreak();
 	keypad(stdscr, TRUE);
 	noecho();
+	curs_set(0);
 	nodelay(stdscr, TRUE);
 	
 	start_color();
@@ -336,6 +337,12 @@ void vis_new_song(void)
 	int posY, sizeY;
 	WINDOW* oldWin;
 	
+	vis_clear_all_menus();
+	clear();
+	// explicit redrawing prevents graphical glitches caused by printf() commands
+	clearok(stdscr, TRUE);
+	refresh();
+	
 	nTrks = (midFile != NULL) ? midFile->GetTrackCount() : 0;
 	chnCnt = (midPlay != NULL) ? midPlay->GetChannelStates().size() : 0x10;
 	dispChns.clear();
@@ -366,15 +373,19 @@ void vis_new_song(void)
 			mapSelTypes.push_back(curMap);
 	}
 	
-	vis_clear_all_menus();
-	clear();
-	curs_set(0);
 	attrset(A_NORMAL);
 	
 	mvprintw(0, 0, "MIDI Player");
 	mvprintw(0, 32, "Now Playing: ");
 	titlePosX = getcurx(stdscr);
 	mvprintw(1, 32, "[Q]uit [ ]Pause [B]Previous [N]ext");
+	attron(A_BOLD);
+	mvaddch(1, 33, 'Q');
+	mvaddch(1, 40, ' ');
+	mvaddch(1, 49, 'B');
+	mvaddch(1, 61, 'N');
+	attroff(A_BOLD);
+	
 	mvprintw(1, 0, "00:00.0 / 00:00.0");
 	if (midPlay != NULL)
 		vis_mvprintms(1, 10, midPlay->GetSongLength());
@@ -387,18 +398,6 @@ void vis_new_song(void)
 		const char* mapStr2 = (! mapStr.empty()) ? mapStr.c_str() : "unknown";
 		mvprintw(1, 20, "(%.9s)", mapStr2);
 	}
-	
-	mvprintw(2, 0, "%u %s (Format %u), %u TpQ",
-			midFile->GetTrackCount(), (midFile->GetTrackCount() == 1) ? "Track" : "Tracks",
-			midFile->GetMidiFormat(), midFile->GetMidiResolution());
-	
-	mvwvline(nvWin, 0, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
-	mvwhline(nvWin, chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);
-	mvwaddch(nvWin, chnCnt, NOTE_BASE_COL - 1, ACS_LRCORNER);
-	for (curChn = 0; curChn < chnCnt; curChn ++)
-		vis_do_channel_event(curChn, 0x00, 0x00);
-	
-	curYline = 0;
 	
 	attron(A_BOLD);
 	if (trackCnt > 0)
@@ -426,12 +425,19 @@ void vis_new_song(void)
 			printw("...%s", utf8strseek(midFName, startChr));
 		}
 	}
-	mvaddch(1, 33, 'Q');
-	mvaddch(1, 40, ' ');
-	mvaddch(1, 49, 'B');
-	mvaddch(1, 61, 'N');
 	attroff(A_BOLD);
-	wmove(logWin, curYline, 0);
+	
+	mvprintw(2, 0, "%u %s (Format %u), %u TpQ",
+			midFile->GetTrackCount(), (midFile->GetTrackCount() == 1) ? "Track" : "Tracks",
+			midFile->GetMidiFormat(), midFile->GetMidiResolution());
+	
+	mvwvline(nvWin, 0, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
+	mvwhline(nvWin, chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);
+	mvwaddch(nvWin, chnCnt, NOTE_BASE_COL - 1, ACS_LRCORNER);
+	for (curChn = 0; curChn < chnCnt; curChn ++)
+		vis_do_channel_event(curChn, 0x00, 0x00);
+	
+	mvcur(0, 0, getbegy(logWin), 0);
 	update_panels();
 	refresh();
 	
@@ -442,6 +448,7 @@ void vis_new_song(void)
 	currentKeyHandler.clear();
 	currentKeyHandler.push_back(&vis_keyhandler_normal);
 	lastUpdateTime = 0;
+	curYline = 0;
 	
 	return;
 }
@@ -807,8 +814,10 @@ int vis_main(void)
 	//	-1 - previous song
 	//	+9 - quit
 	UINT64 newUpdateTime;
+	int result;
 	
 	lastUpdateTime = 0;
+	result = +1;	// default: finished normally - next song
 	while(midPlay->GetState() & 0x01)
 	{
 		int retval = 0;
@@ -822,11 +831,17 @@ int vis_main(void)
 		
 		retval = currentKeyHandler.back()();
 		if (retval != 0)
-			return retval;
+		{
+			result = retval;
+			break;
+		}
 		Sleep(1);
 	}
 	
-	return +1;	// finished normally - next song
+	vis_clear_all_menus();
+	mvcur(0, 0, getbegy(logWin) + curYline, 0);
+	
+	return result;
 }
 
 static int vis_keyhandler_mapsel(void)
@@ -899,13 +914,15 @@ static int vis_keyhandler_mapsel(void)
 
 static void vis_show_map_selection(void)
 {
+	static const char* menuTitle = "Select Ins. Map";
+	size_t mtLen = strlen(menuTitle);
 	int sizeX, sizeY;
 	int wsx, wsy;
 	UINT8 midMapType;
 	
 	midMapType = (midPlay != NULL) ? midPlay->GetOptions().srcType : 0x00;
 	mmsSelection = 0;
-	sizeX = 14;
+	sizeX = 0;
 	for (size_t curMap = 0; curMap < mapSelTypes.size(); curMap ++)
 	{
 		UINT8 mapType = mapSelTypes[curMap];
@@ -916,16 +933,19 @@ static void vis_show_map_selection(void)
 			mmsSelection = (int)curMap;
 	}
 	sizeX += 3;	// 3 for map ID number
-	sizeX = (sizeX + 2) | 1;	// add additional space + make title nicely aligned
+	if (sizeX < mtLen)
+		sizeX = mtLen;
+	sizeX += 4;	// add additional space for borders and margin
+	sizeX += (sizeX ^ mtLen) & 1;	// make title nicely aligned (make both even or odd)
 	sizeY = mapSelTypes.size() + 2;
 	
-	wsx = (COLS - sizeX) / 2;	wsy = (LINES - sizeY) / 2;
+	wsx = (COLS - sizeX) / 2;	wsy = (LINES - sizeY) / 2;	// center of the screen
 	mmsWin = newwin(sizeY, sizeX, wsy, wsx);
 	mmsPan = new_panel(mmsWin);
 	box(mmsWin, 0, 0);
 	
 	wattron(mmsWin, A_BOLD | COLOR_PAIR(0));
-	mvwaddstr(mmsWin, 0, (sizeX - 15) / 2, "Select Ins. Map");
+	mvwaddstr(mmsWin, 0, (sizeX - mtLen) / 2, menuTitle);
 	wattroff(mmsWin, A_BOLD | COLOR_PAIR(0));
 	
 	for (size_t curMap = 0; curMap < mapSelTypes.size(); curMap ++)
