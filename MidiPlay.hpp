@@ -42,6 +42,8 @@ public:
 	};
 	struct ChannelState
 	{
+		UINT8 midChn;
+		UINT8 portID;
 		UINT8 flags;		// Bit 7 (80) - is drum channel
 		InstrumentInfo insOrg;	// original instrument set by the song
 		InstrumentInfo insSend;	// patched instrument as sent to the device
@@ -57,7 +59,6 @@ public:
 		INT16 tuneFine;		// stored as 8.8 fixed point
 		
 		std::list<NoteInfo> notes;	// currently running notes
-		MIDIOUT_PORT* outPort;
 	};
 private:
 	struct TrackState
@@ -116,11 +117,11 @@ private:
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
-	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID, UINT8 devType, UINT8& bankIgnore, const INS_BANK* insBank);
+	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, UINT8& bankIgnore, const INS_BANK* insBank);
 	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8& bankIgnore);
-	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
-	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID);
-	bool HandleInstrumentEvent(ChannelState* chnSt, UINT8 portID, const MidiEvent* midiEvt, UINT8 noact = 0x00);
+	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf);
+	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf);
+	bool HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syxData);
 	bool HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxData);

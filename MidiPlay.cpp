@@ -30,6 +30,8 @@
 #define TICK_FP_SHIFT	8
 #define TICK_FP_MUL		(1 << TICK_FP_SHIFT)
 
+#define FULL_CHN_ID(portID, midChn)	(((portID) << 4) | ((midChn) << 0))
+
 #define BNKBIT_MSB		0
 #define BNKBIT_LSB		1
 #define BNKBIT_INS		2
@@ -381,7 +383,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	{
 		UINT8 evtType = midiEvt->evtType & 0xF0;
 		UINT8 evtChn = midiEvt->evtType & 0x0F;
-		UINT16 chnID = (trkState->portID << 4) | evtChn;
+		UINT16 chnID = FULL_CHN_ID(trkState->portID, evtChn);
 		ChannelState* chnSt = &_chnStates[chnID];
 		bool didEvt = false;
 		
@@ -395,7 +397,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			didEvt = HandleControlEvent(chnSt, trkState, midiEvt);
 			break;
 		case 0xC0:
-			didEvt = HandleInstrumentEvent(chnSt, trkState->portID, midiEvt);
+			didEvt = HandleInstrumentEvent(chnSt, midiEvt);
 			break;
 		case 0xE0:
 			{
@@ -428,7 +430,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			MidiOutPort_SendLongMsg(outPort, msgData.size(), &msgData[0x00]);
 		}
 		if (_evtCbFunc != NULL)
-			_evtCbFunc(_evtCbData, midiEvt, (trkState->portID << 4) | 0x00);
+			_evtCbFunc(_evtCbData, midiEvt, FULL_CHN_ID(trkState->portID, 0x00));
 		if (_initChnPost)
 			InitializeChannels_Post();
 		break;
@@ -577,7 +579,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 {
 	UINT8 evtType = midiEvt->evtType & 0xF0;
 	UINT8 evtChn = midiEvt->evtType & 0x0F;
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | (evtChn << 0));
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
 	
 	if ((evtType & 0xE0) != 0x80)
 		return false;	// must be Note On or Note Off
@@ -622,8 +624,9 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 
 bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
+	MIDIOUT_PORT* outPort = _outPorts[chnSt->portID];
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
 	UINT8 ctrlID = midiEvt->evtValA;
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((trkSt->portID << 4) | (midiEvt->evtType & 0x0F));
 	
 	if (ctrlID == chnSt->idCC[0])
 		ctrlID = 0x10;
@@ -652,7 +655,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
 				// MT-32 on GS: send GM-compatible Pan value
-				MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, ctrlID, panVal);
+				MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, panVal);
 				return true;
 			}
 		}
@@ -772,13 +775,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		if (_evtCbFunc != NULL)
 		{
 			MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x01, 0x00);	// redraw channel
-			_evtCbFunc(_evtCbData, &noteEvt, chnSt - &_chnStates[0]);
+			_evtCbFunc(_evtCbData, &noteEvt, FULL_CHN_ID(chnSt->portID, chnSt->midChn));
 		}
 		break;
 	}
 	
 	if (ctrlID != midiEvt->evtValA)
-		MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, ctrlID, midiEvt->evtValB);
+		MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, midiEvt->evtValB);
 	
 	return false;
 }
@@ -837,7 +840,7 @@ static const INS_DATA* GetExactInstrument(const INS_BANK* insBank, const MidiPla
 	return GetInsMapData(&insBank->prg[ins], msb, lsb, maxModuleID);
 }
 
-void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID, UINT8 devType, UINT8& bankIgnore, const INS_BANK* insBank)
+void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, UINT8& bankIgnore, const INS_BANK* insBank)
 {
 	if (devType == MODULE_GM_1)
 	{
@@ -861,7 +864,7 @@ void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentIn
 		{
 			// when supported by the instrument bank, do CM-32L/P instrument set selection
 			bankIgnore = BNKMSK_LSB;
-			if (chnID <= 0x09)
+			if (chnSt->midChn <= 0x09)
 				insInf->bank[0] = 0x00;	// MT-32/CM-32L set
 			else
 				insInf->bank[0] = 0x01;	// CM-32P set
@@ -949,7 +952,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 	return;
 }
 
-void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID)
+void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf)
 {
 	const INS_BANK* insBank;
 	const UINT8 devType = _options.srcType;
@@ -962,7 +965,7 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 	bankIgnore = BNKMSK_NONE;
 	insBank = SelectInsMap(devType, &mapModType);
 	
-	HandleIns_CommonPatches(chnSt, insInf, chnID, devType, bankIgnore, insBank);
+	HandleIns_CommonPatches(chnSt, insInf, devType, bankIgnore, insBank);
 	if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 	{
 		if (devType == MODULE_SC55 || devType == MODULE_TG300B)
@@ -1022,7 +1025,7 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 	return;
 }
 
-void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 chnID)
+void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf)
 {
 	InstrumentInfo insIOld;
 	const INS_BANK* insBank;
@@ -1046,7 +1049,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	strictPatch = BNKMSK_NONE;
 	insBank = SelectInsMap(devType, &mapModType);
 	
-	HandleIns_CommonPatches(chnSt, insInf, chnID, devType, bankIgnore, insBank);
+	HandleIns_CommonPatches(chnSt, insInf, devType, bankIgnore, insBank);
 	if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 	{
 		if (_options.srcType == MODULE_MT32)
@@ -1061,7 +1064,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			else
 			{
 				// channels 1-10: MT-32/CM-32L, channels 11-16: CM-32P
-				insInf->bank[0] = (chnID <= 0x09) ? 0x7F : 0x7E;
+				insInf->bank[0] = (chnSt->midChn <= 0x09) ? 0x7F : 0x7E;
 			}
 		}
 		else
@@ -1188,10 +1191,10 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	return;
 }
 
-bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, UINT8 portID, const MidiEvent* midiEvt, UINT8 noact)
+bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact)
 {
-	UINT8 chnID = midiEvt->evtType & 0x0F;
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel((portID << 4) | chnID);
+	MIDIOUT_PORT* outPort = _outPorts[chnSt->portID];
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
 	UINT8 oldMSB = chnSt->insState[0];
 	UINT8 oldLSB = chnSt->insState[1];
 	UINT8 oldIns = chnSt->insState[2];
@@ -1221,7 +1224,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, UINT8 portID, const 
 			chnSt->flags &= ~0x80;
 		if (_options.flags & PLROPTS_STRICT)
 		{
-			if (chnID == 0x09 && ! (chnSt->flags & 0x80))
+			if (chnSt->midChn == 0x09 && ! (chnSt->flags & 0x80))
 			{
 				// for now enforce drum mode on channel 9
 				// TODO: XG allows ch 9 to be melody - what are the exact conditions??
@@ -1242,14 +1245,14 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, UINT8 portID, const 
 		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 	}
 	
-	HandleIns_GetOriginal(chnSt, &chnSt->insOrg, chnID);
-	HandleIns_GetRemapped(chnSt, &chnSt->insSend, chnID);
+	HandleIns_GetOriginal(chnSt, &chnSt->insOrg);
+	HandleIns_GetRemapped(chnSt, &chnSt->insSend);
 	
 	if (optShowInsChange && ! (noact & 0x10))
 	{
 		const char* oldName;
 		const char* newName;
-		UINT8 ctrlEvt = 0xB0 | chnID;
+		UINT8 ctrlEvt = 0xB0 | chnSt->midChn;
 		UINT8 insEvt = midiEvt->evtType;
 		UINT8 didPatch = BNKMSK_NONE;
 		bool showOrgIns = false;
@@ -1304,13 +1307,13 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, UINT8 portID, const 
 	// resend Bank MSB/LSB
 	if (oldMSB != chnSt->insState[0] || oldLSB != chnSt->insState[1])
 	{
-		UINT8 evtType = 0xB0 | chnID;
+		UINT8 evtType = 0xB0 | chnSt->midChn;
 		if (oldMSB != chnSt->insState[0])
-			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x00, chnSt->insState[0]);
+			MidiOutPort_SendShortMsg(outPort, evtType, 0x00, chnSt->insState[0]);
 		if (oldLSB != chnSt->insState[1])
-			MidiOutPort_SendShortMsg(chnSt->outPort, evtType, 0x20, chnSt->insState[1]);
+			MidiOutPort_SendShortMsg(outPort, evtType, 0x20, chnSt->insState[1]);
 	}
-	MidiOutPort_SendShortMsg(chnSt->outPort, midiEvt->evtType, chnSt->insState[2], 0x00);
+	MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, chnSt->insState[2], 0x00);
 	return true;
 }
 
@@ -1516,7 +1519,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			UINT8 newIns;
 			
 			evtChn = 1 + ((addr & 0x0000F0) >> 4);
-			chnSt = &_chnStates[(portID << 4) | evtChn];
+			chnSt = &_chnStates[FULL_CHN_ID(portID, evtChn)];
 			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
 			if (newIns < 0x80)
 			{
@@ -1525,8 +1528,8 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 				
 				chnSt->curIns = newIns;
 				chnSt->userInsID = 0xFFFF;
-				//HandleIns_GetOriginal(chnSt, &chnSt->insOrg, evtChn);
-				//HandleIns_GetRemapped(chnSt, &chnSt->insSend, evtChn);
+				//HandleIns_GetOriginal(chnSt, &chnSt->insOrg);
+				//HandleIns_GetRemapped(chnSt, &chnSt->insSend);
 				insBank = SelectInsMap(_options.dstType, &mapModType);
 				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &chnSt->insSend, mapModType, BNKMSK_ALLBNK);
 			}
@@ -1545,7 +1548,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_evtCbFunc != NULL)
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
-				_evtCbFunc(_evtCbData, &insEvt, (portID << 4) | evtChn);
+				_evtCbFunc(_evtCbData, &insEvt, FULL_CHN_ID(portID, evtChn));
 			}
 			break;
 		}
@@ -1593,7 +1596,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
-	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
+	if (MMASK_TYPE(_options.srcType) == MODULE_MT32)
 	{
 		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
 		if (! ((syxData[0x04] & 0x3F) == 0x00 && syxData[0x05] == 0x00))
@@ -1655,7 +1658,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		{
 			addr &= ~0x000F00;	// remove channel ID
 			evtChn = PART_ORDER[syxData[0x05] & 0x0F];
-			portChnID = (evtPort << 4) | evtChn;
+			portChnID = FULL_CHN_ID(evtPort, evtChn);
 			chnSt = &_chnStates[portChnID];
 			nvChn = _noteVis.GetChannel(portChnID);
 		}
@@ -1710,7 +1713,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				}
 				
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
-				HandleInstrumentEvent(chnSt, portID, &insEvt, flags);
+				HandleInstrumentEvent(chnSt, &insEvt, flags);
 				if (_evtCbFunc != NULL)
 					_evtCbFunc(_evtCbData, &insEvt, portChnID);
 			}
@@ -1782,16 +1785,16 @@ void MidiPlayer::AllNotesStop(void)
 	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
-		ChannelState* chnSt = &_chnStates[curChn];
-		UINT8 evtChn = curChn & 0x0F;
+		ChannelState& chnSt = _chnStates[curChn];
+		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 		
-		for (ntIt = chnSt->notes.begin(); ntIt != chnSt->notes.end(); ++ntIt)
-			MidiOutPort_SendShortMsg(chnSt->outPort, 0x90 | ntIt->chn, ntIt->note, 0x00);
+		for (ntIt = chnSt.notes.begin(); ntIt != chnSt.notes.end(); ++ntIt)
+			MidiOutPort_SendShortMsg(outPort, 0x90 | ntIt->chn, ntIt->note, 0x00);
 		
-		if (chnSt->ctrls[0x40] & 0x40)	// turn Sustain off
-			MidiOutPort_SendShortMsg(chnSt->outPort, 0xB0 | evtChn, 0x40, 0x00);
-		if (chnSt->ctrls[0x42] & 0x40)	// turn Sostenuto off
-			MidiOutPort_SendShortMsg(chnSt->outPort, 0xB0 | evtChn, 0x42, 0x00);
+		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain off
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x40, 0x00);
+		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto off
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x42, 0x00);
 	}
 	
 	return;
@@ -1804,19 +1807,19 @@ void MidiPlayer::AllNotesRestart(void)
 	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
-		ChannelState* chnSt = &_chnStates[curChn];
-		UINT8 evtChn = curChn & 0x0F;
+		ChannelState& chnSt = _chnStates[curChn];
+		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 		
-		if (chnSt->ctrls[0x40] & 0x40)	// turn Sustain on
-			MidiOutPort_SendShortMsg(chnSt->outPort, 0xB0 | evtChn, 0x40, chnSt->ctrls[0x40]);
-		if (chnSt->ctrls[0x42] & 0x40)	// turn Sostenuto on
-			MidiOutPort_SendShortMsg(chnSt->outPort, 0xB0 | evtChn, 0x42, chnSt->ctrls[0x42]);
+		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain on
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x40, chnSt.ctrls[0x40]);
+		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto on
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x42, chnSt.ctrls[0x42]);
 		
-		if (chnSt->flags & 0x80)
+		if (chnSt.flags & 0x80)
 			continue;	// skip restarting notes on drum channels
 		
-		for (ntIt = chnSt->notes.begin(); ntIt != chnSt->notes.end(); ++ntIt)
-			MidiOutPort_SendShortMsg(chnSt->outPort, 0x90 | ntIt->chn, ntIt->note, ntIt->vel);
+		for (ntIt = chnSt.notes.begin(); ntIt != chnSt.notes.end(); ++ntIt)
+			MidiOutPort_SendShortMsg(outPort, 0x90 | ntIt->chn, ntIt->note, ntIt->vel);
 	}
 	
 	return;
@@ -1829,13 +1832,12 @@ void MidiPlayer::AllInsRefresh(void)
 	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
-		ChannelState* chnSt = &_chnStates[curChn];
-		UINT8 evtChn = curChn & 0x0F;
+		ChannelState& chnSt = _chnStates[curChn];
 		
-		if (chnSt->curIns == 0xFF)
+		if (chnSt.curIns == 0xFF)
 			continue;
-		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
-		HandleInstrumentEvent(chnSt, curChn >> 4, &insEvt, 0x10);
+		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
+		HandleInstrumentEvent(&chnSt, &insEvt, 0x10);
 		if (_evtCbFunc != NULL)
 			_evtCbFunc(_evtCbData, &insEvt, curChn);
 	}
@@ -1930,6 +1932,8 @@ void MidiPlayer::InitializeChannels(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
+		chnSt.midChn = curChn & 0x0F;
+		chnSt.portID = curChn >> 4;
 		chnSt.flags = 0x00;
 		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
 		chnSt.insOrg.bankPtr = NULL;
@@ -1949,7 +1953,6 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.tuneFine = 0;
 		
 		chnSt.notes.clear();
-		chnSt.outPort = _outPorts[curChn / 0x10];
 		
 		if (_evtCbFunc != NULL)
 			_evtCbFunc(_evtCbData, &chnInitEvt, curChn);
@@ -1982,6 +1985,7 @@ void MidiPlayer::InitializeChannels_Post(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
 	{
 		ChannelState& drumChn = _chnStates[curChn | 0x09];
+		MIDIOUT_PORT* outPort = _outPorts[drumChn.portID];
 		
 		if (_options.flags & PLROPTS_STRICT)
 		{
@@ -2002,9 +2006,9 @@ void MidiPlayer::InitializeChannels_Post(void)
 					drumChn.insState[2] = 0x7F;	// select MT-32 drum kit
 				}
 				
-				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x00, drumChn.insState[0]);
-				MidiOutPort_SendShortMsg(drumChn.outPort, 0xB9, 0x20, drumChn.insState[1]);
-				MidiOutPort_SendShortMsg(drumChn.outPort, 0xC9, drumChn.insState[2], 0x00);
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x00, drumChn.insState[0]);
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x20, drumChn.insState[1]);
+				MidiOutPort_SendShortMsg(outPort, 0xC0 | drumChn.midChn, drumChn.insState[2], 0x00);
 			}
 		}
 	}
@@ -2012,19 +2016,20 @@ void MidiPlayer::InitializeChannels_Post(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
-		UINT8 evtChn = curChn & 0x0F;
+		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 		
 		if (_options.flags & PLROPTS_STRICT)
 		{
-			if (chnSt.pbRange != 2 && MMASK_TYPE(_options.dstType) != MODULE_TYPE_OT)
+			// TODO: store default PB range somewhere.
+			if (chnSt.pbRange != 2 && MMASK_TYPE(_options.dstType) < MODULE_TYPE_OT)
 			{
 				// set initial Pitch Bend Range
-				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x65, 0x00);
-				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x64, 0x00);
-				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x06, chnSt.pbRange);
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x00);
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
 				// reset RPN selection
-				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x65, 0x7F);
-				MidiOutPort_SendShortMsg(chnSt.outPort, 0xB0 | evtChn, 0x64, 0x7F);
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x7F);
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x7F);
 			}
 		}
 	}
