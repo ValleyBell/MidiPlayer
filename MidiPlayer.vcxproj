@@ -94,6 +94,7 @@
     <ClCompile Include="OSTimer_Win.c" />
     <ClCompile Include="utils.cpp" />
     <ClCompile Include="vis_curses.cpp" />
+    <ClCompile Include="vis_sc-lcd.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="libs\inih\cpp\INIReader.h" />
@@ -109,6 +110,7 @@
     <ClInclude Include="OSTimer.h" />
     <ClInclude Include="utils.hpp" />
     <ClInclude Include="vis.hpp" />
+    <ClInclude Include="vis_sc-lcd.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -60,6 +60,9 @@
     <ClCompile Include="NoteVis.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="vis_sc-lcd.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MidiLib.hpp">
@@ -99,6 +102,9 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="NoteVis.hpp">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="vis_sc-lcd.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

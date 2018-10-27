@@ -352,6 +352,7 @@ void vis_new_song(void)
 	int posX, posY, sizeY;
 	WINDOW* oldWin;
 	
+	lcdDisp.ResetDisplay();
 	vis_clear_all_menus();
 	clear();
 	// explicit redrawing prevents graphical glitches caused by printf() commands
@@ -379,6 +380,7 @@ void vis_new_song(void)
 	replace_panel(logPan, logWin);
 	delwin(oldWin);
 	
+	lcdDisp.GetSize(&posX, &sizeY);
 	posX = COLS - posX;
 	if (posY + sizeY > LINES)
 		posY = LINES - sizeY;
@@ -625,6 +627,10 @@ void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data
 	case 0x43:	// Yamaha MU Dot Bitmap
 		break;
 	case 0x45:	// Roland SC Dot Display
+		if (! dataLen || data == NULL)
+			return;
+		if ((chn & 0x0F) > 1)
+			return;	// We can't do caching yet.
 		{
 			std::bitset<0x100> bitmap;
 			LCDDisplay::SCSysEx2DotMatrix(dataLen, data, bitmap);

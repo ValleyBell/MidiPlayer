@@ -55,6 +55,7 @@ public:
 	void SetNoteVis(NoteVisualization* nVis);
 	void GetSize(int* sizeX, int* sizeY);
 	WINDOW* GetWindow(void);
+	void ResetDisplay(void);
 	void AdvanceTime(UINT32 time);
 	void RefreshDisplay(void);
 	void FullRedraw(void);

@@ -46,27 +46,7 @@ void LCDDisplay::Init(int winPosX, int winPosY)
 	_pageMode = PAGEMODE_ALL;
 	_ttMode = TTMODE_NONE;
 	
-	for (UINT8 y = 0; y < 16; y ++)
-	{
-		for (UINT8 x = 0; x < 16; x++)
-			_dotMatrix[MAT_XY2IDX(x, y)] = ((x ^ y) & 0x01) ? true : false;
-	}
-	
-	_modName = "-Visualization- ";
-	_allPage.partID = 0x00;
-	_allPage.chnID = 0x00;
-	_allPage.insID = 0x01;
-	_allPage.insName = _modName.c_str();
-	_allPage.vol = 127;
-	_allPage.pan = 0x00;
-	_allPage.expr = 127;
-	_allPage.reverb = 40;
-	_allPage.chorus = 0;
-	_allPage.delay = 0;
-	_allPage.transp = 0;
-	_chnPage = _allPage;
-	_chnPage.vol = 100;
-	_chnPage.insName = "- Channel Vis. -";
+	ResetDisplay();
 	
 	_hWin = newwin(MATRIX_BASE_Y + 9, MATRIX_BASE_X + 16 * 3, winPosY, winPosX);
 	
@@ -102,6 +82,39 @@ void LCDDisplay::GetSize(int* sizeX, int* sizeY)
 WINDOW* LCDDisplay::GetWindow(void)
 {
 	return _hWin;
+}
+
+void LCDDisplay::ResetDisplay(void)
+{
+	_ttMode = TTMODE_NONE;
+	
+	/*for (UINT8 y = 0; y < 16; y ++)
+	{
+		for (UINT8 x = 0; x < 16; x++)
+			_dotMatrix[MAT_XY2IDX(x, y)] = ((x ^ y) & 0x01) ? true : false;
+	}*/
+	_dotMatrix.reset();
+	
+	_modName = "-Visualization- ";
+	_allPage.partID = 0x00;
+	_allPage.chnID = 0x00;
+	_allPage.insID = 0x01;
+	_allPage.insName = _modName.c_str();
+	_allPage.vol = 127;
+	_allPage.pan = 0x00;
+	_allPage.expr = 127;
+	_allPage.reverb = 40;
+	_allPage.chorus = 0;
+	_allPage.delay = 0;
+	_allPage.transp = 0;
+	_chnPage = _allPage;
+	_chnPage.vol = 100;
+	_chnPage.insName = "- Channel Vis. -";
+	
+	_ttTimeout = 0;
+	_tdmTimeout = 0;
+	
+	return;
 }
 
 void LCDDisplay::AdvanceTime(UINT32 time)
@@ -172,7 +185,7 @@ void LCDDisplay::RefreshDisplay(void)
 	//_chnPage.reverb = 0;
 	//_chnPage.chorus = 0;
 	//_chnPage.delay = 0;
-	_chnPage.transp = chnAttr->detune[1];
+	_chnPage.transp = chnAttr->detune[1] >> 8;
 	
 	for (curChn = 0; curChn < 16; curChn ++)
 	{
@@ -187,7 +200,11 @@ void LCDDisplay::RefreshDisplay(void)
 		for (nlIt = noteList.begin(); nlIt != noteList.end(); ++nlIt)
 		{
 			float noteVol = nlIt->velocity / 127.0f * chnVol;
-			float ageAttenuate = 1.0f - nlIt->curAge / 1000.0f;
+			float ageAttenuate;
+			if (nlIt->maxAge)
+				ageAttenuate = 1.0f - nlIt->curAge / (float)nlIt->maxAge;
+			else
+				ageAttenuate = 1.0f - nlIt->curAge / 1000.0f;
 			if (ageAttenuate < 0.0f)
 				ageAttenuate = 0.0f;
 			noteVol *= ageAttenuate;
@@ -299,7 +316,8 @@ void LCDDisplay::SetTemporaryText(const char* text)
 	
 	wattron(_hWin, A_BOLD);
 	mvwprintw(_hWin, 0, 32, "%s", _tempText);
-	wclrtoeol(_hWin);
+	if (getcury(_hWin) == 0)
+		wclrtoeol(_hWin);
 	wattroff(_hWin, A_BOLD);
 	
 	return;
@@ -316,8 +334,8 @@ void LCDDisplay::SetTemporaryDotMatrix(const std::bitset<0x100>& matrix)
 
 void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 {
-	static const chtype DRAW_CHRS[0x04] = {' ', ACS_S9, ACS_S3, ACS_BLOCK};
-	// Alternatively: {" ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88"};
+	//static const chtype DRAW_CHRS[0x04] = {' ', ACS_S9, ACS_S3, ACS_BLOCK};
+	static const char* DRAW_WCHRS[0x04] = {" ", "\xE2\x96\x84", "\xE2\x96\x80", "\xE2\x96\x88"};
 	
 	for (UINT8 y = 0; y < 8; y ++)
 	{
@@ -326,7 +344,8 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 			bool dotH = matrix[MAT_XY2IDX(x, y * 2 + 1)];
 			bool dotL = matrix[MAT_XY2IDX(x, y * 2 + 0)];
 			UINT8 pixMask = (dotH << 0) | (dotL << 1);
-			mvwhline(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * 3, DRAW_CHRS[pixMask], 2);
+			//mvwhline(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * 3, DRAW_CHRS[pixMask], 2);
+			mvwprintw(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * 3, "%s%s", DRAW_WCHRS[pixMask], DRAW_WCHRS[pixMask]);
 		}
 	}
 	
