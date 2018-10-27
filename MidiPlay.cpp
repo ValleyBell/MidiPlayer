@@ -1226,10 +1226,12 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		{
 			if (chnSt->midChn == 0x09 && ! (chnSt->flags & 0x80))
 			{
+#if 0
 				// for now enforce drum mode on channel 9
 				// TODO: XG allows ch 9 to be melody - what are the exact conditions??
 				chnSt->flags |= 0x80;
 				vis_addstr("Keeping drum mode on ch 9!");
+#endif
 			}
 		}
 		nvChn->_chnMode &= ~0x01;
@@ -1413,6 +1415,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 					
 					SanitizeSysExText(dispMsg);
 					vis_printf("SC SysEx: Display = \"%s\"", dispMsg.c_str());
+					vis_do_syx_text(FULL_CHN_ID(trkSt->portID, 0x00), 0x45, dispMsg.length(), dispMsg.data());
 				}
 					break;
 				case 0x100100:	// Dot Display (page 1-10)
@@ -1428,6 +1431,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 						vis_printf("SC SysEx: Dot Display (Load/Show Page %u)", pageID);
 					else
 						vis_printf("SC SysEx: Dot Display: Load Page %u", pageID);
+					vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, syxSize - 0x07, &syxData[0x07]);
 				}
 					break;
 				case 0x102000:
@@ -1437,6 +1441,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 						
 						pageID = syxData[0x07];	// 00 = bar display, 01..0A = page 1..10
 						vis_printf("SC SysEx: Dot Display: Show Page %u", pageID);
+						vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, 0x00, NULL);
 					}
 					else if (addr == 0x102001)	// Dot Display: set display time
 					{
@@ -1572,6 +1577,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			
 			SanitizeSysExText(dispMsg);
 			vis_printf("MT-32 SysEx: Display = \"%s\"", dispMsg.c_str());
+			vis_do_syx_text(FULL_CHN_ID(portID, 0x00), 0x16, dispMsg.length(), dispMsg.data());
 		}
 		else if (addr == 0x200100)
 		{
@@ -1659,6 +1665,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			addr &= ~0x000F00;	// remove channel ID
 			evtChn = PART_ORDER[syxData[0x05] & 0x0F];
 			portChnID = FULL_CHN_ID(evtPort, evtChn);
+			if (portChnID >= _chnStates.size())
+				return false;
 			chnSt = &_chnStates[portChnID];
 			nvChn = _noteVis.GetChannel(portChnID);
 		}
@@ -1679,6 +1687,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			
 			SanitizeSysExText(dispMsg);
 			vis_printf("SC SysEx: ALL Display = \"%s\"", dispMsg.c_str());
+			vis_do_syx_text(FULL_CHN_ID(portID, 0x00), 0x42, dispMsg.length(), dispMsg.data());
 		}
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)

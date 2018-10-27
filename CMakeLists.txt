@@ -25,6 +25,7 @@ set(HEADERS
 		OSTimer.h
 		MidiOut.h
 		vis.hpp
+		vis_sc-lcd.hpp
 		)
 
 set(SOURCES
@@ -80,6 +81,7 @@ set(CURSES_NEED_WIDE TRUE)
 find_package(Curses REQUIRED)
 set(SOURCES ${SOURCES}
 	vis_curses.cpp
+	vis_sc-lcd.cpp
 	)
 set(INCLUDES ${INCLUDES} ${CURSES_INCLUDE_DIR})
 set(LIBRARIES ${LIBRARIES} ${CURSES_LIBRARIES} panel)

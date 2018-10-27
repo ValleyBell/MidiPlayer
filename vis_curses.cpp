@@ -27,6 +27,7 @@
 #include "vis.hpp"
 #include "utils.hpp"
 #include "MidiInsReader.h"	// for MIDI module type
+#include "vis_sc-lcd.hpp"
 
 static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -141,6 +142,10 @@ static PANEL* nvPan = NULL;
 static WINDOW* logWin = NULL;
 static PANEL* logPan = NULL;
 
+// Sound Canvas Display
+static LCDDisplay lcdDisp;
+static PANEL* lcdPan = NULL;
+
 // MIDI map selection
 static WINDOW* mmsWin = NULL;
 static PANEL* mmsPan = NULL;
@@ -149,7 +154,7 @@ static std::vector<UINT8> mapSelTypes;
 
 void vis_init(void)
 {
-	int posY, sizeY;
+	int posX, posY, sizeY;
 	
 	initscr();
 	cbreak();
@@ -175,6 +180,13 @@ void vis_init(void)
 	posY += sizeY;	sizeY = LINES - posY;
 	logWin = newwin(sizeY, COLS, posY, 0);
 	logPan = new_panel(logWin);
+	
+	lcdDisp.GetSize(&posX, &sizeY);
+	posX = COLS - posX;
+	if (posY + sizeY > LINES)
+		posY = LINES - sizeY;
+	lcdDisp.Init(posX, posY);
+	lcdPan = new_panel(lcdDisp.GetWindow());
 	
 	mmsPan = NULL;
 	mmsWin = NULL;
@@ -203,13 +215,16 @@ static void vis_clear_all_menus(void)
 
 void vis_deinit(void)
 {
+	attrset(A_NORMAL);
+	refresh();
+	
+	mvcur(0, 0, getbegy(logWin) + curYline, 0);
+	
 	vis_clear_all_menus();
 	del_panel(nvPan);	delwin(nvWin);
 	del_panel(logPan);	delwin(logWin);
+	del_panel(lcdPan);	lcdDisp.Deinit();
 	
-	attrset(A_NORMAL);
-	update_panels();
-	refresh();
 	endwin();
 	
 	return;
@@ -334,7 +349,7 @@ void vis_new_song(void)
 	int titlePosX;
 	size_t maxTitleLen;
 	const PlayerOpts* midOpts;
-	int posY, sizeY;
+	int posX, posY, sizeY;
 	WINDOW* oldWin;
 	
 	vis_clear_all_menus();
@@ -347,6 +362,7 @@ void vis_new_song(void)
 	chnCnt = (midPlay != NULL) ? midPlay->GetChannelStates().size() : 0x10;
 	dispChns.clear();
 	dispChns.resize(chnCnt);
+	lcdDisp.SetNoteVis((midPlay != NULL) ? midPlay->GetNoteVis() : NULL);
 	
 	oldWin = nvWin;
 	posY = CHN_BASE_LINE;
@@ -362,6 +378,11 @@ void vis_new_song(void)
 	logWin = newwin(sizeY, COLS, posY, 0);
 	replace_panel(logPan, logWin);
 	delwin(oldWin);
+	
+	posX = COLS - posX;
+	if (posY + sizeY > LINES)
+		posY = LINES - sizeY;
+	move_panel(lcdPan, posY, posX);
 	
 	midOpts = (midPlay != NULL) ? &midPlay->GetOptions() : NULL;
 	mapSelTypes.clear();
@@ -436,6 +457,8 @@ void vis_new_song(void)
 	mvwaddch(nvWin, chnCnt, NOTE_BASE_COL - 1, ACS_LRCORNER);
 	for (curChn = 0; curChn < chnCnt; curChn ++)
 		vis_do_channel_event(curChn, 0x00, 0x00);
+	
+	lcdDisp.FullRedraw();
 	
 	mvcur(0, 0, getbegy(logWin), 0);
 	update_panels();
@@ -572,6 +595,43 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
 
 void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 {
+	return;
+}
+
+void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text)
+{
+	std::string textStr(text, textLen);
+	switch(mode)
+	{
+	case 0x16:	// Roland MT-32 Display
+		break;
+	case 0x42:	// Roland SC ALL Display
+		lcdDisp._modName = textStr;
+		return;
+	case 0x43:	// Yamaha MU Display
+		break;
+	case 0x45:	// Roland SC Display
+		break;
+	}
+	lcdDisp.SetTemporaryText(textStr.c_str());
+	
+	return;
+}
+
+void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data)
+{
+	switch(mode)
+	{
+	case 0x43:	// Yamaha MU Dot Bitmap
+		break;
+	case 0x45:	// Roland SC Dot Display
+		{
+			std::bitset<0x100> bitmap;
+			LCDDisplay::SCSysEx2DotMatrix(dataLen, data, bitmap);
+			lcdDisp.SetTemporaryDotMatrix(bitmap);
+		}
+		break;
+	}
 	return;
 }
 
@@ -754,8 +814,10 @@ void vis_update(void)
 	
 	noteVis = midPlay->GetNoteVis();
 	noteVis->AdvanceAge(updateTicks);
+	lcdDisp.AdvanceTime(updateTicks);
 	for (curChn = 0; curChn < dispChns.size(); curChn ++)
 		dispChns[curChn].RefreshNotes(noteVis, noteVis->GetChannel(curChn));
+	lcdDisp.RefreshDisplay();
 	
 	vis_mvprintms(1, 0, midPlay->GetPlaybackPos());
 	vis_mvprintms(1, 10, midPlay->GetSongLength());
@@ -839,7 +901,7 @@ int vis_main(void)
 	}
 	
 	vis_clear_all_menus();
-	mvcur(0, 0, getbegy(logWin) + curYline, 0);
+	move(getbegy(logWin) + curYline, 0);
 	
 	return result;
 }
