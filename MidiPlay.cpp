@@ -49,6 +49,7 @@ static const UINT8 RESET_GM2[] = {0xF0, 0x7E, 0x7F, 0x09, 0x03, 0xF7};
 static const UINT8 RESET_GS[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7};
 static const UINT8 RESET_SC[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x00, 0x00, 0x7F, 0x00, 0x01, 0xF7};
 static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7};
+static const UINT8 RESET_XG_PARAM[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7F, 0x00, 0xF7};
 
 extern UINT8 optShowInsChange;
 
@@ -276,6 +277,7 @@ UINT8 MidiPlayer::Start(void)
 			{
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG), RESET_XG);
+				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_PARAM), RESET_XG_PARAM);
 			}
 		}
 	}
@@ -1773,14 +1775,54 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	addr =	(syxData[0x03] << 16) |
 			(syxData[0x04] <<  8) |
 			(syxData[0x05] <<  0);
-	switch(addr)
+	switch(addr & 0xFF0000)	// Address High
 	{
-	case 0x00007E:	// XG System On
-		// XG Reset: F0 43 10 4C 00 00 7E 00 F7
-		InitializeChannels();
-		vis_addstr("SysEx: XG Reset\n");
-		if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
-			return true;	// prevent XG reset on other devices
+	case 0x000000:	// System
+		switch(addr)
+		{
+		case 0x00007D:	// Drum Setup Reset
+			vis_addstr("SysEx: XG Drum Reset\n");
+			break;
+		case 0x00007E:	// XG System On
+			// XG Reset: F0 43 10 4C 00 00 7E 00 F7
+			InitializeChannels();
+			vis_addstr("SysEx: XG Reset\n");
+			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
+				return true;	// prevent XG reset on other devices
+			break;
+		case 0x00007F:	// All Parameters Reset
+			vis_addstr("SysEx: All Parameters Reset\n");
+			break;
+		}
+		break;
+	case 0x020000:	// Effect 1
+		break;
+	case 0x030000:	// Effect 2
+		break;
+	case 0x060000:	// ASCII Display
+	{
+		std::string dispMsg = Vector2String(syxData, 0x06, syxSize - 1);
+		
+		SanitizeSysExText(dispMsg);
+		vis_printf("MU SysEx: Display = \"%s\"", dispMsg.c_str());
+		vis_do_syx_text(FULL_CHN_ID(portID, 0x00), 0x43, dispMsg.length(), dispMsg.data());
+	}
+		break;
+	case 0x070000:	// Display Bitmap
+		vis_addstr("MU SysEx: Display Bitmap");
+		vis_do_syx_bitmap(FULL_CHN_ID(portID, 0), 0x43, syxSize - 0x06, &syxData[0x06]);
+		break;
+	case 0x080000:	// Multi Part
+	case 0x0A0000:	// Multi Part (additional)
+		break;
+	case 0x100000:	// A/D Part
+		break;
+	case 0x110000:	// A/D System
+		break;
+	case 0x300000:	// Drum Setup 1
+	case 0x310000:	// Drum Setup 2
+	case 0x320000:	// Drum Setup 3
+	case 0x330000:	// Drum Setup 4
 		break;
 	}
 	
