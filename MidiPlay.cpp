@@ -921,7 +921,12 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 			else
 			{
 				// drum CTF according to https://www.vogons.org/viewtopic.php?p=501038#p501038
-				insInf->ins &= ~0x07;
+				UINT8 newIns = insInf->ins & 0x07;
+				if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], insInf->bank[1], 0xFF) != NULL)
+				{
+					insInf->ins = newIns;
+					return;
+				}
 			}
 		}
 		else if (devType == MODULE_TG300B)
@@ -1461,8 +1466,23 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		// Data[0x01] == 0x1n - Device Number n
 		if (syxSize < 0x07)
 			break;	// We need enough bytes for a full address.
-		if (syxData[0x02] == 0x4C)
+		if (syxData[0x02] == 0x4C)	// XG
 			return HandleSysEx_XG(trkSt->portID, syxSize, syxData);
+		else if (syxData[0x02] == 0x49)	// MU native
+		{
+			UINT32 addr;
+			addr =	(syxData[0x03] << 16) |
+					(syxData[0x04] <<  8) |
+					(syxData[0x05] <<  0);
+			switch(addr)
+			{
+			case 0x000012:	// Select Voice Map (MU100+ only)
+				// 00 = MU Basic, 01 = MU100 Native
+				vis_printf("MU SysEx: Set Voice Map to %u (%s)", syxData[0x06],
+						syxData[0x06] ? "MU100 Native" : "MU Basic");
+				break;
+			}
+		}
 		break;
 	case 0x7E:	// Universal Non-Realtime Message
 		// GM Lvl 1 On:  F0 7E 7F 09 01 F7
@@ -1758,10 +1778,32 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				return true;
 			}
 			break;
+		case 0x404000:	// Tone Map Number (pretty much Bank LSB setting)
+			vis_printf("Channel %u: Set Tone Map to %u", 1 + evtChn, syxData[0x07]);
+			break;
+		case 0x404001:	// Tone Map 0 Number (setting when Bank LSB == 0)
+			vis_printf("Channel %u: Set Tone Map 0 to %u", 1 + evtChn, syxData[0x07]);
+			break;
 		}
 		break;
 	case 0x410000:	// Drum Setup (port A)
 	case 0x510000:	// Drum Setup (port B)
+		evtPort = portID;
+		if (addr & 0x100000)
+			evtPort ^= 0x01;
+		addr &= ~0x10F0FF;	// remove port bit (bit 20), map ID (bits 12-15) and note number (bits 0-7)
+		switch(addr)
+		{
+		case 0x410000:	// Drum Map Name
+		{
+			std::string drmName = Vector2String(syxData, 0x07, syxSize - 2);
+			if (syxData[0x06] == 0x00 && drmName.length() > 1)
+				vis_printf("SC-88 SysEx: Set Drum Map Name = \"%s\"\n", drmName.c_str());
+			else
+				vis_printf("SC-88 SysEx: Set Drum Map Name [%X] = \"%s\"\n", syxData[0x06], drmName.c_str());
+		}
+			break;
+		}
 		break;
 	}
 	

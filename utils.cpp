@@ -186,7 +186,8 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	wrtBytes = iconv(hIConv, &inPtr, &remBytesIn, &outPtr, &remBytesOut);
 	while(wrtBytes == (size_t)-1)
 	{
-		if (errno != E2BIG)	// (errno == EILSEQ || errno == EINVAL)
+		// In some cases, erro can be EINVAL (instead of E2BIG) and remBytesOut is 0.
+		if (! (errno == E2BIG || remBytesOut < remBytesIn))	// (errno == EILSEQ || errno == EINVAL)
 		{
 			// invalid encoding - return original string
 #if 0

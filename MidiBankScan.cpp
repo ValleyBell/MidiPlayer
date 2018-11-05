@@ -323,7 +323,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							break;
 						}
 						
-						if (evtIt->evtData[0x02] == 0x42)
+						if (evtIt->evtData[0x02] == 0x42)	// GS
 						{
 							// Data[0x04]	Address High
 							// Data[0x05]	Address Mid
@@ -337,8 +337,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							{
 								// SC-88 System Mode Set
 								syxReset = SYX_RESET_GS;
-								if (modChk.GS_Opt < 0x01)
-									modChk.GS_Opt = 0x01;
+								if (modChk.GS_Opt < MTGS_SC88)
+									modChk.GS_Opt = MTGS_SC88;
 							}
 							else if (evtIt->evtData[0x04] == 0x40 && (evtIt->evtData[0x05] & 0x70) == 0x10)
 							{
@@ -355,18 +355,46 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 									break;
 								}
 							}
+							else if (evtIt->evtData[0x04] == 0x40 && (evtIt->evtData[0x05] & 0x70) == 0x40)
+							{
+								UINT8 tempByt;
+								
+								evtChn = PART_ORDER[evtIt->evtData[0x05] & 0x0F];
+								switch(evtIt->evtData[0x06])
+								{
+								case 0x00:	// Tone Map Number (== Bank LSB)
+								case 0x01:	// Tone Map 0 Number (== map for Bank LSB 00)
+									if (evtIt->evtData[0x07] <= 0x01)
+										tempByt = MTGS_SC88;
+									else
+										tempByt = evtIt->evtData[0x07] - 0x01 + MTGS_SC55;
+									if (modChk.GS_Opt < tempByt)
+										modChk.GS_Opt = tempByt;
+									break;
+								}
+							}
 						}
 						break;
 					case 0x43:	// YAMAHA ID
 						if (evtIt->evtData.size() < 0x06)
 							break;
-						if (evtIt->evtData[0x02] == 0x4C)
+						if (evtIt->evtData[0x02] == 0x4C)	 // XG
 						{
 							if (evtIt->evtData[0x03] == 0x00 && evtIt->evtData[0x04] == 0x00 &&
 								evtIt->evtData[0x05] == 0x7E)
 							{
 								// XG Reset: F0 43 10 4C 00 00 7E 00 F7
 								syxReset = SYX_RESET_XG;
+							}
+						}
+						else if (evtIt->evtData[0x02] == 0x49)	// MU native
+						{
+							if (evtIt->evtData[0x03] == 0x00 && evtIt->evtData[0x04] == 0x00 &&
+								evtIt->evtData[0x05] == 0x12)
+							{
+								// Select Voice Map (MU100+ only)
+								if (modChk.XG_Opt < MTXG_MU100)
+									modChk.XG_Opt = MTXG_MU100;
 							}
 						}
 						break;

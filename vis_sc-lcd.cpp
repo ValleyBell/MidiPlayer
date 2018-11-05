@@ -27,6 +27,8 @@
 #define MATRIX_BASE_X	16
 #define MATRIX_BASE_Y	1
 #define MAT_XY2IDX(x, y)	((y) * 0x10 + (x))
+static int MATRIX_COL_SIZE = 3;
+static bool doLiveVis = true;
 
 LCDDisplay::LCDDisplay() :
 	_hWin(NULL),
@@ -212,14 +214,15 @@ void LCDDisplay::RefreshDisplay(void)
 				barHeight = noteVol;
 		}
 		barYHeight = static_cast<int>(barHeight * 15 + 0.5);
-		DrawDotBar(_dotMatrix, curChn, barYHeight);
+		if (doLiveVis)
+			DrawDotBar(_dotMatrix, curChn, barYHeight);
 	}
 	
 	if (_pageMode == PAGEMODE_ALL)
 		DrawPage(_allPage);
 	else if (_pageMode == PAGEMODE_CHN)
 		DrawPage(_chnPage);
-	if (! _tdmTimeout)
+	if (! _tdmTimeout && doLiveVis)
 		RedrawDotMatrix(_dotMatrix);
 	
 	return;
@@ -254,8 +257,19 @@ void LCDDisplay::DrawLayout(void)
 	mvwprintw(_hWin, 7, 0, "K.Shift");
 	mvwprintw(_hWin, 8, 0, "MIDI CH");
 	
-	for (UINT8 curChn = 0; curChn < 16; curChn ++)
-		mvwprintw(_hWin, 9, 16 + (curChn * 3), "%02u", 1 + curChn);
+	if (MATRIX_COL_SIZE < 3)
+	{
+		for (UINT8 curChn = 0; curChn < 16; curChn ++)
+		{
+			char chnLetter = (curChn < 9) ? ('1' + curChn) : ('A' - 9 + curChn);
+			mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%c", chnLetter);
+		}
+	}
+	else
+	{
+		for (UINT8 curChn = 0; curChn < 16; curChn ++)
+			mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%02u", 1 + curChn);
+	}
 	
 	return;
 }
@@ -344,8 +358,13 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 			bool dotH = matrix[MAT_XY2IDX(x, y * 2 + 1)];
 			bool dotL = matrix[MAT_XY2IDX(x, y * 2 + 0)];
 			UINT8 pixMask = (dotH << 0) | (dotL << 1);
-			//mvwhline(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * 3, DRAW_CHRS[pixMask], 2);
-			mvwprintw(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * 3, "%s%s", DRAW_WCHRS[pixMask], DRAW_WCHRS[pixMask]);
+			
+			wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * MATRIX_COL_SIZE);
+			//whline(_hWin, DRAW_CHRS[pixMask], MATRIX_COL_SIZE - 1);
+			if (MATRIX_COL_SIZE < 3)
+				wprintw(_hWin, "%s", DRAW_WCHRS[pixMask]);
+			else
+				wprintw(_hWin, "%s%s", DRAW_WCHRS[pixMask], DRAW_WCHRS[pixMask]);
 		}
 	}
 	
