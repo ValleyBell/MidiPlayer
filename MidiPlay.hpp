@@ -38,6 +38,7 @@ public:
 	{
 		UINT8 bank[2];	// 0 = Bank MSB, 1 = Bank LSB (current/patched state)
 		UINT8 ins;		// IDs 00..7F - melody, 80..FF - drum kits
+		UINT8 bnkIgn;	// bank ignore mask
 		const INS_DATA* bankPtr;	// original instrument
 	};
 	struct ChannelState
@@ -117,8 +118,8 @@ private:
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
-	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, UINT8& bankIgnore, const INS_BANK* insBank);
-	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank, UINT8& bankIgnore);
+	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank);
+	void HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank);
 	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf);
 	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf);
 	bool HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
