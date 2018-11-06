@@ -653,6 +653,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			UINT8 panVal = midiEvt->evtValB;
 			if (_options.srcType == MODULE_MT32)
 				panVal ^= 0x7F;	// MT-32 uses 0x7F (left) .. 0x3F (center) .. 0x00 (right)
+			if (panVal == 0x00)
+				panVal = 0x01;	// pan level 0 and 1 are the same, at least on Roland GS
 			nvChn->_attr.pan = (INT8)panVal - 0x40;
 			if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
@@ -679,8 +681,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			case 0x01:	// Fine Tuning
 				chnSt->tuneFine &= ~0xFF00;
 				chnSt->tuneFine |= ((INT16)midiEvt->evtValB - 0x40) << 8;
-				nvChn->_transpose = (INT8)(chnSt->tuneFine >> 8);
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) | (nvChn->_transpose << 0);
+				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
 				break;
 			case 0x02:	// Coarse Tuning
 				chnSt->tuneCoarse = (INT8)midiEvt->evtValB - 0x40;
@@ -689,12 +691,12 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				else if (chnSt->tuneCoarse > +24)
 					chnSt->tuneCoarse = +24;
 				nvChn->_transpose = chnSt->tuneCoarse;
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) | (nvChn->_transpose << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
 				break;
 			}
 		}
 		break;
-	case 0x26:	// Data Entry MSB
+	case 0x26:	// Data Entry LSB
 		if (chnSt->rpnCtrl[0] == 0x00)
 		{
 			switch(chnSt->rpnCtrl[1])
@@ -702,6 +704,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			case 0x01:	// Fine Tuning
 				chnSt->tuneFine &= ~0x00FF;
 				chnSt->tuneFine |= midiEvt->evtValB << 1;
+				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
 				break;
 			}
 		}
@@ -921,7 +925,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 			else
 			{
 				// drum CTF according to https://www.vogons.org/viewtopic.php?p=501038#p501038
-				UINT8 newIns = insInf->ins & 0x07;
+				UINT8 newIns = insInf->ins & ~0x07;
 				if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], insInf->bank[1], 0xFF) != NULL)
 				{
 					insInf->ins = newIns;
@@ -1510,6 +1514,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			{
 			case 0x01:	// Master Volume
 				// F0 7F 7F 04 01 ll mm F7
+				_noteVis.GetAttributes().volume = syxData[0x05];
 				break;
 			}
 		}
@@ -1692,6 +1697,13 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x400004:	// Master Volume
+			_noteVis.GetAttributes().volume = syxData[0x07];
+			break;
+		case 0x400005:	// Master Key-Shift
+			_noteVis.GetAttributes().detune[1] = syxData[0x07] << 8;
+			break;
+		case 0x400006:	// Master Pan
+			_noteVis.GetAttributes().pan = syxData[0x07];
 			break;
 		case 0x40007F:	// GS reset
 			// F0 41 10 42 12 40 00 7F 00 41 F7
@@ -1708,6 +1720,17 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			vis_printf("SC SysEx: ALL Display = \"%s\"", dispMsg.c_str());
 			vis_do_syx_text(FULL_CHN_ID(portID, 0x00), 0x42, dispMsg.length(), dispMsg.data());
 		}
+			break;
+		case 0x401000:	// Tone Number
+			chnSt->ctrls[0x00] = syxData[0x07];
+			chnSt->curIns = syxData[0x08];
+			vis_printf("Channel %u SysEx: Bank MSB = %02X, Ins = %02X", 1 + evtChn, chnSt->ctrls[0x00], chnSt->curIns);
+			{
+				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
+				HandleInstrumentEvent(chnSt, &insEvt, 0x11);
+				if (_evtCbFunc != NULL)
+					_evtCbFunc(_evtCbData, &insEvt, portChnID);
+			}
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
 			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
@@ -1748,6 +1771,12 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x401016:	// Pitch Key Shift
 			break;
+		case 0x401019:	// Part Level
+			chnSt->ctrls[0x07] = syxData[0x07];
+			break;
+		case 0x40101C:	// Part Pan
+			chnSt->ctrls[0x0A] = syxData[0x07];
+			break;
 		case 0x40101F:	// CC1 Controller Number
 		case 0x401020:	// CC2 Controller Number
 			if (_options.dstType == MODULE_SC8850)
@@ -1775,11 +1804,21 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				return true;
 			}
 			break;
-		case 0x404000:	// Tone Map Number (pretty much Bank LSB setting)
-			vis_printf("Channel %u: Set Tone Map to %u", 1 + evtChn, syxData[0x07]);
+		case 0x401021:	// Part Reverb Level
+			chnSt->ctrls[0x5B] = syxData[0x07];
+			break;
+		case 0x401022:	// Part Chorus Level
+			chnSt->ctrls[0x5D] = syxData[0x07];
+			break;
+		case 0x40102C:	// Part Delay Level
+			chnSt->ctrls[0x5E] = syxData[0x07];
+			break;
+		case 0x404000:	// Tone Map Number (== Bank LSB)
+			chnSt->ctrls[0x20] = syxData[0x07];
+			vis_printf("Channel %u SysEx: Bank LSB = %02X", 1 + evtChn, chnSt->ctrls[0x20]);
 			break;
 		case 0x404001:	// Tone Map 0 Number (setting when Bank LSB == 0)
-			vis_printf("Channel %u: Set Tone Map 0 to %u", 1 + evtChn, syxData[0x07]);
+			vis_printf("Channel %u SysEx: Set Default Tone Map to %u", 1 + evtChn, syxData[0x07]);
 			break;
 		}
 		break;
