@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <algorithm>
 #include <curses.h>
 #include <panel.h>
 #include <stdarg.h>
@@ -96,6 +97,11 @@ public:
 
 typedef int (*KEYHANDLER)(void);
 
+static void vis_clear_all_menus(void);
+static void str_remove_cr(std::string& text);
+static void str_locale_conv(std::string& text);
+static void str_prepare_print(std::string& text);
+static bool string_is_empty(const std::string& str);
 static void refresh_cursor_y(void);
 static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
@@ -110,7 +116,6 @@ static void vis_show_map_selection(void);
 #define NOTE_NAME_SPACE	3	// number of characters reserved for note names
 #define NOTES_PER_COL	2	// number of notes that share the same column
 #define CENTER_NOTE		60	// middle C
-//static char textbuf[1024];
 static int curYline = 0;
 
 static MidiModuleCollection* midiModColl = NULL;
@@ -641,6 +646,19 @@ void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data
 	return;
 }
 
+static bool char_is_cr(const char c)
+{
+	return (c == '\r');
+}
+
+static void str_remove_cr(std::string& text)
+{
+	// In Curses, a '\n' clears the rest of the line before moving the cursor.
+	// Due to that, the sequence "\r\n" results in empty lines, so we remove the '\r' characters.
+	text.erase(std::remove_if(text.begin(), text.end(), &char_is_cr), text.end());
+	return;
+}
+
 static void str_locale_conv(std::string& text)
 {
 	std::string newtxt;
@@ -656,6 +674,14 @@ static void str_locale_conv(std::string& text)
 			return;
 		}
 	}
+	
+	return;
+}
+
+static void str_prepare_print(std::string& text)
+{
+	str_remove_cr(text);
+	str_locale_conv(text);
 	
 	return;
 }
@@ -694,12 +720,12 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			break;
 		lastMeta01 = text;
 		
-		str_locale_conv(text);
+		str_prepare_print(text);
 		wprintw(logWin, "Text: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x02:	// Copyright Notice
-		str_locale_conv(text);
+		str_prepare_print(text);
 		wprintw(logWin, "Copyright: %s", text.c_str());
 		curYline ++;
 		break;
@@ -711,7 +737,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		if (trk == 0 || midFile->GetMidiFormat() == 2)
 		{
 			wattron(logWin, A_BOLD);
-			str_locale_conv(text);
+			str_prepare_print(text);
 			wprintw(logWin, "Title: %s", text.c_str());
 			wattroff(logWin, A_BOLD);
 			curYline ++;
@@ -722,7 +748,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			//	break;
 			if (string_is_empty(text))
 				break;
-			str_locale_conv(text);
+			str_prepare_print(text);
 			wprintw(logWin, "Track %u Name: %s", trk, text.c_str());
 			curYline ++;
 		}
@@ -734,7 +760,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			break;
 		lastMeta04 = text;
 		
-		str_locale_conv(text);
+		str_prepare_print(text);
 		wprintw(logWin, "Instrument Name: %s", text.c_str());
 		curYline ++;
 		break;
@@ -744,7 +770,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	case 0x06:	// Marker
 		if (! optShowMeta[6])
 			break;
-		str_locale_conv(text);
+		str_prepare_print(text);
 		wprintw(logWin, "Marker: %s", text.c_str());
 		curYline ++;
 		break;
@@ -764,8 +790,13 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 
 static void refresh_cursor_y(void)
 {
-	if (curYline < getcury(logWin))
-		curYline = getcury(logWin);	// for Y position after multi-line print
+	int curY;
+	
+	curY = getcury(logWin);
+	if (getcurx(logWin) > 0)
+		curY ++;	// go to next line if last print command didn't end with '\n'
+	if (curYline < curY)
+		curYline = curY;	// for Y position after multi-line print
 	
 	if (curYline >= getmaxy(logWin))
 		curYline = 0;	// wrap around
