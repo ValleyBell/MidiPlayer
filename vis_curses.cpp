@@ -357,7 +357,6 @@ void vis_new_song(void)
 	int posX, posY, sizeY;
 	WINDOW* oldWin;
 	
-	lcdDisp.ResetDisplay();
 	vis_clear_all_menus();
 	clear();
 	// explicit redrawing prevents graphical glitches caused by printf() commands
@@ -465,6 +464,7 @@ void vis_new_song(void)
 	for (curChn = 0; curChn < chnCnt; curChn ++)
 		vis_do_channel_event(curChn, 0x00, 0x00);
 	
+	lcdDisp.ResetDisplay();
 	lcdDisp.FullRedraw();
 	
 	mvcur(0, 0, getbegy(logWin), 0);

@@ -27,6 +27,7 @@
 #define MATRIX_BASE_X	16
 #define MATRIX_BASE_Y	1
 #define MAT_XY2IDX(x, y)	((y) * 0x10 + (x))
+#define DEFAULT_NOTE_AGE	800.0f	// in msec
 static int MATRIX_COL_SIZE = 3;
 static bool doLiveVis = true;
 
@@ -46,6 +47,7 @@ LCDDisplay::~LCDDisplay()
 void LCDDisplay::Init(int winPosX, int winPosY)
 {
 	_pageMode = PAGEMODE_ALL;
+	_barVisLayout = BVL_SINGLE;
 	_ttMode = TTMODE_NONE;
 	
 	ResetDisplay();
@@ -116,6 +118,11 @@ void LCDDisplay::ResetDisplay(void)
 	_ttTimeout = 0;
 	_tdmTimeout = 0;
 	
+	if (_nVis != NULL && _nVis->GetChnGroupCount() >= 2)
+		_barVisLayout = BVL_DOUBLE;
+	else
+		_barVisLayout = BVL_SINGLE;
+	
 	return;
 }
 
@@ -153,18 +160,20 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 	return;
 }
 
-static void DrawDotBar(std::bitset<0x100>& matrix, int barID, int barHeight)
+static void DrawDotBar(std::bitset<0x100>& matrix, int posX, int fillY, int startY, int sizeY)
 {
-	int posY;
+	if (posX < 0 || posX >= 0x10 || startY < 0 || startY + sizeY > 0x10)
+		return;
 	
-	for (posY = 0x00; posY < 0x10; posY ++)
-		matrix[MAT_XY2IDX(barID, 0x0F - posY)] = (posY <= barHeight);
+	for (int posY = 0x00; posY < sizeY; posY ++)
+		matrix[MAT_XY2IDX(posX, 0x0F - startY - posY)] = (posY <= fillY);
 	
 	return;
 }
 
 void LCDDisplay::RefreshDisplay(void)
 {
+	size_t chnCnt;
 	size_t curChn;
 	const NoteVisualization::MidiModifiers& modAttr = _nVis->GetAttributes();
 	const NoteVisualization::ChnInfo* chnInfo;
@@ -176,7 +185,7 @@ void LCDDisplay::RefreshDisplay(void)
 	//_allPage.reverb = 0;
 	//_allPage.chorus = 0;
 	//_allPage.delay = 0;
-	//_allPage.transp = 0;
+	_allPage.transp = modAttr.detune[1] >> 8;
 	
 	chnAttr = &_nVis->GetChannel(_chnPage.chnID)->_attr;
 	//_chnPage.insID = 0x01;
@@ -189,7 +198,8 @@ void LCDDisplay::RefreshDisplay(void)
 	//_chnPage.delay = 0;
 	_chnPage.transp = chnAttr->detune[1] >> 8;
 	
-	for (curChn = 0; curChn < 16; curChn ++)
+	chnCnt = _nVis->GetChnGroupCount() * 0x10;
+	for (curChn = 0; curChn < chnCnt; curChn ++)
 	{
 		chnInfo = _nVis->GetChannel(curChn);
 		chnAttr = &chnInfo->_attr;
@@ -206,16 +216,32 @@ void LCDDisplay::RefreshDisplay(void)
 			if (nlIt->maxAge)
 				ageAttenuate = 1.0f - nlIt->curAge / (float)nlIt->maxAge;
 			else
-				ageAttenuate = 1.0f - nlIt->curAge / 1000.0f;
+				ageAttenuate = 1.0f - nlIt->curAge / DEFAULT_NOTE_AGE;
 			if (ageAttenuate < 0.0f)
 				ageAttenuate = 0.0f;
 			noteVol *= ageAttenuate;
 			if (barHeight < noteVol)
 				barHeight = noteVol;
 		}
-		barYHeight = static_cast<int>(barHeight * 15 + 0.5);
 		if (doLiveVis)
-			DrawDotBar(_dotMatrix, curChn, barYHeight);
+		{
+			int chnID = curChn & 0x0F;
+			int chnGrp = curChn >> 4;
+			if (_barVisLayout == BVL_SINGLE)
+			{
+				// 1x 16 channels
+				barYHeight = static_cast<int>(barHeight * 15 + 0.5);
+				DrawDotBar(_dotMatrix, chnID, barYHeight, 0x00, 0x10);
+			}
+			else
+			{
+				// 2x 16 channels (half height)
+				//  1st set: upper half
+				//  2nd set: lower half
+				barYHeight = static_cast<int>(barHeight * 15 / 2 + 0.5);
+				DrawDotBar(_dotMatrix, chnID, barYHeight, (~chnGrp & 0x01) * 0x08, 0x08);
+			}
+		}
 	}
 	
 	if (_pageMode == PAGEMODE_ALL)

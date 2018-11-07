@@ -51,6 +51,8 @@ public:
 	
 	void Initialize(UINT8 chnGroups);	// 1 channel group = 16 channels
 	void Reset(void);
+	UINT8 GetChnGroupCount(void) const;
+	const ChnInfo* GetChannel(UINT16 chn) const;
 	ChnInfo* GetChannel(UINT16 chn);
 	const MidiModifiers& GetAttributes(void) const;
 	MidiModifiers& GetAttributes(void);

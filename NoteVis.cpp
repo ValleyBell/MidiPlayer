@@ -63,13 +63,23 @@ void NoteVisualization::Initialize(UINT8 chnGroups)
 
 void NoteVisualization::Reset(void)
 {
-	Initialize(_chnList.size() / 0x10);
+	Initialize(GetChnGroupCount());
 	return;
+}
+
+UINT8 NoteVisualization::GetChnGroupCount(void) const
+{
+	return _chnList.size() / 0x10;
+}
+
+const NoteVisualization::ChnInfo* NoteVisualization::GetChannel(UINT16 chn) const
+{
+	return (chn < _chnList.size()) ? &_chnList[chn] : NULL;
 }
 
 NoteVisualization::ChnInfo* NoteVisualization::GetChannel(UINT16 chn)
 {
-	return &_chnList[chn];
+	return (chn < _chnList.size()) ? &_chnList[chn] : NULL;
 }
 
 const NoteVisualization::MidiModifiers& NoteVisualization::GetAttributes(void) const

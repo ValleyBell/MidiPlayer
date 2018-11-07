@@ -912,7 +912,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 				if (insBank != NULL)
 				{
 					const INS_PRG_LST* insPrg = &insBank->prg[insInf->ins];
-				
+					
 					// 1. sub-CTF according to https://www.vogons.org/viewtopic.php?p=501280#p501280
 					insInf->bank[0] &= ~0x07;
 					if (GetInsMapData(insPrg, insInf->bank[0], insInf->bank[1], 0xFF) != NULL)

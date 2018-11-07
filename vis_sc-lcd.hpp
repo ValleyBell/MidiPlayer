@@ -9,6 +9,11 @@ class NoteVisualization;
 class LCDDisplay
 {
 public:
+	enum	// bar visualization layout
+	{
+		BVL_SINGLE = 0,	// 1x 16 channels
+		BVL_DOUBLE = 1,	// 2x 16 channels
+	};
 	enum
 	{
 		PAGEMODE_ALL = 0,
@@ -38,6 +43,7 @@ public:
 	NoteVisualization* _nVis;
 	LCDPage _allPage;
 	LCDPage _chnPage;
+	UINT8 _barVisLayout;
 	UINT8 _pageMode;
 	std::string _modName;
 	char _tempText[0x21];	// 16 characters + \0
