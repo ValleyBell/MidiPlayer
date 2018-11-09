@@ -1367,6 +1367,17 @@ static void PrintHexDump(size_t bufSize, char* buffer, size_t dataLen, const UIN
 	return;
 }
 
+static void PrintPortChn(char* buffer, UINT8 port, UINT8 chn)
+{
+	buffer[0] = (port < 0x1A) ? ('A' + port) : '-';
+	if (chn < 0x10)
+		sprintf(&buffer[1], "%02u", 1 + chn);
+	else
+		strcpy(&buffer[1], "--");
+	
+	return;
+}
+
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	size_t syxSize = midiEvt->evtData.size();
@@ -1514,6 +1525,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			{
 			case 0x01:	// Master Volume
 				// F0 7F 7F 04 01 ll mm F7
+				vis_printf("SysEx: GM Master Volume = %u", syxData[0x05]);
 				_noteVis.GetAttributes().volume = syxData[0x05];
 				break;
 			}
@@ -1623,6 +1635,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	UINT8 evtPort;
 	UINT8 evtChn;
 	UINT16 portChnID;
+	char portChnStr[4];
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
@@ -1646,6 +1659,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x000000:	// System
+		if ((addr & 0x00FF00) == 0x000100)
+			addr &= ~0x0000FF;	// remove block ID
 		switch(addr)
 		{
 		case 0x00007F:	// SC-88 System Mode Set
@@ -1658,6 +1673,16 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				// for devices that don't understand the message, send GS reset instead
 				MidiOutPort_SendLongMsg(_outPorts[portID], sizeof(RESET_GS), RESET_GS);
 				return true;
+			}
+			break;
+		case 0x000100:	// Channel Message Receive Port
+			{
+				evtChn = PART_ORDER[syxData[0x06] & 0x0F];
+				evtPort = portID;
+				if (syxData[0x06] & 0x10)
+					evtPort ^= 0x01;
+				PrintPortChn(portChnStr, evtPort, evtChn);
+				vis_printf("SysEx Chn %s: Receive from Port %c", portChnStr, 'A' + syxData[0x07]);
 			}
 			break;
 		}
@@ -1691,12 +1716,30 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			portChnID = FULL_CHN_ID(evtPort, evtChn);
 			if (portChnID >= _chnStates.size())
 				return false;
+			PrintPortChn(portChnStr, evtPort, evtChn);
 			chnSt = &_chnStates[portChnID];
 			nvChn = _noteVis.GetChannel(portChnID);
 		}
 		switch(addr)
 		{
+		case 0x400000:	// Master Tune
+			{
+				INT16 tune;
+				// one nibble per byte, range is 0x0018 [-1 semitone] .. 0x0400 [center] .. 0x07E8 [+1 semitone]
+				tune =	((syxData[0x07] & 0x0F) << 12) |
+						((syxData[0x08] & 0x0F) <<  8) |
+						((syxData[0x09] & 0x0F) <<  4) |
+						((syxData[0x0A] & 0x0F) <<  0);
+				tune -= 0x400;
+				if (tune < -0x3E8)
+					tune = -0x3E8;
+				else if (tune > +0x3E8)
+					tune = +0x3E8;
+				_noteVis.GetAttributes().detune[0] = tune >> 2;
+			}
+			break;
 		case 0x400004:	// Master Volume
+			vis_printf("SysEx: GS Master Volume = %u", syxData[0x07]);
 			_noteVis.GetAttributes().volume = syxData[0x07];
 			break;
 		case 0x400005:	// Master Key-Shift
@@ -1724,13 +1767,19 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x401000:	// Tone Number
 			chnSt->ctrls[0x00] = syxData[0x07];
 			chnSt->curIns = syxData[0x08];
-			vis_printf("Channel %u SysEx: Bank MSB = %02X, Ins = %02X", 1 + evtChn, chnSt->ctrls[0x00], chnSt->curIns);
+			vis_printf("SysEx Chn %s: Bank MSB = %02X, Ins = %02X", portChnStr, chnSt->ctrls[0x00], chnSt->curIns);
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 				HandleInstrumentEvent(chnSt, &insEvt, 0x11);
 				if (_evtCbFunc != NULL)
 					_evtCbFunc(_evtCbData, &insEvt, portChnID);
 			}
+			break;
+		case 0x401002:	// Receive Channel
+			if (syxData[0x07] >= 0x10)
+				vis_printf("SysEx Chn %s: Receive from MIDI channel %s", portChnStr, "--");
+			else
+				vis_printf("SysEx Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + syxData[0x07]);
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
 			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
@@ -1740,13 +1789,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				chnSt->flags &= ~0x80;	// drum mode off
 			nvChn->_chnMode &= ~0x01;
 			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
-			if (optShowInsChange)
-			{
-				if (! syxData[0x07])
-					vis_printf("SysEx: Chn %c%02u Part Mode: %s", 'A' + evtPort, 1 + evtChn, "Normal");
-				else
-					vis_printf("SysEx: Chn %c%02u Part Mode: %s %u", 'A' + evtPort, 1 + evtChn, "Drum", syxData[0x07]);
-			}
+			if (! syxData[0x07])
+				vis_printf("SysEx Chn %s: Part Mode: %s", portChnStr, "Normal");
+			else
+				vis_printf("SysEx Chn %s: Part Mode: %s %u", portChnStr, "Drum", syxData[0x07]);
 			
 			if (chnSt->curIns == 0xFF)
 				break;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
@@ -1770,11 +1816,33 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x401016:	// Pitch Key Shift
+			{
+				chnSt->tuneCoarse = (INT8)syxData[0x07] - 0x40;
+				if (chnSt->tuneCoarse < -24)
+					chnSt->tuneCoarse = -24;
+				else if (chnSt->tuneCoarse > +24)
+					chnSt->tuneCoarse = +24;
+				nvChn->_transpose = chnSt->tuneCoarse;
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+			}
+			break;
+		case 0x401017:	// Pitch Offset Fine
+			{
+				UINT8 offset = ((syxData[0x07] & 0x0F) << 4) | ((syxData[0x08] & 0x0F) << 0);
+				chnSt->tuneFine = (offset - 0x80) << 7;
+				if (chnSt->tuneFine < -0x3C00)
+					chnSt->tuneFine = -0x3C00;
+				else if (chnSt->tuneFine > +0x3C00)
+					chnSt->tuneFine = +0x3C00;
+				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+			}
 			break;
 		case 0x401019:	// Part Level
 			chnSt->ctrls[0x07] = syxData[0x07];
 			break;
 		case 0x40101C:	// Part Pan
+			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
 			chnSt->ctrls[0x0A] = syxData[0x07];
 			break;
 		case 0x40101F:	// CC1 Controller Number
@@ -1788,8 +1856,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				ccNo = addr - 0x40101F;
 				if (syxData[0x07] < 0x0C)
 				{
-					vis_printf("Warning: Channel %u: CC%u reprogramming to CC#%u might not work!",
-								1 + evtChn, 1 + ccNo, syxData[0x07]);
+					vis_printf("Warning: SysEx Chn %s: CC%u reprogramming to CC#%u might not work!",
+								portChnStr, 1 + ccNo, syxData[0x07]);
 					break;	// ignore stuff like Modulation
 				}
 				chnSt->idCC[ccNo] = syxData[0x07];
@@ -1799,8 +1867,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 					return true;	// for the defaults, silently drop the message
 				}
 				
-				vis_printf("Warning: Channel %u: Ignoring CC%u reprogramming to CC#%u!",
-							1 + evtChn, 1 + ccNo, syxData[0x07]);
+				vis_printf("Warning: SysEx Chn %s: Fixing CC%u reprogramming to CC#%u!",
+							portChnStr, 1 + ccNo, syxData[0x07]);
 				return true;
 			}
 			break;
@@ -1813,12 +1881,20 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x40102C:	// Part Delay Level
 			chnSt->ctrls[0x5E] = syxData[0x07];
 			break;
+		case 0x402010:	// Bend Pitch Control
+			chnSt->pbRange = (INT8)syxData[0x06] - 0x40;
+			if ((INT8)chnSt->pbRange < 0)
+				chnSt->pbRange = 0;
+			else if (chnSt->pbRange > 24)
+				chnSt->pbRange = 24;
+			nvChn->_pbRange = chnSt->pbRange;
+			break;
 		case 0x404000:	// Tone Map Number (== Bank LSB)
 			chnSt->ctrls[0x20] = syxData[0x07];
-			vis_printf("Channel %u SysEx: Bank LSB = %02X", 1 + evtChn, chnSt->ctrls[0x20]);
+			vis_printf("SysEx Chn %s: Bank LSB = %02X", portChnStr, chnSt->ctrls[0x20]);
 			break;
 		case 0x404001:	// Tone Map 0 Number (setting when Bank LSB == 0)
-			vis_printf("Channel %u SysEx: Set Default Tone Map to %u", 1 + evtChn, syxData[0x07]);
+			vis_printf("SysEx Chn %s: Set Default Tone Map to %u", portChnStr, syxData[0x07]);
 			break;
 		}
 		break;
@@ -1849,6 +1925,12 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
+	UINT8 evtPort;
+	UINT8 evtChn;
+	UINT16 portChnID;
+	char portChnStr[4];
+	ChannelState* chnSt = NULL;
+	NoteVisualization::ChnInfo* nvChn = NULL;
 	
 	addr =	(syxData[0x03] << 16) |
 			(syxData[0x04] <<  8) |
@@ -1858,6 +1940,33 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	case 0x000000:	// System
 		switch(addr)
 		{
+		case 0x000000:	// Master Tune
+			{
+				INT16 tune;
+				// one nibble per byte, range is 0x0018 [-1 semitone] .. 0x0400 [center] .. 0x07E8 [+1 semitone]
+				tune =	((syxData[0x06] & 0x0F) << 12) |
+						((syxData[0x07] & 0x0F) <<  8) |
+						((syxData[0x08] & 0x0F) <<  4) |
+						((syxData[0x09] & 0x0F) <<  0);
+				tune -= 0x400;
+				if (tune < -0x400)
+					tune = -0x400;
+				else if (tune > +0x3FF)
+					tune = +0x3FF;
+				_noteVis.GetAttributes().detune[0] = tune >> 2;
+			}
+			break;
+		case 0x000004:	// Master Volume
+			vis_printf("SysEx: XG Master Volume = %u", syxData[0x06]);
+			_noteVis.GetAttributes().volume = syxData[0x06];
+			break;
+		case 0x000005:	// Master Attenuator
+			vis_printf("SysEx: XG Master Attenuator = %u", syxData[0x06]);
+			_noteVis.GetAttributes().expression = 0x7F - syxData[0x06];
+			break;
+		case 0x000006:	// Master Transpose
+			_noteVis.GetAttributes().detune[1] = syxData[0x06] << 8;
+			break;
 		case 0x00007D:	// Drum Setup Reset
 			vis_addstr("SysEx: XG Drum Reset\n");
 			break;
@@ -1892,6 +2001,113 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		break;
 	case 0x080000:	// Multi Part
 	case 0x0A0000:	// Multi Part (additional)
+		addr &= ~0x00FF00;	// remove part ID
+		evtChn = PART_ORDER[syxData[0x04] & 0x0F];
+		evtPort = (syxData[0x04] & 0x70) >> 4;
+		// TODO: check what the actual hardware does when receiving the message on Port B
+		portChnID = FULL_CHN_ID(evtPort, evtChn);
+		if (portChnID >= _chnStates.size())
+			return false;
+		PrintPortChn(portChnStr, evtPort, evtChn);
+		chnSt = &_chnStates[portChnID];
+		nvChn = _noteVis.GetChannel(portChnID);
+		switch(addr)
+		{
+		case 0x080001:	// Bank MSB
+			chnSt->ctrls[0x00] = syxData[0x06];
+			vis_printf("SysEx Chn %s: Bank MSB = %02X", portChnStr, chnSt->ctrls[0x00]);
+			break;
+		case 0x080002:	// Bank LSB
+			chnSt->ctrls[0x20] = syxData[0x06];
+			vis_printf("SysEx Chn %s: Bank LSB = %02X", portChnStr, chnSt->ctrls[0x20]);
+			break;
+		case 0x080003:	// Program Number
+			chnSt->curIns = syxData[0x06];
+			vis_printf("SysEx Chn %s: Ins = %02X", portChnStr, chnSt->curIns);
+			{
+				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
+				HandleInstrumentEvent(chnSt, &insEvt, 0x11);
+				if (_evtCbFunc != NULL)
+					_evtCbFunc(_evtCbData, &insEvt, portChnID);
+			}
+			break;
+		case 0x080004:	// Receive Channel
+			{
+				char recvPCStr[4];
+				if (syxData[0x06] == 0x7F)
+					PrintPortChn(recvPCStr, 0xFF, 0xFF);
+				else
+					PrintPortChn(recvPCStr, syxData[0x06] >> 4, syxData[0x06] & 0x0F);
+				vis_printf("SysEx Chn %s: Receive from MIDI channel %s", portChnStr, recvPCStr);
+			}
+			break;
+		case 0x080007:	// Part Mode
+			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
+			if (syxData[0x06])
+				chnSt->flags |= 0x80;	// drum mode on
+			else
+				chnSt->flags &= ~0x80;	// drum mode off
+			nvChn->_chnMode &= ~0x01;
+			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
+			if (syxData[0x06] == 0x00)
+				vis_printf("SysEx Chn %s: Part Mode: %s", portChnStr, "Normal");
+			else if (syxData[0x06] == 0x01)
+				vis_printf("SysEx Chn %s: Part Mode: %s (%s)", portChnStr, "Drum", "Auto");
+			else
+				vis_printf("SysEx Chn %s: Part Mode: %s %u", portChnStr, "Drum", syxData[0x06] - 0x01);
+			break;
+		case 0x080008:	// Note Shift
+			{
+				chnSt->tuneCoarse = (INT8)syxData[0x06] - 0x40;
+				if (chnSt->tuneCoarse < -24)
+					chnSt->tuneCoarse = -24;
+				else if (chnSt->tuneCoarse > +24)
+					chnSt->tuneCoarse = +24;
+				nvChn->_transpose = chnSt->tuneCoarse;
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+			}
+			break;
+		case 0x080017:	// Detune
+			{
+				UINT8 offset = ((syxData[0x06] & 0x0F) << 4) | ((syxData[0x07] & 0x0F) << 0);
+				chnSt->tuneFine = (offset - 0x80) << 7;
+				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+			}
+			break;
+		case 0x08000B:	// Volume
+			chnSt->ctrls[0x07] = syxData[0x06];
+			break;
+		case 0x08000E:	// Pan
+			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
+			chnSt->ctrls[0x0A] = syxData[0x06];
+			break;
+		case 0x080011:	// Dry Level
+			break;
+		case 0x080012:	// Chorus Send
+			chnSt->ctrls[0x5D] = syxData[0x06];
+			break;
+		case 0x080013:	// Reverb Send
+			chnSt->ctrls[0x5B] = syxData[0x06];
+			break;
+		case 0x080014:	// Variation Send
+			chnSt->ctrls[0x5E] = syxData[0x06];
+			break;
+		case 0x080023:	// Pitch Bend Control
+			chnSt->pbRange = (INT8)syxData[0x06] - 0x40;
+			if ((INT8)chnSt->pbRange < 0)
+				chnSt->pbRange = 0;
+			else if (chnSt->pbRange > 24)
+				chnSt->pbRange = 24;
+			nvChn->_pbRange = chnSt->pbRange;
+			break;
+		case 0x080067:	// Portamento Switch
+			chnSt->ctrls[0x41] = syxData[0x06] ? 0x00 : 0x40;
+			break;
+		case 0x080068:	// Portamento Time
+			chnSt->ctrls[0x05] = syxData[0x06];
+			break;
+		}
 		break;
 	case 0x100000:	// A/D Part
 		break;

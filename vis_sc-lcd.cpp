@@ -283,18 +283,21 @@ void LCDDisplay::DrawLayout(void)
 	mvwprintw(_hWin, 7, 0, "K.Shift");
 	mvwprintw(_hWin, 8, 0, "MIDI CH");
 	
-	if (MATRIX_COL_SIZE < 3)
+	if (doLiveVis)
 	{
-		for (UINT8 curChn = 0; curChn < 16; curChn ++)
+		if (MATRIX_COL_SIZE < 3)
 		{
-			char chnLetter = (curChn < 9) ? ('1' + curChn) : ('A' - 9 + curChn);
-			mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%c", chnLetter);
+			for (UINT8 curChn = 0; curChn < 16; curChn ++)
+			{
+				char chnLetter = (curChn < 9) ? ('1' + curChn) : ('A' - 9 + curChn);
+				mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%c", chnLetter);
+			}
 		}
-	}
-	else
-	{
-		for (UINT8 curChn = 0; curChn < 16; curChn ++)
-			mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%02u", 1 + curChn);
+		else
+		{
+			for (UINT8 curChn = 0; curChn < 16; curChn ++)
+				mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%02u", 1 + curChn);
+		}
 	}
 	
 	return;
