@@ -12,7 +12,8 @@
 
 
 /*
-	Part    A01	Instrument  <-- instrument name [16 chars]  -->
+	Part    A01	<--------- page title [16-32 chars] ---------->
+	Ins     001	Instrument Name
 	Level   100	-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 	Pan     000	-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 	Expr    000	-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
@@ -25,7 +26,7 @@
 */
 
 #define MATRIX_BASE_X	16
-#define MATRIX_BASE_Y	1
+#define MATRIX_BASE_Y	2
 #define MAT_XY2IDX(x, y)	((y) * 0x10 + (x))
 #define DEFAULT_NOTE_AGE	800.0f	// in msec
 static int MATRIX_COL_SIZE = 3;
@@ -52,7 +53,7 @@ void LCDDisplay::Init(int winPosX, int winPosY)
 	
 	ResetDisplay();
 	
-	_hWin = newwin(MATRIX_BASE_Y + 9, MATRIX_BASE_X + 16 * 3, winPosY, winPosX);
+	_hWin = newwin(MATRIX_BASE_Y + 10, MATRIX_BASE_X + 16 * 3, winPosY, winPosX);
 	
 	return;
 }
@@ -76,7 +77,7 @@ void LCDDisplay::SetNoteVis(NoteVisualization* nVis)
 void LCDDisplay::GetSize(int* sizeX, int* sizeY)
 {
 	if (sizeX != NULL)
-		*sizeX = 16 + 16*3;
+		*sizeX = MATRIX_BASE_X + 16 * 3;
 	if (sizeY != NULL)
 		*sizeY = 10;
 	
@@ -102,8 +103,8 @@ void LCDDisplay::ResetDisplay(void)
 	_modName = "-Visualization- ";
 	_allPage.partID = 0x00;
 	_allPage.chnID = 0x00;
-	_allPage.insID = 0x01;
-	_allPage.insName = _modName.c_str();
+	_allPage.insID = 0xFF;
+	_allPage.title = _modName.c_str();
 	_allPage.vol = 127;
 	_allPage.pan = 0x00;
 	_allPage.expr = 127;
@@ -112,8 +113,9 @@ void LCDDisplay::ResetDisplay(void)
 	_allPage.delay = 0;
 	_allPage.transp = 0;
 	_chnPage = _allPage;
+	_chnPage.insID = 0x00;
 	_chnPage.vol = 100;
-	_chnPage.insName = "- Channel Vis. -";
+	_chnPage.title = "- Channel Vis. -";
 	
 	_ttTimeout = 0;
 	_tdmTimeout = 0;
@@ -136,14 +138,21 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 			while(_ttTimeout <= 0)
 			{
 				_ttScrollPos ++;
-				_ttTimeout += 480;
+				if (_ttScrollPos < _ttScrollEnd)
+					_ttTimeout += 300;
+				else
+					_ttTimeout += 1800;	// larger timeout for the last character
 			}
-			// TODO: no scrolling here yet
-			_ttTimeout = 0;
+			if (_ttScrollPos <= _ttScrollEnd)
+				DrawTitleText();
+			else
+				_ttTimeout = 0;
 		}
 		if (_ttTimeout <= 0)
 		{
 			_ttTimeout = 0;
+			wmove(_hWin, 0, MATRIX_BASE_X);	wclrtoeol(_hWin);
+			wmove(_hWin, 1, MATRIX_BASE_X);	wclrtoeol(_hWin);
 			_ttMode = TTMODE_NONE;
 		}
 	}
@@ -188,8 +197,8 @@ void LCDDisplay::RefreshDisplay(void)
 	_allPage.transp = modAttr.detune[1] >> 8;
 	
 	chnAttr = &_nVis->GetChannel(_chnPage.chnID)->_attr;
-	//_chnPage.insID = 0x01;
-	//_chnPage.insName = NULL;
+	//_chnPage.insID = 0x00;
+	//_chnPage.title = NULL;
 	_chnPage.vol =  chnAttr->volume;
 	_chnPage.pan =  chnAttr->pan;
 	_chnPage.expr = chnAttr->expression;
@@ -262,6 +271,7 @@ void LCDDisplay::FullRedraw(void)
 		DrawPage(_allPage);
 	else if (_pageMode == PAGEMODE_CHN)
 		DrawPage(_chnPage);
+	DrawTitleText();
 	if (_tdmTimeout > 0)
 		RedrawDotMatrix(_tDotMatrix);
 	else
@@ -273,15 +283,15 @@ void LCDDisplay::FullRedraw(void)
 void LCDDisplay::DrawLayout(void)
 {
 	mvwprintw(_hWin, 0, 0, "Part");
-	mvwprintw(_hWin, 0, 16, "Instrument");
-	mvwprintw(_hWin, 1, 0, "Level");
-	mvwprintw(_hWin, 2, 0, "Pan");
-	mvwprintw(_hWin, 3, 0, "Expr");
-	mvwprintw(_hWin, 4, 0, "Reverb");
-	mvwprintw(_hWin, 5, 0, "Chorus");
-	mvwprintw(_hWin, 6, 0, "Delay");
-	mvwprintw(_hWin, 7, 0, "K.Shift");
-	mvwprintw(_hWin, 8, 0, "MIDI CH");
+	mvwprintw(_hWin, 1, 0, "Ins");
+	mvwprintw(_hWin, 2, 0, "Level");
+	mvwprintw(_hWin, 3, 0, "Pan");
+	mvwprintw(_hWin, 4, 0, "Expr");
+	mvwprintw(_hWin, 5, 0, "Reverb");
+	mvwprintw(_hWin, 6, 0, "Chorus");
+	mvwprintw(_hWin, 7, 0, "Delay");
+	mvwprintw(_hWin, 8, 0, "K.Shift");
+	mvwprintw(_hWin, 9, 0, "MIDI CH");
 	
 	if (doLiveVis)
 	{
@@ -290,13 +300,13 @@ void LCDDisplay::DrawLayout(void)
 			for (UINT8 curChn = 0; curChn < 16; curChn ++)
 			{
 				char chnLetter = (curChn < 9) ? ('1' + curChn) : ('A' - 9 + curChn);
-				mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%c", chnLetter);
+				mvwprintw(_hWin, 10, MATRIX_BASE_X + (curChn * MATRIX_COL_SIZE), "%c", chnLetter);
 			}
 		}
 		else
 		{
 			for (UINT8 curChn = 0; curChn < 16; curChn ++)
-				mvwprintw(_hWin, 9, 16 + (curChn * MATRIX_COL_SIZE), "%02u", 1 + curChn);
+				mvwprintw(_hWin, 10, MATRIX_BASE_X + (curChn * MATRIX_COL_SIZE), "%02u", 1 + curChn);
 		}
 	}
 	
@@ -309,59 +319,107 @@ void LCDDisplay::DrawPage(const LCDPage& page)
 	if (_pageMode == PAGEMODE_ALL)
 	{
 		mvwprintw(_hWin, 0, 8, "ALL");
-		mvwprintw(_hWin, 8, 8, "%3u", page.chnID);
+		mvwprintw(_hWin, 9, 8, "%3u", page.chnID);
 	}
 	else //if (_pageMode == PAGEMODE_CHN)
 	{
 		mvwprintw(_hWin, 0, 8, "%c%02u", 'A' + (page.partID >> 4), 1 + (page.partID & 0x0F));
-		mvwprintw(_hWin, 8, 8, "%c%02u", 'A' + (page.chnID >> 4), 1 + (page.chnID & 0x0F));
+		mvwprintw(_hWin, 9, 8, "%c%02u", 'A' + (page.chnID >> 4), 1 + (page.chnID & 0x0F));
 	}
 	if (_ttMode == TTMODE_NONE)
 	{
-		mvwprintw(_hWin, 0, 32, "%s", page.insName);
-		wclrtoeol(_hWin);
+		wmove(_hWin, 0, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - strlen(page.title)) / 2);
+		wprintw(_hWin, "%s", page.title);
+		//wclrtoeol(_hWin);
 	}
 	
-	mvwprintw(_hWin, 1, 8, "%3u", page.vol);
-	if (page.pan == -0x40 && false)
-		mvwprintw(_hWin, 2, 8, "Rnd");
-	else if (page.pan < 0x00)
-		mvwprintw(_hWin, 2, 8, "L%2u", -page.pan);
-	else if (page.pan == 0x00)
-		mvwprintw(_hWin, 2, 8, " %2u", page.pan);
-	else if (page.pan > 0x00)
-		mvwprintw(_hWin, 2, 8, "R%2u", page.pan);
-	mvwprintw(_hWin, 3, 8, "%3u", page.expr);
-	mvwprintw(_hWin, 4, 8, "%3u", page.reverb);
-	mvwprintw(_hWin, 5, 8, "%3u", page.chorus);
-	mvwprintw(_hWin, 6, 8, "%3u", page.delay);
-	if (page.transp < 0)
-		mvwprintw(_hWin, 7, 8, "-%2d", -page.transp);
-	else if (page.transp > 0)
-		mvwprintw(_hWin, 7, 8, "+%2d", page.transp);
+	if (page.insID == 0xFF)
+	{
+		mvwprintw(_hWin, 1, 8, "---");
+	}
 	else
 	{
-		mvwaddch(_hWin, 7, 8, ACS_PLMINUS);
-		mvwprintw(_hWin, 7, 9, "%2d", page.transp);
+		mvwprintw(_hWin, 1, 8, "%03u", 1 + page.insID);
+	}
+	mvwprintw(_hWin, 2, 8, "%3u", page.vol);
+	if (page.pan == -0x40)
+		mvwprintw(_hWin, 3, 8, "Rnd");
+	else if (page.pan < 0x00)
+		mvwprintw(_hWin, 3, 8, "L%2u", -page.pan);
+	else if (page.pan == 0x00)
+		mvwprintw(_hWin, 3, 8, " %2u", page.pan);
+	else if (page.pan > 0x00)
+		mvwprintw(_hWin, 3, 8, "R%2u", page.pan);
+	mvwprintw(_hWin, 4, 8, "%3u", page.expr);
+	mvwprintw(_hWin, 5, 8, "%3u", page.reverb);
+	mvwprintw(_hWin, 6, 8, "%3u", page.chorus);
+	mvwprintw(_hWin, 7, 8, "%3u", page.delay);
+	if (page.transp < 0)
+		mvwprintw(_hWin, 8, 8, "-%2d", -page.transp);
+	else if (page.transp > 0)
+		mvwprintw(_hWin, 8, 8, "+%2d", page.transp);
+	else
+	{
+		mvwaddch(_hWin, 8, 8, ACS_PLMINUS);
+		mvwprintw(_hWin, 8, 9, "%2d", page.transp);
 	}
 	wattroff(_hWin, A_BOLD);
 	
 	return;
 }
 
-void LCDDisplay::SetTemporaryText(const char* text)
+void LCDDisplay::DrawTitleText(void)
 {
-	strncpy(_tempText, text, 0x20);
-	_tempText[0x20] = '\0';
-	_ttMode = (strlen(_tempText) > 16) ? TTMODE_SCROLL : TTMODE_SHOW;
-	_ttScrollPos = 0;
-	_ttTimeout = 2880;
+	wmove(_hWin, 0, MATRIX_BASE_X);	wclrtoeol(_hWin);
 	
 	wattron(_hWin, A_BOLD);
-	mvwprintw(_hWin, 0, 32, "%s", _tempText);
-	if (getcury(_hWin) == 0)
-		wclrtoeol(_hWin);
+	switch(_ttMode)
+	{
+	case TTMODE_SHOW1:
+		wmove(_hWin, 0, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - strlen(_tempText)) / 2);
+		wprintw(_hWin, "%s", _tempText);
+		break;
+	case TTMODE_SHOW2:
+		wmove(_hWin, 0, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - 16) / 2);
+		wprintw(_hWin, "%.16s", &_tempText[0x00]);
+		wmove(_hWin, 1, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - 16) / 2);
+		wprintw(_hWin, "%.16s", &_tempText[0x10]);
+		break;
+	case TTMODE_SCROLL:
+		wmove(_hWin, 0, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - 16) / 2);
+		wprintw(_hWin, "%.16s", &_tempText[_ttScrollPos]);
+		break;
+	}
 	wattroff(_hWin, A_BOLD);
+	
+	return;
+}
+
+void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode)
+{
+	size_t textLen;
+	
+	strncpy(_tempText, text, 0x20);
+	_tempText[0x20] = '\0';
+	textLen = strlen(_tempText);
+	
+	_ttMode = ttMode;
+	if (textLen <= 16)
+	{
+		if (_ttMode == TTMODE_SCROLL || TTMODE_SHOW2)
+			_ttMode = TTMODE_SHOW1;
+	}
+	_ttScrollPos = 0;
+	if (_ttMode == TTMODE_SCROLL)
+	{
+		_ttScrollEnd = textLen - 16;
+		_ttTimeout = 1800;
+	}
+	else
+	{
+		_ttTimeout = 2500;
+	}
+	DrawTitleText();
 	
 	return;
 }
@@ -426,4 +484,3 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 	
 	return;
 }
-

@@ -611,16 +611,18 @@ void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text)
 	switch(mode)
 	{
 	case 0x16:	// Roland MT-32 Display
+		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SHOW1);
 		break;
 	case 0x42:	// Roland SC ALL Display
 		lcdDisp._modName = textStr;
 		return;
 	case 0x43:	// Yamaha MU Display
+		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SHOW2);
 		break;
 	case 0x45:	// Roland SC Display
+		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SCROLL);
 		break;
 	}
-	lcdDisp.SetTemporaryText(textStr.c_str());
 	
 	return;
 }

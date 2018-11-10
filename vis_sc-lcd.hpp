@@ -22,15 +22,16 @@ public:
 	enum
 	{
 		TTMODE_NONE = 0,
-		TTMODE_SHOW = 1,
-		TTMODE_SCROLL = 2,
+		TTMODE_SHOW1 = 1,	// show on 1 line
+		TTMODE_SHOW2 = 2,	// show on 2 lines
+		TTMODE_SCROLL = 3,	// scroll on 1 line
 	};
 	struct LCDPage
 	{
+		const char* title;
 		UINT8 partID;
 		UINT8 chnID;
 		UINT8 insID;
-		const char* insName;
 		UINT8 vol;
 		INT8 pan;
 		UINT8 expr;
@@ -46,9 +47,10 @@ public:
 	UINT8 _barVisLayout;
 	UINT8 _pageMode;
 	std::string _modName;
-	char _tempText[0x21];	// 16 characters + \0
+	char _tempText[0x21];	// 32 characters + \0
 	UINT8 _ttMode;
 	UINT8 _ttScrollPos;
+	UINT8 _ttScrollEnd;
 	INT32 _ttTimeout;	// in ms
 	std::bitset<0x100> _tDotMatrix;
 	INT32 _tdmTimeout;	// in ms
@@ -67,7 +69,8 @@ public:
 	void FullRedraw(void);
 	void DrawLayout(void);
 	void DrawPage(const LCDPage& page);
-	void SetTemporaryText(const char* text);
+	void DrawTitleText(void);
+	void SetTemporaryText(const char* text, UINT8 ttMode);
 	void SetTemporaryDotMatrix(const std::bitset<0x100>& matrix);
 	void RedrawDotMatrix(const std::bitset<0x100>& matrix);
 	static void SCSysEx2DotMatrix(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);

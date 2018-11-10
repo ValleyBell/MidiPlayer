@@ -1378,6 +1378,21 @@ static void PrintPortChn(char* buffer, UINT8 port, UINT8 chn)
 	return;
 }
 
+static bool CheckRolandChecksum(size_t dataLen, const UINT8* data)
+{
+	if (dataLen <= 0x03)
+		return true;	// SysEx that ends right after the address - my SC-88VL doesn't complain about it
+	
+	size_t curPos;
+	UINT8 sum = 0x00;
+	
+	for (curPos = 0x00; curPos < dataLen; curPos ++)
+		sum += data[curPos];
+	sum &= 0x7F;
+	
+	return ! sum;
+}
+
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	size_t syxSize = midiEvt->evtData.size();
@@ -1416,6 +1431,9 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		{
 			if (syxSize < 0x08)
 				break;	// We need enough bytes for a full address.
+			if (! CheckRolandChecksum(syxSize - 0x05, &syxData[0x04]))	// check data from address until (not including) 0xF7 byte
+				vis_addstr("Warning: SysEx Roland checksum invalid!\n");
+			
 			if (syxData[0x02] == 0x16)
 				return HandleSysEx_MT32(trkSt->portID, syxSize, syxData);
 			else if (syxData[0x02] == 0x42)
@@ -1979,6 +1997,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x00007F:	// All Parameters Reset
 			vis_addstr("SysEx: All Parameters Reset\n");
+			InitializeChannels();
 			break;
 		}
 		break;
@@ -2002,7 +2021,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	case 0x080000:	// Multi Part
 	case 0x0A0000:	// Multi Part (additional)
 		addr &= ~0x00FF00;	// remove part ID
-		evtChn = PART_ORDER[syxData[0x04] & 0x0F];
+		evtChn = syxData[0x04] & 0x0F;
 		evtPort = (syxData[0x04] & 0x70) >> 4;
 		// TODO: check what the actual hardware does when receiving the message on Port B
 		portChnID = FULL_CHN_ID(evtPort, evtChn);
