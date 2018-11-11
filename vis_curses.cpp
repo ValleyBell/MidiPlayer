@@ -629,13 +629,18 @@ void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text)
 
 void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data)
 {
+	if (! dataLen || data == NULL)
+		return;
 	switch(mode)
 	{
 	case 0x43:	// Yamaha MU Dot Bitmap
+		{
+			std::bitset<0x100> bitmap;
+			LCDDisplay::MUSysEx2Bitmap(dataLen, data, bitmap);
+			lcdDisp.SetTemporaryBitmap(bitmap);
+		}
 		break;
 	case 0x45:	// Roland SC Dot Display
-		if (! dataLen || data == NULL)
-			return;
 		if ((chn & 0x0F) > 1)
 			return;	// We can't do caching yet.
 		{

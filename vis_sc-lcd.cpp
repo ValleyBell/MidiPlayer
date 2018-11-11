@@ -119,11 +119,15 @@ void LCDDisplay::ResetDisplay(void)
 	
 	_ttTimeout = 0;
 	_tdmTimeout = 0;
+	_tbTimeout = 0;
 	
 	if (_nVis != NULL && _nVis->GetChnGroupCount() >= 2)
 		_barVisLayout = BVL_DOUBLE;
 	else
 		_barVisLayout = BVL_SINGLE;
+	
+	RedrawBitmap(_dotMatrix);
+	RedrawDotMatrix(_dotMatrix);
 	
 	return;
 }
@@ -163,6 +167,19 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 		{
 			_tdmTimeout = 0;
 			RedrawDotMatrix(_dotMatrix);
+		}
+	}
+	if (_tbTimeout > 0)
+	{
+		_tbTimeout -= time;
+		if (_tbTimeout < 0)
+		{
+			_tbTimeout = 0;
+			RedrawBitmap(std::bitset<0x100>());
+			if (_tdmTimeout > 0)
+				RedrawDotMatrix(_tDotMatrix);
+			else
+				RedrawDotMatrix(_dotMatrix);
 		}
 	}
 	
@@ -259,6 +276,8 @@ void LCDDisplay::RefreshDisplay(void)
 		DrawPage(_chnPage);
 	if (! _tdmTimeout && doLiveVis)
 		RedrawDotMatrix(_dotMatrix);
+	if (_tbTimeout > 0)
+		RedrawBitmap(_tBitmap);
 	
 	return;
 }
@@ -276,6 +295,8 @@ void LCDDisplay::FullRedraw(void)
 		RedrawDotMatrix(_tDotMatrix);
 	else
 		RedrawDotMatrix(_dotMatrix);
+	if (_tbTimeout > 0)
+		RedrawBitmap(_tBitmap);
 	
 	return;
 }
@@ -433,18 +454,26 @@ void LCDDisplay::SetTemporaryDotMatrix(const std::bitset<0x100>& matrix)
 	return;
 }
 
+void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap)
+{
+	_tBitmap = bitmap;
+	_tbTimeout = 2500;
+	RedrawBitmap(_tBitmap);
+	
+	return;
+}
+
 void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 {
-	//static const chtype DRAW_CHRS[0x04] = {' ', ACS_S9, ACS_S3, ACS_BLOCK};
-	static const char* DRAW_WCHRS[0x04] = {" ", "\xE2\x96\x84", "\xE2\x96\x80", "\xE2\x96\x88"};
+	static const char* DRAW_WCHRS[0x04] = {" ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88"};
 	
 	for (UINT8 y = 0; y < 8; y ++)
 	{
 		for (UINT8 x = 0; x < 16; x++)
 		{
-			bool dotH = matrix[MAT_XY2IDX(x, y * 2 + 1)];
-			bool dotL = matrix[MAT_XY2IDX(x, y * 2 + 0)];
-			UINT8 pixMask = (dotH << 0) | (dotL << 1);
+			bool dotU = matrix[MAT_XY2IDX(x, y * 2 + 0)];
+			bool dotL = matrix[MAT_XY2IDX(x, y * 2 + 1)];
+			UINT8 pixMask = (dotU << 0) | (dotL << 1);
 			
 			wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * MATRIX_COL_SIZE);
 			//whline(_hWin, DRAW_CHRS[pixMask], MATRIX_COL_SIZE - 1);
@@ -453,6 +482,56 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 			else
 				wprintw(_hWin, "%s%s", DRAW_WCHRS[pixMask], DRAW_WCHRS[pixMask]);
 		}
+	}
+	
+	return;
+}
+
+void LCDDisplay::RedrawBitmap(const std::bitset<0x100>& bitmap)
+{
+	static const char* DRAW_WCHRS[0x10] =
+	{
+		" ",            "\xE2\x96\x98", "\xE2\x96\x9D", "\xE2\x96\x80",	// none, upper left, upper right, ul+ur
+		"\xE2\x96\x96", "\xE2\x96\x8C", "\xE2\x96\x9E", "\xE2\x96\x9B",	// lower left, ll+ul, ll+ur, ll+ul+ur
+		"\xE2\x96\x97", "\xE2\x96\x9A", "\xE2\x96\x90", "\xE2\x96\x9C",	// lower right, lr+ul, lr+ur, lr+ul+ur
+		"\xE2\x96\x84", "\xE2\x96\x99", "\xE2\x96\x9F", "\xE2\x96\x88",	// lower l+r, ll+lr+ul, ll+lr+ur, full
+	};
+	int baseX;
+	int x, y;
+	int barXpos;
+	
+	baseX = (16 * MATRIX_COL_SIZE - 8) / 2;
+	for (y = 0; y < 8; y ++)
+	{
+		wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + baseX);
+		for (x = 0; x < 8; x ++)
+		{
+			bool dotUL = bitmap[MAT_XY2IDX(x * 2 + 0, y * 2 + 0)];
+			bool dotUR = bitmap[MAT_XY2IDX(x * 2 + 1, y * 2 + 0)];
+			bool dotLL = bitmap[MAT_XY2IDX(x * 2 + 0, y * 2 + 1)];
+			bool dotLR = bitmap[MAT_XY2IDX(x * 2 + 1, y * 2 + 1)];
+			UINT8 pixMask = (dotUL << 0) | (dotUR << 1) | (dotLL << 2) | (dotLR << 3);
+			
+			waddstr(_hWin, DRAW_WCHRS[pixMask]);
+		}
+	}
+	
+	// --- add a small margin so that channel visualization doesn't clash with the image ---
+	// erase the channel bar on the left side of the image
+	barXpos = baseX / MATRIX_COL_SIZE * MATRIX_COL_SIZE;
+	for (y = 0; y < 8; y ++)
+	{
+		wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + barXpos);
+		for (x = barXpos; x < baseX; x ++)
+			waddch(_hWin, ' ');
+	}
+	// erase the channel bar on the right side of the image
+	barXpos = (baseX + 8 + MATRIX_COL_SIZE) / MATRIX_COL_SIZE * MATRIX_COL_SIZE;
+	for (y = 0; y < 8; y ++)
+	{
+		wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + baseX + 8);
+		for (x = baseX + 8; x < barXpos; x ++)
+			waddch(_hWin, ' ');
 	}
 	
 	return;
@@ -480,6 +559,33 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 		matrix[(curLine << 4) | 0x0D] = (syxData[0x20 | curLine] >> 1) & 0x01;
 		matrix[(curLine << 4) | 0x0E] = (syxData[0x20 | curLine] >> 0) & 0x01;
 		matrix[(curLine << 4) | 0x0F] = (syxData[0x30 | curLine] >> 4) & 0x01;
+	}
+	
+	return;
+}
+
+/*static*/ void LCDDisplay::MUSysEx2Bitmap(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix)
+{
+	size_t curLine;
+	
+	for (curLine = 0x00; curLine < 0x10; curLine ++)
+	{
+		matrix[(curLine << 4) | 0x00] = (syxData[0x00 | curLine] >> 6) & 0x01;
+		matrix[(curLine << 4) | 0x01] = (syxData[0x00 | curLine] >> 5) & 0x01;
+		matrix[(curLine << 4) | 0x02] = (syxData[0x00 | curLine] >> 4) & 0x01;
+		matrix[(curLine << 4) | 0x03] = (syxData[0x00 | curLine] >> 3) & 0x01;
+		matrix[(curLine << 4) | 0x04] = (syxData[0x00 | curLine] >> 2) & 0x01;
+		matrix[(curLine << 4) | 0x05] = (syxData[0x00 | curLine] >> 1) & 0x01;
+		matrix[(curLine << 4) | 0x06] = (syxData[0x00 | curLine] >> 0) & 0x01;
+		matrix[(curLine << 4) | 0x07] = (syxData[0x10 | curLine] >> 6) & 0x01;
+		matrix[(curLine << 4) | 0x08] = (syxData[0x10 | curLine] >> 5) & 0x01;
+		matrix[(curLine << 4) | 0x09] = (syxData[0x10 | curLine] >> 4) & 0x01;
+		matrix[(curLine << 4) | 0x0A] = (syxData[0x10 | curLine] >> 3) & 0x01;
+		matrix[(curLine << 4) | 0x0B] = (syxData[0x10 | curLine] >> 2) & 0x01;
+		matrix[(curLine << 4) | 0x0C] = (syxData[0x10 | curLine] >> 1) & 0x01;
+		matrix[(curLine << 4) | 0x0D] = (syxData[0x10 | curLine] >> 0) & 0x01;
+		matrix[(curLine << 4) | 0x0E] = (syxData[0x20 | curLine] >> 6) & 0x01;
+		matrix[(curLine << 4) | 0x0F] = (syxData[0x20 | curLine] >> 5) & 0x01;
 	}
 	
 	return;

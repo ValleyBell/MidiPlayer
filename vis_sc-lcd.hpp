@@ -55,6 +55,8 @@ public:
 	std::bitset<0x100> _tDotMatrix;
 	INT32 _tdmTimeout;	// in ms
 	std::bitset<0x100> _dotMatrix;
+	INT32 _tbTimeout;	// in ms
+	std::bitset<0x100> _tBitmap;
 
 	LCDDisplay();
 	~LCDDisplay();
@@ -72,8 +74,11 @@ public:
 	void DrawTitleText(void);
 	void SetTemporaryText(const char* text, UINT8 ttMode);
 	void SetTemporaryDotMatrix(const std::bitset<0x100>& matrix);
+	void SetTemporaryBitmap(const std::bitset<0x100>& bitmap);
 	void RedrawDotMatrix(const std::bitset<0x100>& matrix);
+	void RedrawBitmap(const std::bitset<0x100>& bitmap);
 	static void SCSysEx2DotMatrix(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
+	static void MUSysEx2Bitmap(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
 };
 
 #endif	// __VIS_SC_LCD_HPP__
