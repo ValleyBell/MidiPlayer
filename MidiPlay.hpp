@@ -5,8 +5,7 @@
 #include <vector>
 #include <list>
 
-//#include "MidiLib.hpp"
-class MidiFile;
+#include "MidiLib.hpp"
 #include "NoteVis.hpp"
 #include "MidiOut.h"
 #include "OSTimer.h"

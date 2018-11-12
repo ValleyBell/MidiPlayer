@@ -367,6 +367,7 @@ void vis_new_song(void)
 	chnCnt = (midPlay != NULL) ? midPlay->GetChannelStates().size() : 0x10;
 	dispChns.clear();
 	dispChns.resize(chnCnt);
+	lcdDisp.SetMidiPlayer(midPlay);
 	lcdDisp.SetNoteVis((midPlay != NULL) ? midPlay->GetNoteVis() : NULL);
 	
 	oldWin = nvWin;

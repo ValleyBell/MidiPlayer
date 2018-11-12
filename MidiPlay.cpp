@@ -2307,6 +2307,10 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.curIns = 0xFF;
 		chnSt.userInsID = 0xFFFF;
 		memset(&chnSt.ctrls[0], 0x00, 0x80);
+		chnSt.ctrls[0x07] = 100;
+		chnSt.ctrls[0x0A] = 0x40;
+		chnSt.ctrls[0x0B] = 127;
+		chnSt.ctrls[0x5B] = 40;
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0xFF;

@@ -4,6 +4,7 @@
 #include <stdtype.h>
 #include <bitset>
 
+class MidiPlayer;
 class NoteVisualization;
 
 class LCDDisplay
@@ -41,6 +42,7 @@ public:
 		INT8 transp;
 	};
 	WINDOW* _hWin;
+	MidiPlayer* _mPlr;
 	NoteVisualization* _nVis;
 	LCDPage _allPage;
 	LCDPage _chnPage;
@@ -62,8 +64,9 @@ public:
 	~LCDDisplay();
 	void Init(int winPosX, int winPosY);
 	void Deinit(void);
+	void SetMidiPlayer(MidiPlayer* mPlr);
 	void SetNoteVis(NoteVisualization* nVis);
-	void GetSize(int* sizeX, int* sizeY);
+	void GetSize(int* sizeX, int* sizeY) const;
 	WINDOW* GetWindow(void);
 	void ResetDisplay(void);
 	void AdvanceTime(UINT32 time);

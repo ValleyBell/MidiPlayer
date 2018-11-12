@@ -7,6 +7,7 @@
 #include <stdarg.h>
 
 #include <stdtype.h>
+#include "MidiPlay.hpp"
 #include "NoteVis.hpp"
 #include "vis_sc-lcd.hpp"
 
@@ -34,6 +35,7 @@ static bool doLiveVis = true;
 
 LCDDisplay::LCDDisplay() :
 	_hWin(NULL),
+	_mPlr(NULL),
 	_nVis(NULL)
 {
 }
@@ -68,13 +70,19 @@ void LCDDisplay::Deinit(void)
 	return;
 }
 
+void LCDDisplay::SetMidiPlayer(MidiPlayer* mPlr)
+{
+	_mPlr = mPlr;
+	return;
+}
+
 void LCDDisplay::SetNoteVis(NoteVisualization* nVis)
 {
 	_nVis = nVis;
 	return;
 }
 
-void LCDDisplay::GetSize(int* sizeX, int* sizeY)
+void LCDDisplay::GetSize(int* sizeX, int* sizeY) const
 {
 	if (sizeX != NULL)
 		*sizeX = MATRIX_BASE_X + 16 * 3;
@@ -126,8 +134,11 @@ void LCDDisplay::ResetDisplay(void)
 	else
 		_barVisLayout = BVL_SINGLE;
 	
-	RedrawBitmap(_dotMatrix);
-	RedrawDotMatrix(_dotMatrix);
+	if (_hWin != NULL)
+	{
+		RedrawBitmap(_dotMatrix);
+		RedrawDotMatrix(_dotMatrix);
+	}
 	
 	return;
 }
@@ -204,6 +215,7 @@ void LCDDisplay::RefreshDisplay(void)
 	const NoteVisualization::MidiModifiers& modAttr = _nVis->GetAttributes();
 	const NoteVisualization::ChnInfo* chnInfo;
 	const NoteVisualization::MidiModifiers* chnAttr;
+	const std::vector<MidiPlayer::ChannelState>& chnStates = _mPlr->GetChannelStates();
 	
 	_allPage.vol = modAttr.volume;
 	_allPage.pan = modAttr.pan;
@@ -213,16 +225,22 @@ void LCDDisplay::RefreshDisplay(void)
 	//_allPage.delay = 0;
 	_allPage.transp = modAttr.detune[1] >> 8;
 	
-	chnAttr = &_nVis->GetChannel(_chnPage.chnID)->_attr;
-	//_chnPage.insID = 0x00;
-	//_chnPage.title = NULL;
-	_chnPage.vol =  chnAttr->volume;
-	_chnPage.pan =  chnAttr->pan;
-	_chnPage.expr = chnAttr->expression;
-	//_chnPage.reverb = 0;
-	//_chnPage.chorus = 0;
-	//_chnPage.delay = 0;
-	_chnPage.transp = chnAttr->detune[1] >> 8;
+	if (_chnPage.chnID < chnStates.size())
+	{
+		const MidiPlayer::ChannelState& chnSt = chnStates[_chnPage.chnID];
+		chnAttr = &_nVis->GetChannel(_chnPage.chnID)->_attr;
+		_chnPage.insID = chnSt.insState[2];
+		if (_chnPage.insID == 0xFF)
+			_chnPage.insID = 0x00;
+		_chnPage.title = (chnSt.insSend.bankPtr != NULL) ? chnSt.insSend.bankPtr->insName : "--unknown--";
+		_chnPage.vol =  chnAttr->volume;
+		_chnPage.pan =  chnAttr->pan;
+		_chnPage.expr = chnAttr->expression;
+		_chnPage.reverb = chnSt.ctrls[0x5B];
+		_chnPage.chorus = chnSt.ctrls[0x5D];
+		_chnPage.delay = chnSt.ctrls[0x5E];
+		_chnPage.transp = chnAttr->detune[1] >> 8;
+	}
 	
 	chnCnt = _nVis->GetChnGroupCount() * 0x10;
 	for (curChn = 0; curChn < chnCnt; curChn ++)
@@ -476,7 +494,6 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 			UINT8 pixMask = (dotU << 0) | (dotL << 1);
 			
 			wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * MATRIX_COL_SIZE);
-			//whline(_hWin, DRAW_CHRS[pixMask], MATRIX_COL_SIZE - 1);
 			if (MATRIX_COL_SIZE < 3)
 				wprintw(_hWin, "%s", DRAW_WCHRS[pixMask]);
 			else
