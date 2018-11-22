@@ -10,7 +10,13 @@ class NoteVisualization;
 class LCDDisplay
 {
 public:
-	enum	// bar visualization layout
+	enum	// Long Line display Mode (text length > 16)
+	{
+		LLM_NO_ANIM = 0,		// just show it without any animation
+		LLM_SCROLL_SIMPLE = 1,	// 16-char display: simple scroll
+		LLM_SCROLL_ROLAND = 2,	// 16-char display: scroll Roland SC-55/88/88Pro style
+	};
+	enum	// Bar Visualization Layout
 	{
 		BVL_SINGLE = 0,	// 1x 16 channels
 		BVL_DOUBLE = 1,	// 2x 16 channels
@@ -46,6 +52,7 @@ public:
 	NoteVisualization* _nVis;
 	LCDPage _allPage;
 	LCDPage _chnPage;
+	UINT8 _longLineMode;
 	UINT8 _barVisLayout;
 	UINT8 _pageMode;
 	std::string _modName;
@@ -70,6 +77,7 @@ public:
 	WINDOW* GetWindow(void);
 	void ResetDisplay(void);
 	void AdvanceTime(UINT32 time);
+	bool AdvanceScrollingText(void);
 	void RefreshDisplay(void);
 	void FullRedraw(void);
 	void DrawLayout(void);

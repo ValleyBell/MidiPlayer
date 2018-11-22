@@ -49,6 +49,7 @@ LCDDisplay::~LCDDisplay()
 
 void LCDDisplay::Init(int winPosX, int winPosY)
 {
+	_longLineMode = LLM_NO_ANIM;
 	_pageMode = PAGEMODE_ALL;
 	_barVisLayout = BVL_SINGLE;
 	_ttMode = TTMODE_NONE;
@@ -116,13 +117,15 @@ void LCDDisplay::ResetDisplay(void)
 	_allPage.vol = 127;
 	_allPage.pan = 0x00;
 	_allPage.expr = 127;
-	_allPage.reverb = 40;
-	_allPage.chorus = 0;
+	_allPage.reverb = 64;
+	_allPage.chorus = 64;
 	_allPage.delay = 0;
 	_allPage.transp = 0;
 	_chnPage = _allPage;
 	_chnPage.insID = 0x00;
 	_chnPage.vol = 100;
+	_chnPage.reverb = 40;
+	_chnPage.chorus = 0;
 	_chnPage.title = "- Channel Vis. -";
 	
 	_ttTimeout = 0;
@@ -150,17 +153,7 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 		_ttTimeout -= time;
 		if (_ttMode == TTMODE_SCROLL && _ttTimeout <= 0)
 		{
-			while(_ttTimeout <= 0)
-			{
-				_ttScrollPos ++;
-				if (_ttScrollPos < _ttScrollEnd)
-					_ttTimeout += 300;
-				else
-					_ttTimeout += 1800;	// larger timeout for the last character
-			}
-			if (_ttScrollPos <= _ttScrollEnd)
-				DrawTitleText();
-			else
+			if (! AdvanceScrollingText())
 				_ttTimeout = 0;
 		}
 		if (_ttTimeout <= 0)
@@ -195,6 +188,34 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 	}
 	
 	return;
+}
+
+bool LCDDisplay::AdvanceScrollingText(void)
+{
+	if (_longLineMode == LLM_SCROLL_SIMPLE)
+	{
+		while(_ttTimeout <= 0 && _ttScrollPos < _ttScrollEnd)
+		{
+			_ttScrollPos ++;
+			if (_ttScrollPos < _ttScrollEnd - 1)
+				_ttTimeout += 300;
+			else
+				_ttTimeout += 1800;	// larger timeout for the last character
+		}
+	}
+	else
+	{
+		while(_ttTimeout <= 0 && _ttScrollPos < _ttScrollEnd)
+		{
+			_ttScrollPos ++;
+			_ttTimeout += 300;
+		}
+	}
+	if (_ttScrollPos >= _ttScrollEnd)
+		return false;
+	DrawTitleText();
+	
+	return true;
 }
 
 static void DrawDotBar(std::bitset<0x100>& matrix, int posX, int fillY, int startY, int sizeY)
@@ -232,7 +253,7 @@ void LCDDisplay::RefreshDisplay(void)
 		_chnPage.insID = chnSt.insState[2];
 		if (_chnPage.insID == 0xFF)
 			_chnPage.insID = 0x00;
-		_chnPage.title = (chnSt.insSend.bankPtr != NULL) ? chnSt.insSend.bankPtr->insName : "--unknown--";
+		//_chnPage.title = (chnSt.insSend.bankPtr != NULL) ? chnSt.insSend.bankPtr->insName : "--unknown--";
 		_chnPage.vol =  chnAttr->volume;
 		_chnPage.pan =  chnAttr->pan;
 		_chnPage.expr = chnAttr->expression;
@@ -426,7 +447,27 @@ void LCDDisplay::DrawTitleText(void)
 		break;
 	case TTMODE_SCROLL:
 		wmove(_hWin, 0, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - 16) / 2);
-		wprintw(_hWin, "%.16s", &_tempText[_ttScrollPos]);
+		if (_longLineMode == LLM_SCROLL_ROLAND)
+		{
+			// Roland-style scrolling takes the "Page Title" and scrolls the text in and out.
+			// Simplified, it scrolls through "Page Title<Temp Text>Page Title".
+			const char* pageTitle = (_pageMode == PAGEMODE_ALL) ? _allPage.title : _chnPage.title;
+			char fullStr[0x40];
+			if (_ttScrollPos < 17)
+			{
+				sprintf(fullStr, "%.16s<%.16s", pageTitle, _tempText);
+				wprintw(_hWin, "%.16s", &fullStr[_ttScrollPos]);
+			}
+			else
+			{
+				sprintf(fullStr, "%.32s>%.16s", _tempText, pageTitle);
+				wprintw(_hWin, "%.16s", &fullStr[_ttScrollPos - 17]);
+			}
+		}
+		else
+		{
+			wprintw(_hWin, "%.16s", &_tempText[_ttScrollPos]);
+		}
 		break;
 	}
 	wattroff(_hWin, A_BOLD);
@@ -443,21 +484,32 @@ void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode)
 	textLen = strlen(_tempText);
 	
 	_ttMode = ttMode;
-	if (textLen <= 16)
-	{
-		if (_ttMode == TTMODE_SCROLL || TTMODE_SHOW2)
-			_ttMode = TTMODE_SHOW1;
-	}
+	_ttTimeout = 3000;
 	_ttScrollPos = 0;
+	
 	if (_ttMode == TTMODE_SCROLL)
 	{
-		_ttScrollEnd = textLen - 16;
-		_ttTimeout = 1800;
+		if (textLen <= 16 || _longLineMode == LLM_NO_ANIM)
+		{
+			_ttMode = TTMODE_SHOW1;
+		}
+		else if (_longLineMode == LLM_SCROLL_SIMPLE)
+		{
+			_ttScrollEnd = textLen - 15;
+			_ttTimeout = 1800;	// wait a bit before scrolling starts
+		}
+		else //if (_longLineMode == LLM_SCROLL_ROLAND)
+		{
+			_ttScrollEnd = textLen + 18;
+			_ttTimeout = 300;
+		}
 	}
-	else
+	else if (_ttMode == TTMODE_SHOW2)
 	{
-		_ttTimeout = 2500;
+		if (textLen <= 16)
+			_ttMode = TTMODE_SHOW1;
 	}
+	
 	DrawTitleText();
 	
 	return;

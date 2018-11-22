@@ -646,7 +646,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	case 0x07:	// Main Volume
 		// if (Fading) then calculate new volume + send event + return true
-		nvChn->_attr.volume = midiEvt->evtValB;
+		nvChn->_attr.volume = chnSt->ctrls[0x07];
 		break;
 	case 0x0A:	// Pan
 		{
@@ -654,8 +654,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			if (_options.srcType == MODULE_MT32)
 				panVal ^= 0x7F;	// MT-32 uses 0x7F (left) .. 0x3F (center) .. 0x00 (right)
 			if (panVal == 0x00)
-				panVal = 0x01;	// pan level 0 and 1 are the same, at least on Roland GS
-			nvChn->_attr.pan = (INT8)panVal - 0x40;
+				panVal = 0x01;	// pan level 0 and 1 are the same in GM/GS/XG
+			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 			if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
 				// MT-32 on GS: send GM-compatible Pan value
@@ -665,7 +665,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		break;
 	case 0x0B:	// Expression
-		nvChn->_attr.expression = midiEvt->evtValB;
+		nvChn->_attr.expression = chnSt->ctrls[0x0B];
 		break;
 	case 0x06:	// Data Entry MSB
 		if (chnSt->rpnCtrl[0] == 0x00)
@@ -1574,11 +1574,17 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		if (addr < 0x030110)
 		{
 			UINT8 evtChn;
+			UINT16 portChnID;
 			ChannelState* chnSt = NULL;
+			NoteVisualization::ChnInfo* nvChn = NULL;
 			UINT8 newIns;
 			
 			evtChn = 1 + ((addr & 0x0000F0) >> 4);
-			chnSt = &_chnStates[FULL_CHN_ID(portID, evtChn)];
+			portChnID = FULL_CHN_ID(portID, evtChn);
+			if (portChnID >= _chnStates.size())
+				return false;
+			chnSt = &_chnStates[portChnID];
+			nvChn = _noteVis.GetChannel(portChnID);
 			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
 			if (newIns < 0x80)
 			{
@@ -1600,6 +1606,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 				chnSt->insSend.bankPtr = NULL;
 			}
 			chnSt->pbRange = dataPtr[0x04];
+			nvChn->_pbRange = chnSt->pbRange;
 			if (true)
 			{
 				vis_printf("MT-32 SysEx: Set Ch %u instrument = %u", evtChn, newIns);
@@ -1858,10 +1865,12 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x401019:	// Part Level
 			chnSt->ctrls[0x07] = syxData[0x07];
+			nvChn->_attr.volume = chnSt->ctrls[0x07];
 			break;
 		case 0x40101C:	// Part Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
 			chnSt->ctrls[0x0A] = syxData[0x07];
+			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 			break;
 		case 0x40101F:	// CC1 Controller Number
 		case 0x401020:	// CC2 Controller Number
@@ -2096,10 +2105,12 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x08000B:	// Volume
 			chnSt->ctrls[0x07] = syxData[0x06];
+			nvChn->_attr.volume = chnSt->ctrls[0x07];
 			break;
 		case 0x08000E:	// Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
 			chnSt->ctrls[0x0A] = syxData[0x06];
+			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 			break;
 		case 0x080011:	// Dry Level
 			break;
@@ -2338,6 +2349,9 @@ void MidiPlayer::InitializeChannels(void)
 		ChannelState& chnSt = _chnStates[curChn];
 		NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
 		nvChn->_chnMode |= (chnSt.flags & 0x80) >> 7;
+		nvChn->_attr.volume = chnSt.ctrls[0x07];
+		nvChn->_attr.pan = (INT8)chnSt.ctrls[0x0A] - 0x40;
+		nvChn->_attr.expression = chnSt.ctrls[0x0B];
 		nvChn->_pbRange = chnSt.pbRange;
 	}
 	_initChnPost = true;
