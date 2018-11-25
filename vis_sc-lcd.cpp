@@ -53,6 +53,7 @@ void LCDDisplay::Init(int winPosX, int winPosY)
 	_pageMode = PAGEMODE_ALL;
 	_barVisLayout = BVL_SINGLE;
 	_ttMode = TTMODE_NONE;
+	_tbScaleX = 0xFF;
 	
 	ResetDisplay();
 	
@@ -129,21 +130,21 @@ void LCDDisplay::ResetDisplay(void)
 	_chnPage.title = "- Channel Vis. -";
 	
 	_ttTimeout = 0;
-	_tdmTimeout = 0;
 	_tbTimeout = 0;
+	_tbScaleX = 0xFF;
+	_noDrawXStart = 0;
+	_noDrawXEnd = 0;
 	
 	if (_nVis != NULL && _nVis->GetChnGroupCount() >= 2)
 		_barVisLayout = BVL_DOUBLE;
 	else
 		_barVisLayout = BVL_SINGLE;
 	
-	_noDrawXStart = 0;
-	_noDrawXEnd = 0;
 	if (_hWin != NULL)
 	{
 		if (_tbTimeout > 0)
-			RedrawBitmap(_tBitmap);
-		RedrawDotMatrix(_dotMatrix);
+			DrawBitmap(_tBitmap, _tbScaleX);
+		DrawDotMatrix(_dotMatrix);
 	}
 	
 	return;
@@ -167,27 +168,15 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 			_ttMode = TTMODE_NONE;
 		}
 	}
-	if (_tdmTimeout > 0)
-	{
-		_tdmTimeout -= time;
-		if (_tdmTimeout <= 0)
-		{
-			_tdmTimeout = 0;
-			RedrawDotMatrix(_dotMatrix);
-		}
-	}
 	if (_tbTimeout > 0)
 	{
 		_tbTimeout -= time;
 		if (_tbTimeout <= 0)
 		{
 			_tbTimeout = 0;
-			RedrawBitmap(std::bitset<0x100>());
 			_noDrawXStart = _noDrawXEnd = 0;
-			if (_tdmTimeout > 0)
-				RedrawDotMatrix(_tDotMatrix);
-			else
-				RedrawDotMatrix(_dotMatrix);
+			DrawBitmap(std::bitset<0x100>(), _tbScaleX);
+			DrawDotMatrix(_dotMatrix);
 		}
 	}
 	
@@ -317,8 +306,8 @@ void LCDDisplay::RefreshDisplay(void)
 		DrawPage(_allPage);
 	else if (_pageMode == PAGEMODE_CHN)
 		DrawPage(_chnPage);
-	if (! _tdmTimeout && doLiveVis)
-		RedrawDotMatrix(_dotMatrix);
+	if (doLiveVis)
+		DrawDotMatrix(_dotMatrix);
 	
 	return;
 }
@@ -334,12 +323,9 @@ void LCDDisplay::FullRedraw(void)
 		DrawPage(_chnPage);
 	DrawTitleText();
 	
-	if (_tdmTimeout > 0)
-		RedrawDotMatrix(_tDotMatrix);
-	else
-		RedrawDotMatrix(_dotMatrix);
+	DrawDotMatrix(_dotMatrix);
 	if (_tbTimeout > 0)
-		RedrawBitmap(_tBitmap);
+		DrawBitmap(_tBitmap, _tbScaleX);
 	
 	return;
 }
@@ -479,7 +465,7 @@ void LCDDisplay::DrawTitleText(void)
 	return;
 }
 
-void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode)
+void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode, UINT32 dispTime)
 {
 	size_t textLen;
 	
@@ -488,7 +474,7 @@ void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode)
 	textLen = strlen(_tempText);
 	
 	_ttMode = ttMode;
-	_ttTimeout = 3000;
+	_ttTimeout = (INT32)dispTime;
 	_ttScrollPos = 0;
 	
 	if (_ttMode == TTMODE_SCROLL)
@@ -519,26 +505,29 @@ void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode)
 	return;
 }
 
-void LCDDisplay::SetTemporaryDotMatrix(const std::bitset<0x100>& matrix)
+void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 dispMode, UINT32 dispTime)
 {
-	_tDotMatrix = matrix;
-	_tdmTimeout = 2880;
-	RedrawDotMatrix(_tDotMatrix);
+	UINT8 newScaleX = _tbScaleX;
 	
-	return;
-}
-
-void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap)
-{
+	if (dispMode == 'R')
+		newScaleX = 0xFF;
+	else if (dispMode == 'Y')
+		newScaleX = 1;
+	else
+		newScaleX = 0;
+	if (_tbTimeout > 0 && _tbScaleX != newScaleX)
+		DrawBitmap(std::bitset<0x100>(), _tbScaleX);	// when switching scale modes, erase old bitmap to prevent graphical glitches
+	
+	_tbScaleX = newScaleX;
 	_tBitmap = bitmap;
-	_tbTimeout = 2500;
+	_tbTimeout = (INT32)dispTime;
 	PrepareBitmapDisplay();
-	RedrawBitmap(_tBitmap);
+	DrawBitmap(_tBitmap, _tbScaleX);
 	
 	return;
 }
 
-void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
+void LCDDisplay::DrawDotMatrix(const std::bitset<0x100>& matrix, bool isOverlay)
 {
 	static const char* DRAW_WCHRS[0x04] = {" ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88"};
 	
@@ -546,7 +535,7 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 	{
 		for (UINT8 x = 0; x < 16; x++)
 		{
-			if (x >= _noDrawXStart && x < _noDrawXEnd)
+			if ((x >= _noDrawXStart && x < _noDrawXEnd) && ! isOverlay)
 				continue;
 			
 			bool dotU = matrix[MAT_XY2IDX(x, y * 2 + 0)];
@@ -564,7 +553,18 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 	return;
 }
 
-void LCDDisplay::RedrawBitmap(const std::bitset<0x100>& bitmap)
+void LCDDisplay::DrawBitmap(const std::bitset<0x100>& bitmap, UINT8 scale)
+{
+	if (scale == 0xFF)
+		DrawDotMatrix(bitmap, true);
+	else if (scale == 0)
+		DrawBitmap_2x2(bitmap);
+	else
+		DrawBitmap_1xn(bitmap, scale);
+	return;
+}
+
+void LCDDisplay::DrawBitmap_2x2(const std::bitset<0x100>& bitmap)
 {
 	static const char* DRAW_WCHRS[0x10] =
 	{
@@ -595,14 +595,50 @@ void LCDDisplay::RedrawBitmap(const std::bitset<0x100>& bitmap)
 	return;
 }
 
+void LCDDisplay::DrawBitmap_1xn(const std::bitset<0x100>& bitmap, int col_width)
+{
+	static const char* DRAW_WCHRS[0x04] = {" ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88"};
+	int baseX;
+	int x, y, col;
+	
+	baseX = (16 * MATRIX_COL_SIZE - 16 * col_width) / 2;
+	for (y = 0; y < 8; y ++)
+	{
+		wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + baseX);
+		for (x = 0; x < 16; x++)
+		{
+			bool dotU = bitmap[MAT_XY2IDX(x, y * 2 + 0)];
+			bool dotL = bitmap[MAT_XY2IDX(x, y * 2 + 1)];
+			UINT8 pixMask = (dotU << 0) | (dotL << 1);
+			
+			for (col = 0; col < col_width; col ++)
+				waddstr(_hWin, DRAW_WCHRS[pixMask]);
+		}
+	}
+	
+	return;
+}
+
 void LCDDisplay::PrepareBitmapDisplay(void)
 {
+	int scaledWidth;
 	int bmpStartX;
 	int bmpEndX;
 	int x;
 	
-	bmpStartX = (16 * MATRIX_COL_SIZE - 8) / 2;
-	bmpEndX = bmpStartX + 8;
+	// startX = average(matrix size, scaled bitmap size)
+	// matrix size = 16 channels * column size
+	// scaled bitmap size = 16 dots (width) * scale / 2
+	if (_tbScaleX == 0xFF)
+		scaledWidth = 16 * MATRIX_COL_SIZE;
+	else if (_tbScaleX == 0)
+		scaledWidth = 16 / 2;
+	else
+		scaledWidth = 16 * _tbScaleX;
+	bmpStartX = (16 * MATRIX_COL_SIZE - scaledWidth) / 2;
+	bmpEndX = bmpStartX + scaledWidth;
+	if (bmpStartX < 0)
+		bmpStartX = 0;
 	
 	// Calculate positions of the channel visualization bars that are overdrawn by the image.
 	// This includes a small margin on both sides for separation.

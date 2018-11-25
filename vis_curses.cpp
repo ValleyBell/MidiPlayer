@@ -619,16 +619,16 @@ void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text)
 	switch(mode)
 	{
 	case 0x16:	// Roland MT-32 Display
-		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SHOW1);
+		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SHOW1, 3000);
 		break;
 	case 0x42:	// Roland SC ALL Display
 		lcdDisp._modName = textStr;
 		return;
 	case 0x43:	// Yamaha MU Display
-		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SHOW2);
+		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SHOW2, 3000);
 		break;
 	case 0x45:	// Roland SC Display
-		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SCROLL);
+		lcdDisp.SetTemporaryText(textStr.c_str(), LCDDisplay::TTMODE_SCROLL, 3000);
 		break;
 	}
 	
@@ -648,7 +648,7 @@ void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data
 		{
 			std::bitset<0x100> bitmap;
 			LCDDisplay::MUSysEx2Bitmap(dataLen, data, bitmap);
-			lcdDisp.SetTemporaryBitmap(bitmap);
+			lcdDisp.SetTemporaryBitmap(bitmap, 'Y', 3000);
 		}
 		break;
 	case 0x45:	// Roland SC Dot Display
@@ -657,7 +657,7 @@ void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data
 		{
 			std::bitset<0x100> bitmap;
 			LCDDisplay::SCSysEx2DotMatrix(dataLen, data, bitmap);
-			lcdDisp.SetTemporaryDotMatrix(bitmap);
+			lcdDisp.SetTemporaryBitmap(bitmap, 'R', 2880);
 		}
 		break;
 	}

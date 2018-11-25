@@ -53,6 +53,9 @@ public:
 	NoteVisualization* _nVis;
 	LCDPage _allPage;
 	LCDPage _chnPage;
+	std::bitset<0x100> _dotMatrix;
+	std::bitset<0x100> _tBitmap;
+	
 	UINT8 _longLineMode;
 	UINT8 _barVisLayout;
 	UINT8 _pageMode;
@@ -62,11 +65,8 @@ public:
 	UINT8 _ttScrollPos;
 	UINT8 _ttScrollEnd;
 	INT32 _ttTimeout;	// in ms
-	std::bitset<0x100> _tDotMatrix;
-	INT32 _tdmTimeout;	// in ms
-	std::bitset<0x100> _dotMatrix;
 	INT32 _tbTimeout;	// in ms
-	std::bitset<0x100> _tBitmap;
+	UINT8 _tbScaleX;	// bitmap X scale (0xFF = channel bar ratio, 0,1..3 = 0.5,1-3 characters per column)
 	
 	// Define an area for a bitmap overlay that is not redrawn by the channel visualization.
 	UINT8 _noDrawXStart;
@@ -88,11 +88,12 @@ public:
 	void DrawLayout(void);
 	void DrawPage(const LCDPage& page);
 	void DrawTitleText(void);
-	void SetTemporaryText(const char* text, UINT8 ttMode);
-	void SetTemporaryDotMatrix(const std::bitset<0x100>& matrix);
-	void SetTemporaryBitmap(const std::bitset<0x100>& bitmap);
-	void RedrawDotMatrix(const std::bitset<0x100>& matrix);
-	void RedrawBitmap(const std::bitset<0x100>& bitmap);
+	void SetTemporaryText(const char* text, UINT8 ttMode, UINT32 dispTime);
+	void SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 dispMode, UINT32 dispTime);
+	void DrawDotMatrix(const std::bitset<0x100>& matrix, bool isOverlay = false);
+	void DrawBitmap(const std::bitset<0x100>& bitmap, UINT8 scale);
+	void DrawBitmap_2x2(const std::bitset<0x100>& bitmap);
+	void DrawBitmap_1xn(const std::bitset<0x100>& bitmap, int col_width);
 	void PrepareBitmapDisplay(void);
 	static void SCSysEx2DotMatrix(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
 	static void MUSysEx2Bitmap(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
