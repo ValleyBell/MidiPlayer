@@ -33,6 +33,7 @@ public:
 		TTMODE_SHOW2 = 2,	// show on 2 lines
 		TTMODE_SCROLL = 3,	// scroll on 1 line
 	};
+	
 	struct LCDPage
 	{
 		const char* title;
@@ -66,7 +67,11 @@ public:
 	std::bitset<0x100> _dotMatrix;
 	INT32 _tbTimeout;	// in ms
 	std::bitset<0x100> _tBitmap;
-
+	
+	// Define an area for a bitmap overlay that is not redrawn by the channel visualization.
+	UINT8 _noDrawXStart;
+	UINT8 _noDrawXEnd;	// Note: range is [start ... end-1]
+	
 	LCDDisplay();
 	~LCDDisplay();
 	void Init(int winPosX, int winPosY);
@@ -88,6 +93,7 @@ public:
 	void SetTemporaryBitmap(const std::bitset<0x100>& bitmap);
 	void RedrawDotMatrix(const std::bitset<0x100>& matrix);
 	void RedrawBitmap(const std::bitset<0x100>& bitmap);
+	void PrepareBitmapDisplay(void);
 	static void SCSysEx2DotMatrix(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
 	static void MUSysEx2Bitmap(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
 };

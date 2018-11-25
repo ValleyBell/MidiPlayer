@@ -137,9 +137,12 @@ void LCDDisplay::ResetDisplay(void)
 	else
 		_barVisLayout = BVL_SINGLE;
 	
+	_noDrawXStart = 0;
+	_noDrawXEnd = 0;
 	if (_hWin != NULL)
 	{
-		RedrawBitmap(_dotMatrix);
+		if (_tbTimeout > 0)
+			RedrawBitmap(_tBitmap);
 		RedrawDotMatrix(_dotMatrix);
 	}
 	
@@ -176,10 +179,11 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 	if (_tbTimeout > 0)
 	{
 		_tbTimeout -= time;
-		if (_tbTimeout < 0)
+		if (_tbTimeout <= 0)
 		{
 			_tbTimeout = 0;
 			RedrawBitmap(std::bitset<0x100>());
+			_noDrawXStart = _noDrawXEnd = 0;
 			if (_tdmTimeout > 0)
 				RedrawDotMatrix(_tDotMatrix);
 			else
@@ -315,8 +319,6 @@ void LCDDisplay::RefreshDisplay(void)
 		DrawPage(_chnPage);
 	if (! _tdmTimeout && doLiveVis)
 		RedrawDotMatrix(_dotMatrix);
-	if (_tbTimeout > 0)
-		RedrawBitmap(_tBitmap);
 	
 	return;
 }
@@ -324,12 +326,14 @@ void LCDDisplay::RefreshDisplay(void)
 void LCDDisplay::FullRedraw(void)
 {
 	werase(_hWin);
+	
 	DrawLayout();
 	if (_pageMode == PAGEMODE_ALL)
 		DrawPage(_allPage);
 	else if (_pageMode == PAGEMODE_CHN)
 		DrawPage(_chnPage);
 	DrawTitleText();
+	
 	if (_tdmTimeout > 0)
 		RedrawDotMatrix(_tDotMatrix);
 	else
@@ -528,6 +532,7 @@ void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap)
 {
 	_tBitmap = bitmap;
 	_tbTimeout = 2500;
+	PrepareBitmapDisplay();
 	RedrawBitmap(_tBitmap);
 	
 	return;
@@ -541,6 +546,9 @@ void LCDDisplay::RedrawDotMatrix(const std::bitset<0x100>& matrix)
 	{
 		for (UINT8 x = 0; x < 16; x++)
 		{
+			if (x >= _noDrawXStart && x < _noDrawXEnd)
+				continue;
+			
 			bool dotU = matrix[MAT_XY2IDX(x, y * 2 + 0)];
 			bool dotL = matrix[MAT_XY2IDX(x, y * 2 + 1)];
 			UINT8 pixMask = (dotU << 0) | (dotL << 1);
@@ -567,7 +575,6 @@ void LCDDisplay::RedrawBitmap(const std::bitset<0x100>& bitmap)
 	};
 	int baseX;
 	int x, y;
-	int barXpos;
 	
 	baseX = (16 * MATRIX_COL_SIZE - 8) / 2;
 	for (y = 0; y < 8; y ++)
@@ -585,23 +592,29 @@ void LCDDisplay::RedrawBitmap(const std::bitset<0x100>& bitmap)
 		}
 	}
 	
-	// --- add a small margin so that channel visualization doesn't clash with the image ---
+	return;
+}
+
+void LCDDisplay::PrepareBitmapDisplay(void)
+{
+	int bmpStartX;
+	int bmpEndX;
+	int x;
+	
+	bmpStartX = (16 * MATRIX_COL_SIZE - 8) / 2;
+	bmpEndX = bmpStartX + 8;
+	
+	// Calculate positions of the channel visualization bars that are overdrawn by the image.
+	// This includes a small margin on both sides for separation.
+	_noDrawXStart = bmpStartX / MATRIX_COL_SIZE;
+	_noDrawXEnd = (bmpEndX + MATRIX_COL_SIZE) / MATRIX_COL_SIZE;
+	
 	// erase the channel bar on the left side of the image
-	barXpos = baseX / MATRIX_COL_SIZE * MATRIX_COL_SIZE;
-	for (y = 0; y < 8; y ++)
-	{
-		wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + barXpos);
-		for (x = barXpos; x < baseX; x ++)
-			waddch(_hWin, ' ');
-	}
+	for (x = _noDrawXStart * MATRIX_COL_SIZE; x < bmpStartX; x ++)
+		mvwvline(_hWin, MATRIX_BASE_Y, MATRIX_BASE_X + x, ' ', 8);
 	// erase the channel bar on the right side of the image
-	barXpos = (baseX + 8 + MATRIX_COL_SIZE) / MATRIX_COL_SIZE * MATRIX_COL_SIZE;
-	for (y = 0; y < 8; y ++)
-	{
-		wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + baseX + 8);
-		for (x = baseX + 8; x < barXpos; x ++)
-			waddch(_hWin, ' ');
-	}
+	for (x = bmpEndX; x < _noDrawXEnd * MATRIX_COL_SIZE; x ++)
+		mvwvline(_hWin, MATRIX_BASE_Y, MATRIX_BASE_X + x, ' ', 8);
 	
 	return;
 }
