@@ -150,6 +150,7 @@ static PANEL* logPan = NULL;
 // Sound Canvas Display
 static LCDDisplay lcdDisp;
 static PANEL* lcdPan = NULL;
+static bool lcdEnable = true;
 
 // MIDI map selection
 static WINDOW* mmsWin = NULL;
@@ -192,6 +193,8 @@ void vis_init(void)
 		posY = LINES - sizeY;
 	lcdDisp.Init(posX, posY);
 	lcdPan = new_panel(lcdDisp.GetWindow());
+	if (! lcdEnable)
+		hide_panel(lcdPan);
 	
 	mmsPan = NULL;
 	mmsWin = NULL;
@@ -466,7 +469,8 @@ void vis_new_song(void)
 		vis_do_channel_event(curChn, 0x00, 0x00);
 	
 	lcdDisp.ResetDisplay();
-	lcdDisp.FullRedraw();
+	if (lcdEnable)
+		lcdDisp.FullRedraw();
 	
 	mvcur(0, 0, getbegy(logWin), 0);
 	update_panels();
@@ -608,6 +612,9 @@ void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
 
 void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text)
 {
+	if (! lcdEnable)
+		return;
+	
 	std::string textStr(text, textLen);
 	switch(mode)
 	{
@@ -632,6 +639,9 @@ void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data
 {
 	if (! dataLen || data == NULL)
 		return;
+	if (! lcdEnable)
+		return;
+	
 	switch(mode)
 	{
 	case 0x43:	// Yamaha MU Dot Bitmap
@@ -862,7 +872,8 @@ void vis_update(void)
 	lcdDisp.AdvanceTime(updateTicks);
 	for (curChn = 0; curChn < dispChns.size(); curChn ++)
 		dispChns[curChn].RefreshNotes(noteVis, noteVis->GetChannel(curChn));
-	lcdDisp.RefreshDisplay();
+	if (lcdEnable)
+		lcdDisp.RefreshDisplay();
 	
 	vis_mvprintms(1, 0, midPlay->GetPlaybackPos());
 	vis_mvprintms(1, 10, midPlay->GetSongLength());
@@ -1025,12 +1036,13 @@ static void vis_show_map_selection(void)
 	size_t mtLen = strlen(menuTitle);
 	int sizeX, sizeY;
 	int wsx, wsy;
+	size_t curMap;
 	UINT8 midMapType;
 	
 	midMapType = (midPlay != NULL) ? midPlay->GetOptions().srcType : 0x00;
 	mmsSelection = 0;
 	sizeX = 0;
-	for (size_t curMap = 0; curMap < mapSelTypes.size(); curMap ++)
+	for (curMap = 0; curMap < mapSelTypes.size(); curMap ++)
 	{
 		UINT8 mapType = mapSelTypes[curMap];
 		const std::string& mapStr = midiModColl->GetLongModName(mapType);
