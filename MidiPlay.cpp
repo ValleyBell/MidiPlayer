@@ -50,6 +50,7 @@ static const UINT8 RESET_GS[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F,
 static const UINT8 RESET_SC[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x00, 0x00, 0x7F, 0x00, 0x01, 0xF7};
 static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7};
 static const UINT8 RESET_XG_PARAM[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7F, 0x00, 0xF7};
+static const UINT8 XG_VOICE_MAP[] = {0xF0, 0x43, 0x10, 0x49, 0x00, 0x00, 0x12, 0xFF, 0xF7};
 
 extern UINT8 optShowInsChange;
 
@@ -277,7 +278,19 @@ UINT8 MidiPlayer::Start(void)
 			{
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG), RESET_XG);
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_PARAM), RESET_XG_PARAM);
+				//MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_PARAM), RESET_XG_PARAM);
+			}
+			if (MMASK_MOD(_options.dstType) >= MTXG_MU100)
+			{
+				std::vector<UINT8> syxData(XG_VOICE_MAP, XG_VOICE_MAP + sizeof(XG_VOICE_MAP));
+				UINT8 voiceMap;
+				
+				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG && MMASK_MOD(_options.srcType) >= MTXG_MU100)
+					voiceMap = 0x01;	// voice map: MU100 native
+				else
+					voiceMap = 0x00;	// voice map: MU basic
+				syxData[syxData.size() - 2] = voiceMap;
+				MidiOutPort_SendLongMsg(_outPorts[0], syxData.size(), &syxData[0x00]);
 			}
 		}
 	}
@@ -1396,12 +1409,14 @@ static bool CheckRolandChecksum(size_t dataLen, const UINT8* data)
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	size_t syxSize = midiEvt->evtData.size();
-	const UINT8* syxData = midiEvt->evtData.data();
+	if (! syxSize)
+		return false;
+	const UINT8* syxData = &midiEvt->evtData[0x00];
 	
 	if (syxSize >= 1 && syxData[0x00] == 0xF0)
 	{
 		char syxStr[0x10];
-		PrintHexDump(0x10, syxStr, midiEvt->evtData.size(), midiEvt->evtData.data(), 0x03);
+		PrintHexDump(0x10, syxStr, midiEvt->evtData.size(), &midiEvt->evtData[0x00], 0x03);
 		vis_printf("Warning: Repeated SysEx start command byte (%02X %s ...)\n", midiEvt->evtType, syxStr);
 		
 		// skip repeated F0 byte
@@ -1414,7 +1429,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 	if (syxSize >= 1 && (syxData[0x00] & 0x80))
 	{
 		char syxStr[0x10];
-		PrintHexDump(0x10, syxStr, midiEvt->evtData.size(), midiEvt->evtData.data(), 0x03);
+		PrintHexDump(0x10, syxStr, midiEvt->evtData.size(), &midiEvt->evtData[0x00], 0x03);
 		vis_printf("Warning: Can't parse bad SysEx message! (begins with %02X %s ...)\n", midiEvt->evtType, syxStr);
 		return false;
 	}
@@ -1768,10 +1783,22 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			_noteVis.GetAttributes().volume = syxData[0x07];
 			break;
 		case 0x400005:	// Master Key-Shift
-			_noteVis.GetAttributes().detune[1] = syxData[0x07] << 8;
+			{
+				INT8 transp = (INT8)syxData[0x07] - 0x40;
+				if (transp < -24)
+					transp = -24;
+				else if (transp > +24)
+					transp = +24;
+				_noteVis.GetAttributes().detune[1] = transp << 8;
+			}
 			break;
 		case 0x400006:	// Master Pan
-			_noteVis.GetAttributes().pan = syxData[0x07];
+			{
+				UINT8 panVal = syxData[0x07];
+				if (panVal == 0x00)
+					panVal = 0x01;
+				_noteVis.GetAttributes().pan = panVal - 0x40;
+			}
 			break;
 		case 0x40007F:	// GS reset
 			// F0 41 10 42 12 40 00 7F 00 41 F7
@@ -1992,20 +2019,27 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			_noteVis.GetAttributes().expression = 0x7F - syxData[0x06];
 			break;
 		case 0x000006:	// Master Transpose
-			_noteVis.GetAttributes().detune[1] = syxData[0x06] << 8;
+			{
+				INT8 transp = (INT8)syxData[0x06] - 0x40;
+				if (transp < -24)
+					transp = -24;
+				else if (transp > +24)
+					transp = +24;
+				_noteVis.GetAttributes().detune[1] = transp << 8;
+			}
 			break;
 		case 0x00007D:	// Drum Setup Reset
-			vis_addstr("SysEx: XG Drum Reset\n");
+			vis_printf("SysEx: XG Drum %u Reset", syxData[0x06]);
 			break;
 		case 0x00007E:	// XG System On
 			// XG Reset: F0 43 10 4C 00 00 7E 00 F7
 			InitializeChannels();
-			vis_addstr("SysEx: XG Reset\n");
+			vis_addstr("SysEx: XG Reset");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
 				return true;	// prevent XG reset on other devices
 			break;
 		case 0x00007F:	// All Parameters Reset
-			vis_addstr("SysEx: All Parameters Reset\n");
+			vis_addstr("SysEx: XG All Parameters Reset");
 			InitializeChannels();
 			break;
 		}
