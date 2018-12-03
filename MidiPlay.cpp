@@ -668,7 +668,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				panVal ^= 0x7F;	// MT-32 uses 0x7F (left) .. 0x3F (center) .. 0x00 (right)
 			if (panVal == 0x00)
 				panVal = 0x01;	// pan level 0 and 1 are the same in GM/GS/XG
-			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
+			nvChn->_attr.pan = (INT8)panVal - 0x40;
 			if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
 				// MT-32 on GS: send GM-compatible Pan value
@@ -1893,11 +1893,21 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x401019:	// Part Level
 			chnSt->ctrls[0x07] = syxData[0x07];
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
+			if (_evtCbFunc != NULL)
+			{
+				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x07, chnSt->ctrls[0x07]);
+				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
+			}
 			break;
 		case 0x40101C:	// Part Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
 			chnSt->ctrls[0x0A] = syxData[0x07];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
+			if (_evtCbFunc != NULL)
+			{
+				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x0A, chnSt->ctrls[0x0A]);
+				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
+			}
 			break;
 		case 0x40101F:	// CC1 Controller Number
 		case 0x401020:	// CC2 Controller Number
@@ -2140,11 +2150,21 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x08000B:	// Volume
 			chnSt->ctrls[0x07] = syxData[0x06];
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
+			if (_evtCbFunc != NULL)
+			{
+				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x07, chnSt->ctrls[0x07]);
+				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
+			}
 			break;
 		case 0x08000E:	// Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
 			chnSt->ctrls[0x0A] = syxData[0x06];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
+			if (_evtCbFunc != NULL)
+			{
+				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x0A, chnSt->ctrls[0x0A]);
+				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
+			}
 			break;
 		case 0x080011:	// Dry Level
 			break;

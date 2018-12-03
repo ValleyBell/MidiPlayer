@@ -593,7 +593,9 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
 	switch(ctrl)
 	{
 	case 0x0A:	// Pan
-		if (nvChn->_attr.pan < -0x15)
+		if (nvChn->_attr.pan == -0x40)
+			dispChns[chn].ShowPan(9);	// random
+		else if (nvChn->_attr.pan < -0x15)
 			dispChns[chn].ShowPan(-1);
 		else if (nvChn->_attr.pan > 0x15)
 			dispChns[chn].ShowPan(+1);
@@ -1132,7 +1134,9 @@ void ChannelData::ShowPan(INT8 pan, bool grey)
 	
 	_pan = pan;
 	
-	if (_pan < 0)
+	if (_pan == 9)
+		pChar = '*';	// random
+	else if (_pan < 0)
 		pChar = '<';
 	else if (_pan > 0)
 		pChar = '>';
