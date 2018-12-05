@@ -33,6 +33,15 @@
 static int MATRIX_COL_SIZE = 3;
 static bool doLiveVis = true;
 
+static const char* BLOCK2x2_CHRS[0x10] =
+{
+	" ",            "\xE2\x96\x98", "\xE2\x96\x9D", "\xE2\x96\x80",	// none, upper left, upper right, ul+ur
+	"\xE2\x96\x96", "\xE2\x96\x8C", "\xE2\x96\x9E", "\xE2\x96\x9B",	// lower left, ll+ul, ll+ur, ll+ul+ur
+	"\xE2\x96\x97", "\xE2\x96\x9A", "\xE2\x96\x90", "\xE2\x96\x9C",	// lower right, lr+ul, lr+ur, lr+ul+ur
+	"\xE2\x96\x84", "\xE2\x96\x99", "\xE2\x96\x9F", "\xE2\x96\x88",	// lower l+r, ll+lr+ul, ll+lr+ur, full
+};
+static const char* BLOCK1x2_CHRS[0x04] = {" ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88"};
+
 LCDDisplay::LCDDisplay() :
 	_hWin(NULL),
 	_mPlr(NULL),
@@ -53,7 +62,7 @@ void LCDDisplay::Init(int winPosX, int winPosY)
 	_pageMode = PAGEMODE_ALL;
 	_barVisLayout = BVL_SINGLE;
 	_ttMode = TTMODE_NONE;
-	_tbScaleX = 0xFF;
+	_tbScaleX = 0;
 	
 	ResetDisplay();
 	
@@ -131,7 +140,7 @@ void LCDDisplay::ResetDisplay(void)
 	
 	_ttTimeout = 0;
 	_tbTimeout = 0;
-	_tbScaleX = 0xFF;
+	_tbScaleX = 0;
 	_noDrawXStart = 0;
 	_noDrawXEnd = 0;
 	
@@ -509,12 +518,19 @@ void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 disp
 {
 	UINT8 newScaleX = _tbScaleX;
 	
+	// Note: characters in the terminal are usually twice as high as they are wide.
+	// So a character scale of 2:1 results in 2 width and 2 height.
 	if (dispMode == 'R')
-		newScaleX = 0xFF;
+		newScaleX = 5;	// Roland Sound Canvas pixel ratio is 5:2, scale 5 is accurate
 	else if (dispMode == 'Y')
-		newScaleX = 1;
+		newScaleX = 1;	// Yamaha MU pixel ratio is 9:5, scale 3 is close enough
 	else
-		newScaleX = 0;
+		newScaleX = 1;
+#ifdef _WIN32
+	// On Windows, we round down to an even scale, because it just looks better with the terrible console fonts.
+	if (newScaleX > 1 && (newScaleX & 1))
+		newScaleX &= ~1;
+#endif
 	if (_tbTimeout > 0 && _tbScaleX != newScaleX)
 		DrawBitmap(std::bitset<0x100>(), _tbScaleX);	// when switching scale modes, erase old bitmap to prevent graphical glitches
 	
@@ -529,11 +545,11 @@ void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 disp
 
 void LCDDisplay::DrawDotMatrix(const std::bitset<0x100>& matrix, bool isOverlay)
 {
-	static const char* DRAW_WCHRS[0x04] = {" ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88"};
+	int x, y;
 	
-	for (UINT8 y = 0; y < 8; y ++)
+	for (y = 0; y < 8; y ++)
 	{
-		for (UINT8 x = 0; x < 16; x++)
+		for (x = 0; x < 16; x++)
 		{
 			if ((x >= _noDrawXStart && x < _noDrawXEnd) && ! isOverlay)
 				continue;
@@ -544,9 +560,9 @@ void LCDDisplay::DrawDotMatrix(const std::bitset<0x100>& matrix, bool isOverlay)
 			
 			wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + x * MATRIX_COL_SIZE);
 			if (MATRIX_COL_SIZE < 3)
-				wprintw(_hWin, "%s", DRAW_WCHRS[pixMask]);
+				wprintw(_hWin, "%s", BLOCK1x2_CHRS[pixMask]);
 			else
-				wprintw(_hWin, "%s%s", DRAW_WCHRS[pixMask], DRAW_WCHRS[pixMask]);
+				wprintw(_hWin, "%s%s", BLOCK1x2_CHRS[pixMask], BLOCK1x2_CHRS[pixMask]);
 		}
 	}
 	
@@ -555,24 +571,19 @@ void LCDDisplay::DrawDotMatrix(const std::bitset<0x100>& matrix, bool isOverlay)
 
 void LCDDisplay::DrawBitmap(const std::bitset<0x100>& bitmap, UINT8 scale)
 {
-	if (scale == 0xFF)
+	if (! scale)
 		DrawDotMatrix(bitmap, true);
-	else if (scale == 0)
-		DrawBitmap_2x2(bitmap);
+	else if (scale == 1)
+		DrawBitmap_2x2(bitmap);	// optimized function for drawing small square blocks
+	else if (! (scale & 1))
+		DrawBitmap_2x2n(bitmap, scale / 2);	// optimized function for drawing full characters
 	else
-		DrawBitmap_1xn(bitmap, scale);
+		DrawBitmap_2xn(bitmap, scale);	// fallback function
 	return;
 }
 
 void LCDDisplay::DrawBitmap_2x2(const std::bitset<0x100>& bitmap)
 {
-	static const char* DRAW_WCHRS[0x10] =
-	{
-		" ",            "\xE2\x96\x98", "\xE2\x96\x9D", "\xE2\x96\x80",	// none, upper left, upper right, ul+ur
-		"\xE2\x96\x96", "\xE2\x96\x8C", "\xE2\x96\x9E", "\xE2\x96\x9B",	// lower left, ll+ul, ll+ur, ll+ul+ur
-		"\xE2\x96\x97", "\xE2\x96\x9A", "\xE2\x96\x90", "\xE2\x96\x9C",	// lower right, lr+ul, lr+ur, lr+ul+ur
-		"\xE2\x96\x84", "\xE2\x96\x99", "\xE2\x96\x9F", "\xE2\x96\x88",	// lower l+r, ll+lr+ul, ll+lr+ur, full
-	};
 	int baseX;
 	int x, y;
 	
@@ -588,16 +599,15 @@ void LCDDisplay::DrawBitmap_2x2(const std::bitset<0x100>& bitmap)
 			bool dotLR = bitmap[MAT_XY2IDX(x * 2 + 1, y * 2 + 1)];
 			UINT8 pixMask = (dotUL << 0) | (dotUR << 1) | (dotLL << 2) | (dotLR << 3);
 			
-			waddstr(_hWin, DRAW_WCHRS[pixMask]);
+			waddstr(_hWin, BLOCK2x2_CHRS[pixMask]);
 		}
 	}
 	
 	return;
 }
 
-void LCDDisplay::DrawBitmap_1xn(const std::bitset<0x100>& bitmap, int col_width)
+void LCDDisplay::DrawBitmap_2x2n(const std::bitset<0x100>& bitmap, int col_width)
 {
-	static const char* DRAW_WCHRS[0x04] = {" ", "\xE2\x96\x80", "\xE2\x96\x84", "\xE2\x96\x88"};
 	int baseX;
 	int x, y, col;
 	
@@ -612,7 +622,35 @@ void LCDDisplay::DrawBitmap_1xn(const std::bitset<0x100>& bitmap, int col_width)
 			UINT8 pixMask = (dotU << 0) | (dotL << 1);
 			
 			for (col = 0; col < col_width; col ++)
-				waddstr(_hWin, DRAW_WCHRS[pixMask]);
+				waddstr(_hWin, BLOCK1x2_CHRS[pixMask]);
+		}
+	}
+	
+	return;
+}
+
+void LCDDisplay::DrawBitmap_2xn(const std::bitset<0x100>& bitmap, int col_widthX2)
+{
+	int baseX;
+	int sizeX;
+	int x, y;
+	
+	sizeX = 16 * col_widthX2 / 2;
+	baseX = (16 * MATRIX_COL_SIZE - sizeX) / 2;
+	for (y = 0; y < 8; y ++)
+	{
+		wmove(_hWin, MATRIX_BASE_Y + y, MATRIX_BASE_X + baseX);
+		for (x = 0; x < sizeX; x ++)
+		{
+			int matX0 = (x * 2 + 0) * 8 / sizeX;
+			int matX1 = (x * 2 + 1) * 8 / sizeX;
+			bool dotUL = (matX0 < 16) ? bitmap[MAT_XY2IDX(matX0, y * 2 + 0)] : false;
+			bool dotUR = (matX1 < 16) ? bitmap[MAT_XY2IDX(matX1, y * 2 + 0)] : false;
+			bool dotLL = (matX0 < 16) ? bitmap[MAT_XY2IDX(matX0, y * 2 + 1)] : false;
+			bool dotLR = (matX1 < 16) ? bitmap[MAT_XY2IDX(matX1, y * 2 + 1)] : false;
+			UINT8 pixMask = (dotUL << 0) | (dotUR << 1) | (dotLL << 2) | (dotLR << 3);
+			
+			waddstr(_hWin, BLOCK2x2_CHRS[pixMask]);
 		}
 	}
 	
@@ -629,12 +667,10 @@ void LCDDisplay::PrepareBitmapDisplay(void)
 	// startX = average(matrix size, scaled bitmap size)
 	// matrix size = 16 channels * column size
 	// scaled bitmap size = 16 dots (width) * scale / 2
-	if (_tbScaleX == 0xFF)
+	if (! _tbScaleX)
 		scaledWidth = 16 * MATRIX_COL_SIZE;
-	else if (_tbScaleX == 0)
-		scaledWidth = 16 / 2;
 	else
-		scaledWidth = 16 * _tbScaleX;
+		scaledWidth = 16 * _tbScaleX / 2;
 	bmpStartX = (16 * MATRIX_COL_SIZE - scaledWidth) / 2;
 	bmpEndX = bmpStartX + scaledWidth;
 	if (bmpStartX < 0)

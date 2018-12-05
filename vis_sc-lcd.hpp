@@ -66,7 +66,7 @@ public:
 	UINT8 _ttScrollEnd;
 	INT32 _ttTimeout;	// in ms
 	INT32 _tbTimeout;	// in ms
-	UINT8 _tbScaleX;	// bitmap X scale (0xFF = channel bar ratio, 0,1..3 = 0.5,1-3 characters per column)
+	UINT8 _tbScaleX;	// bitmap X scale (0 = channel bar ratio, 1-6 = 0.5-3.0 characters per column)
 	
 	// Define an area for a bitmap overlay that is not redrawn by the channel visualization.
 	UINT8 _noDrawXStart;
@@ -93,7 +93,8 @@ public:
 	void DrawDotMatrix(const std::bitset<0x100>& matrix, bool isOverlay = false);
 	void DrawBitmap(const std::bitset<0x100>& bitmap, UINT8 scale);
 	void DrawBitmap_2x2(const std::bitset<0x100>& bitmap);
-	void DrawBitmap_1xn(const std::bitset<0x100>& bitmap, int col_width);
+	void DrawBitmap_2x2n(const std::bitset<0x100>& bitmap, int col_width);
+	void DrawBitmap_2xn(const std::bitset<0x100>& bitmap, int col_widthX2);
 	void PrepareBitmapDisplay(void);
 	static void SCSysEx2DotMatrix(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
 	static void MUSysEx2Bitmap(size_t syxLen, const UINT8* syxData, std::bitset<0x100>& matrix);
