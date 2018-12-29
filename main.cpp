@@ -529,12 +529,22 @@ static const char* GetStr1or2(const char* str1, const char* str2)
 
 static const char* GetModuleTypeNameS(UINT8 modType)
 {
-	return GetStr1or2(midiModColl.GetShortModName(modType).c_str(), "unknown");
+	const char* unkStr = "unknown";
+	if (MMASK_TYPE(modType) == MODULE_TYPE_GS)
+		unkStr = "GS/unk";
+	else if (MMASK_TYPE(modType) == MODULE_TYPE_XG)
+		unkStr = "XG/unk";
+	return GetStr1or2(midiModColl.GetShortModName(modType).c_str(), unkStr);
 }
 
 static const char* GetModuleTypeNameL(UINT8 modType)
 {
-	return GetStr1or2(midiModColl.GetLongModName(modType).c_str(), "unknown");
+	const char* unkStr = "unknown";
+	if (MMASK_TYPE(modType) == MODULE_TYPE_GS)
+		unkStr = "GS/unknown";
+	else if (MMASK_TYPE(modType) == MODULE_TYPE_XG)
+		unkStr = "XG/unknown";
+	return GetStr1or2(midiModColl.GetLongModName(modType).c_str(), unkStr);
 }
 
 void PlayMidi(void)
@@ -711,7 +721,7 @@ void PlayMidi(void)
 		SendSyxData(mopList->mOuts, syxData);
 		midPlay.Resume();
 	}
-	Sleep(100);
+	vis_update();
 	
 	controlVal = vis_main();
 	midPlay.Stop();

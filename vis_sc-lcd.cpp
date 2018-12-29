@@ -521,9 +521,9 @@ void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 disp
 	// Note: characters in the terminal are usually twice as high as they are wide.
 	// So a character scale of 2:1 results in 2 width and 2 height.
 	if (dispMode == 'R')
-		newScaleX = 5;	// Roland Sound Canvas pixel ratio is 5:2, scale 5 is accurate
+		newScaleX = 5;	// Roland Sound Canvas pixel ratio is 2.4:1, scale 5 is pretty close
 	else if (dispMode == 'Y')
-		newScaleX = 1;	// Yamaha MU pixel ratio is 9:5, scale 3 is close enough
+		newScaleX = 4;	// Yamaha MU pixel ratio is 1.85:1, scale 4 is close enough
 	else
 		newScaleX = 1;
 #ifdef _WIN32

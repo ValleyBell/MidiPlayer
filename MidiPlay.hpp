@@ -154,6 +154,7 @@ private:
 	OS_TIMER* _osTimer;
 	UINT64 _tmrFreq;	// number of virtual timer ticks for 1 second
 	UINT64 _tmrStep;
+	UINT64 _tmrMinStart;
 	
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;

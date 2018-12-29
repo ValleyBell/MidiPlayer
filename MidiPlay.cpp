@@ -211,6 +211,7 @@ UINT8 MidiPlayer::Start(void)
 		return 0xF2;
 	
 	size_t curTrk;
+	UINT64 initDelay;
 	
 	_loopPt.used = false;
 	_curLoop = 0;
@@ -233,6 +234,8 @@ UINT8 MidiPlayer::Start(void)
 	
 	_nextEvtTick = 0;
 	_tmrStep = 0;
+	_tmrMinStart = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	initDelay = 0;	// additional time (in ms) to wait due to device reset commands
 	
 	InitializeChannels();
 	if (_options.flags & PLROPTS_RESET)
@@ -256,6 +259,7 @@ UINT8 MidiPlayer::Start(void)
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
 			}
+			initDelay += 200;
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 		{
@@ -270,6 +274,7 @@ UINT8 MidiPlayer::Start(void)
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GS), RESET_GS);
 			}
+			initDelay += 200;
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 		{
@@ -278,10 +283,18 @@ UINT8 MidiPlayer::Start(void)
 			{
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG), RESET_XG);
-				//MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_PARAM), RESET_XG_PARAM);
+				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_PARAM), RESET_XG_PARAM);
 			}
+			initDelay += 400;	// XG modules take a bit to fully reset
+		}
+	}
+	if (_options.flags & PLROPTS_STRICT)
+	{
+		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+		{
 			if (MMASK_MOD(_options.dstType) >= MTXG_MU100)
 			{
+				// on MU100+, select the proper default voice map
 				std::vector<UINT8> syxData(XG_VOICE_MAP, XG_VOICE_MAP + sizeof(XG_VOICE_MAP));
 				UINT8 voiceMap;
 				
@@ -293,8 +306,11 @@ UINT8 MidiPlayer::Start(void)
 				MidiOutPort_SendLongMsg(_outPorts[0], syxData.size(), &syxData[0x00]);
 			}
 		}
+		initDelay += 50;
 	}
 	InitializeChannels_Post();
+	
+	_tmrMinStart += initDelay * _tmrFreq / 1000;
 	_playing = true;
 	_paused = false;
 	
@@ -364,7 +380,11 @@ double MidiPlayer::GetPlaybackPos(void) const
 	// I just assume that _curTickTime is correct.
 	tmrTick = tempoIt->tmrTick + (_nextEvtTick - tempoIt->tick) * _curTickTime;
 	if (curTime < _tmrStep)
+	{
+		if (tmrTick <= _tmrStep - curTime)
+			return 0;	// prevent underflow
 		tmrTick -= (_tmrStep - curTime);
+	}
 	return U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
 }
 
@@ -530,6 +550,11 @@ void MidiPlayer::DoPlaybackStep(void)
 	UINT64 curTime;
 	
 	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	if (! _tmrStep && curTime < _tmrMinStart)
+		_tmrStep = _tmrMinStart;	// handle "initial delay" after starting the song
+	if (curTime < _tmrStep)
+		return;
+	
 	while(_playing)
 	{
 		UINT32 minTStamp = (UINT32)-1;
@@ -568,7 +593,7 @@ void MidiPlayer::DoPlaybackStep(void)
 		
 		if (_tmrStep > curTime)
 			break;
-		if (_tmrStep + _tmrFreq < curTime)
+		if (_tmrStep + _tmrFreq * 1 < curTime)
 			_tmrStep = curTime;	// reset time when lagging behind >= 1 second
 		
 		_breakMidiProc = false;
@@ -2051,6 +2076,8 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x00007F:	// All Parameters Reset
 			vis_addstr("SysEx: XG All Parameters Reset");
 			InitializeChannels();
+			if (_options.flags & PLROPTS_STRICT)
+				return true;	// ignore for now, TODO: send, then ensure proper Voice Map
 			break;
 		}
 		break;

@@ -945,7 +945,7 @@ int vis_main(void)
 		midPlay->DoPlaybackStep();
 		
 		newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
-		// update after reset OR when 20 ms have passed
+		// update after reset OR when 20+ ms have passed
 		if (newUpdateTime < lastUpdateTime || newUpdateTime >= lastUpdateTime + 20)
 			vis_update();
 		
