@@ -785,7 +785,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		{
 			if (! _loopPt.used)
 			{
-				vis_addstr("Loop Point found.");
+				vis_addstr("RPG Maker Loop Point found.");
 				SaveLoopState(_loopPt, trkSt);
 			}
 		}
@@ -986,6 +986,14 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 	}
 	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
 	{
+		UINT8 msbH = insInf->bank[0] & 0xF0;
+		UINT8 msbL = insInf->bank[0] & 0x0F;
+		
+		if (insInf->bank[0] == 0x3F)
+			return;	// user instrument
+		if (msbH >= 0x20 && msbH <= 0x60 && msbL >= 0x01 && msbL <= 0x03)
+			return;	// special voices for PLG100 boards
+		
 		// XG has capital tone fallback by setting Bank LSB to 00
 		// for Bank MSB 0, this results in GM sounds.
 		// for Bank MSB 64/126/127, LSB isn't used anyway

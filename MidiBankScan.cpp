@@ -7,53 +7,24 @@
 #include "MidiBankScan.hpp"
 
 
-typedef struct
-{
-	INT16 GS_Min;		// GS module ID: minimum compatibility (using non-GM fallback instruments)
-	INT16 GS_Opt;		// GS module ID: optimal playback
-	INT16 XG_Opt;		// XG module ID: optimal playback (simpler, because there aren't multiple overlapping maps)
-	UINT8 GS_OptLSB;	// GS module: maximum Bank LSB (instrument map)
-	UINT8 GS_DefLSB;	// GS module: uses "default" map in some cases (will increase "optimal" module by 1)
-	UINT8 XG_Unknown;	// XG module: encountered unknown instrument
-	UINT8 GS_User;		// GS module: encountered user instruments
-	UINT8 MaxDrumKit;
-	UINT8 MaxDrumMSB;
-} MODULE_CHECK;
 // possible bonus: detect GM MIDIs with XG drums (i.e. not Bank MSB, except for MSB=127 on drum channel)
 //	-> XG (compatible with GM)
 
 // Function Prototypes
 static UINT8 GetInsModuleID(const INS_BANK* insBank, UINT8 ins, UINT8 msb, UINT8 lsb);
+static UINT8 GetGSInsModuleMask(const INS_BANK* insBank, UINT8 ins, UINT8 msb);
+static void DoInsCheck_XG(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 lsb);
+static void DoInsCheck_GS(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 lsb);
 static void DoInstrumentCheck(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 lsb);
+static UINT8 GetMSBit(UINT32 value);
+static UINT8 InsMask2ModuleID(UINT32 featureMask, UINT8 notInsMask);
 
-
-static const char* MODNAMES_GS[] =
-{	"GM",
-	"SC-55", 
-	"SC-88",
-	"SC-88Pro",
-	"SC-8820/SC-8850",
-};
-static const char* MODNAMES_XG[] =
-{	"GM",
-	"MU50", 
-	"MU80",
-	"MU90",
-	"MU100",
-	"MU128",
-	"MU1000/MU2000",
-};
 
 static const UINT8 PART_ORDER[0x10] =
 {	0x9, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF};
 
 
 #define SYX_RESET_UNDEF	0xFF
-#define SYX_RESET_GM	MODULE_GM_1
-#define SYX_RESET_GM2	MODULE_GM_2
-#define SYX_RESET_GS	MODULE_SC55
-#define SYX_RESET_XG	MODULE_MU50
-#define SYX_RESET_MT32	MODULE_MT32
 
 
 static const INS_BANK* insBankGM2 = NULL;
@@ -103,91 +74,256 @@ static UINT8 GetInsModuleID(const INS_BANK* insBank, UINT8 ins, UINT8 msb, UINT8
 	return 0xFF;
 }
 
-static void DoInstrumentCheck(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 lsb)
+static UINT8 GetGSInsModuleMask(const INS_BANK* insBank, UINT8 ins, UINT8 msb)
 {
-	INT16 insModule;
-	UINT8 xgIns;
-	UINT8 gsMSB;
+	const INS_PRG_LST* insPrg;
+	const INS_DATA* insData;
+	UINT32 curIns;
+	UINT8 insMask;
+	UINT8 maxLsbMask;
 	
-	// check for XG map
-	if (msb >= 0x80)
+	if (insBank == NULL)
+		return 0x00;
+	
+	insPrg = &insBank->prg[ins];
+	insMask = 0x00;
+	for (curIns = 0; curIns < insPrg->count; curIns ++)
+	{
+		insData = &insPrg->instruments[curIns];
+		if (msb == 0xFF || insData->bankMSB == msb)
+			insMask |= ((1 << insData->bankLSB) - 1);
+	}
+	// copy highest used bit to all "unused" bits
+	// Note: BankLSB is 1-based (LSB 1 requires us to check bit 0)
+	maxLsbMask = 1 << insBank->maxBankLSB;
+	if (insMask & (maxLsbMask >> 1))	// check for bit (lsb-1) being set
+		insMask |= ~(maxLsbMask - 1);	// set bits (lsb) and higher
+	
+	return insMask;
+}
+
+static void DoInsCheck_XG(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 lsb)
+{
+	UINT8 xgIns;
+	UINT8 realMSB;
+	UINT8 msbNibH;
+	UINT8 msbNibL;
+	
+	if (msb >= 0x80)	// TODO: maybe do for LSB 7F as well? [needs HW checking]
 	{
 		xgIns = ins;	// use "default" map for unset MSB (drums on channel 10, melody on 1-9, 11-16)
-		gsMSB = (ins & 0x80) ? 0x7F : 0x00;
+		realMSB = (ins & 0x80) ? 0x7F : 0x00;
 	}
 	else
 	{
 		xgIns = ins & 0x7F;	// use master map (melody/drum selection via directly MSB)
-		gsMSB = msb;
+		realMSB = msb;
 	}
-	insModule = GetInsModuleID(insBankXG, xgIns, gsMSB, lsb);
-	if (insModule >= 0x80)
+	msbNibH = msb & 0xF0;
+	msbNibL = msb & 0x0F;
+	
+	if (msb == 0x00 && (lsb == 0x00 || lsb == 0x7E || lsb == 0x7F))
 	{
-		insModule = GetInsModuleID(insBankXG, xgIns, gsMSB, 0x00);	// do the usual XG fallback
+		// LSB 0 is the GM instrument map
+		// LSB 126/127 are MU100 variants of it (and they might be missing from the instrument list)
+		if (lsb == 0x00)
+			modChk->fmXG |= (1 << FMBXG_GM_MAP);
+		else
+			modChk->fmXG |= (lsb == 0x7F) ? (1 << FMBXG_BASIC_MAP) : (1 << FMBXG_MU100_MAP);
+	}
+	else if (msb == 0x00 && lsb >= 0x70)
+	{
+		// Yamaha keyboard panel voices
+	}
+	else if (msb == 0x3F)
+	{
+		// QS300 user voices and custom voices for various models
+		modChk->fmXG |= (1 << FMBALL_USER_INS);
+	}
+	else if (msbNibH >= 0x20 && msbNibH <= 0x60 && msbNibL >= 0x01 && msbNibL <= 0x03)
+	{
+		// known banks:
+		// PLG100-VL:
+		//	MSB 81: VL-XG/A
+		//	MSB 97: VL-XG/B
+		//	MSB 33: preset (LSB 0..1), custom (LSB 2), internal (LSB 3)
+		// PLG100-DX:
+		//	MSB 83: DX-XG/A
+		//	MSB 99: DX-XG/B
+		//	MSB 67: SFX voices
+		//	MSB 35: custom voices
+		if ((msb & 0x0F) == 0x01)
+		{
+			modChk->fmXG |= (1 << FMBXG_PLG_VL);
+			if (msb == 0x21 && lsb == 0x02)
+				modChk->fmXG |= (1 << FMBALL_USER_INS);
+		}
+		else if ((msb & 0x0F) == 0x03)
+		{
+			modChk->fmXG |= (1 << FMBXG_PLG_DX);
+			if (msb == 0x23)
+				modChk->fmXG |= (1 << FMBALL_USER_INS);
+		}
+		modChk->fmXG |= 1 << (FMBALL_INSSET + MTXG_MU100);	// PLG100 boards are MU100+
+	}
+	else
+	{
+		UINT8 insModule;
+		
+		insModule = GetInsModuleID(insBankXG, xgIns, realMSB, lsb);
 		if (insModule < 0x80)
-			modChk->XG_Unknown = 1;
-	}
-	if (insModule > modChk->XG_Opt)
-		modChk->XG_Opt = insModule;
-	if (gsMSB == 0x7F)
-	{
-		if ((ins & 0x7F) > modChk->MaxDrumKit)
-			modChk->MaxDrumKit = ins & 0x7F;
-	}
-	if (ins & 0x80)
-	{
-		if (modChk->MaxDrumMSB < msb)
-			modChk->MaxDrumMSB = msb;
+		{
+			modChk->fmXG |= 1 << (FMBALL_INSSET + insModule);
+		}
+		else
+		{
+			insModule = GetInsModuleID(insBankXG, xgIns, realMSB, 0x00);	// do the usual XG fallback
+			if (insModule < 0x80)
+				modChk->fmXG |= (1 << FMBXG_USES_CTF);
+			else
+				modChk->fmXG |= (1 << FMBALL_BAD_INS);
+		}
 	}
 	
-	// check for GS map
-	gsMSB = (ins & 0x80) ? 0x00 : msb;
-	if (ins == (0x80|0x40) || ins == (0x80|0x41) || gsMSB == 0x40 || gsMSB == 0x41)
+	return;
+}
+
+static void DoInsCheck_GS(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 lsb)
+{
+	INT16 insModule;
+	UINT8 realMSB;
+	bool isUserIns;
+	
+	if (ins & 0x80)
+	{
+		realMSB = 0x00;	// Bank MSB is ignored for drum kits
+		isUserIns = (ins == (0x80|0x40) || ins == (0x80|0x41));	// user drum (patch 64/65)
+	}
+	else
+	{
+		realMSB = msb;
+		isUserIns = (msb == 0x40 || msb == 0x41);	// user instrument (bank 64/65)
+	}
+	
+	if (isUserIns && lsb != 0x01)	// SC-55 doesn't have user instruments
 	{
 		// user patches/drums are supported by SC-88 and later
+		// (Note: We explicitly excluded Bank LSB 1 above, because that's the SC-55 map.)
 		// user patch: bank MSB == 0x40/0x41
 		// user drum: instrument == 0x40/0x41
-		insModule = MTGS_SC88;
-		if (ins & 0x80)
-			modChk->GS_User |= 0x02;	// user drum
+		if (lsb >= 0x02 && lsb <= 0x04)
+			insModule = MTGS_SC55 + (lsb - 0x01);
 		else
-			modChk->GS_User |= 0x01;	// user patch
-		if (insModule > modChk->GS_Opt)
-			modChk->GS_Opt = insModule;
-		if (insModule > modChk->GS_Min)
-			modChk->GS_Min = insModule;
+			insModule = MTGS_SC88;
+		if (ins & 0x80)
+			modChk->fmGS |= (1 << FMBALL_USER_DRM);
+		else
+			modChk->fmGS |= (1 << FMBALL_USER_INS);
+		modChk->fmGS |= 1 << (FMBALL_INSSET + insModule);
+		modChk->fmGS |= (lsb == 0x00) ? (1 << FMBGS_DEF_MAP) : (1 << FMBGS_SC_MAP);
+		modChk->gsimAllMap |= 1 << (FMBALL_INSSET + insModule);
+		if (modChk->gsMaxLSB < lsb)
+			modChk->gsMaxLSB = lsb;
 	}
 	else if (lsb == 0x00)
 	{
-		modChk->GS_DefLSB = 1;
+		UINT8 insMask;
+		
 		// "default" instrument map - search on all instrument maps to guess the right one
-		insModule = GetInsModuleID(insBankGS, ins, gsMSB, 0xFF);
-		if (insModule > modChk->GS_Opt)
-			modChk->GS_Opt = insModule;
-		if (insModule > modChk->GS_Min)
-			modChk->GS_Min = insModule;
+		insModule = GetInsModuleID(insBankGS, ins, realMSB, 0xFF);
+		if (insModule < 0x80)
+		{
+			modChk->fmGS |= 1 << (FMBALL_INSSET + insModule);
+			modChk->fmGS |= (1 << FMBGS_DEF_MAP);
+			modChk->gsimAllMap |= 1 << (FMBALL_INSSET + insModule);
+		}
+		else
+		{
+			modChk->fmGS |= (1 << FMBALL_BAD_INS);
+			modChk->gsimAllMap |= (1 << FMBALL_BAD_INS);
+		}
+		
+		// get mask of modules that CAN use this instrument
+		insMask = GetGSInsModuleMask(insBankGS, ins, realMSB);
+		if (insMask)
+			modChk->gsimNot |= ~insMask;	// take note of the modules that can NOT use it
 	}
 	else
 	{
 		// fixed instrument map
-		if (modChk->GS_OptLSB < lsb)
-			modChk->GS_OptLSB = lsb;
+		
 		// test for the defined map
-		insModule = GetInsModuleID(insBankGS, ins, gsMSB, lsb);
-		if (insModule > modChk->GS_Opt)
-			modChk->GS_Opt = insModule;
-		// test for the minimal map (e.g. Bank MSB 0 is present on all maps)
-		insModule = GetInsModuleID(insBankGS, ins, gsMSB, 0xFF);
-		if (insModule > modChk->GS_Min)
-			modChk->GS_Min = insModule;
-	}
-	if (ins & 0x80)
-	{
-		if ((ins & 0x7F) > modChk->MaxDrumKit)
-			modChk->MaxDrumKit = ins & 0x7F;
+		insModule = GetInsModuleID(insBankGS, ins, realMSB, lsb);
+		if (insModule < 0x80)
+		{
+			modChk->fmGS |= 1 << (FMBALL_INSSET + insModule);
+			modChk->fmGS |= (1 << FMBGS_SC_MAP);
+			if (modChk->gsMaxLSB < lsb)
+				modChk->gsMaxLSB = lsb;
+		}
+		else
+		{
+			modChk->fmGS |= (1 << FMBALL_BAD_INS);
+		}
+		
+		// test for the minimal map (e.g. Bank LSB 0 is present on all maps)
+		insModule = GetInsModuleID(insBankGS, ins, realMSB, 0xFF);
+		if (insModule < 0x80)
+			modChk->gsimAllMap |= 1 << (FMBALL_INSSET + insModule);
+		else
+			modChk->gsimAllMap |= (1 << FMBALL_BAD_INS);
 	}
 	
 	return;
+}
+
+static void DoInstrumentCheck(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 lsb)
+{
+	// MSB 0xFF == unset
+	if ((msb == 0x00 || msb == 0xFF) && (lsb == 0x00 || lsb == 0xFF))
+		modChk->fmGM |= (1 << (FMBALL_INSSET + MTGM_LVL1));
+	else if (msb == 0x78 || msb == 0x79)
+		modChk->fmGM |= (1 << (FMBALL_INSSET + MTGM_LVL2));
+	DoInsCheck_XG(modChk, ins, msb, lsb);
+	DoInsCheck_GS(modChk, ins, msb, lsb);
+	
+	if (ins & 0x80)
+	{
+		// for drum kits, take note of the maximum drum kit ID (for GM detection)
+		if ((ins & 0x7F) > modChk->MaxDrumKit)
+			modChk->MaxDrumKit = ins & 0x7F;
+		
+		// keep track of the highest Bank MSB on drum channels (should stay at 0 in "true" GM MIDIs)
+		if (msb != 0xFF && modChk->MaxDrumMSB < msb)
+			modChk->MaxDrumMSB = msb;
+	}
+	
+	return;
+}
+
+static UINT8 GetMSBit(UINT32 value)
+{
+	UINT8 curBit;
+	
+	value >>= 1;
+	for (curBit = 0; value > 0; curBit ++, value >>= 1)
+		;
+	return curBit;
+}
+
+static UINT8 InsMask2ModuleID(UINT32 featureMask, UINT8 notInsMask)
+{
+	UINT8 insMask;
+	UINT8 modID;
+	
+	insMask = (featureMask >> FMBALL_INSSET) & 0x3F;
+	modID = GetMSBit(insMask);
+	while((1 << modID) & notInsMask)
+		modID ++;
+	
+	if (featureMask & (1 << FMBALL_BAD_INS))
+		modID |= 0x80;
+	return modID;
 }
 
 void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result)
@@ -203,27 +339,26 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	UINT8 curPortID;
 	
 	MODULE_CHECK modChk;
-	
-	UINT8 highBankMSB;
-	UINT8 highBankLSB;
-	UINT8 xgDrum;
 	UINT16 drumChnMask;
-	UINT8 syxReset;
+	UINT8 syxReset;	// keeps track of the most recent Reset message type
 	
-	highBankMSB = 0x00;
-	highBankLSB = 0x00;
-	xgDrum = 0;
+	UINT8 GS_Min;		// GS module ID: minimum compatibility
+	UINT8 GS_Opt;		// GS module ID: optimal playback
+	UINT8 XG_Opt;		// XG module ID: optimal playback
+	UINT8 xgDrum;
+	
 	syxReset = SYX_RESET_UNDEF;
 	
-	modChk.GS_Min = -1;
-	modChk.GS_Opt = -1;
-	modChk.XG_Opt = -1;
-	modChk.GS_OptLSB = 0x00;
-	modChk.GS_DefLSB = 0;
-	modChk.XG_Unknown = 0;
-	modChk.GS_User = 0x00;
+	modChk.gsMaxLSB = 0x00;
 	modChk.MaxDrumKit = 0x00;
 	modChk.MaxDrumMSB = 0x00;
+	modChk.gsimNot = 0x00;
+	modChk.gsimAllMap = 0x00;
+	modChk.xgMapSel = 0xFF;
+	modChk.fmGM = 0x00;
+	modChk.fmGS = 0x00;
+	modChk.fmXG = 0x00;
+	modChk.fmOther = 0x00;
 	
 	drumChnMask = (1 << 9);
 	memset(insBank, 0x00, 16 * 3);
@@ -256,19 +391,9 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 				{
 					insBank[evtChn][2] &= ~0x80;	// remove "instrument check" flag
 					if (drumChnMask & (1 << evtChn))
-					{
-						if (insBank[evtChn][0] == 0x7F)
-							xgDrum = 1;
 						DoInstrumentCheck(&modChk, 0x80 | insBank[evtChn][2], insBank[evtChn][0], insBank[evtChn][1]);
-					}
 					else
-					{
 						DoInstrumentCheck(&modChk, insBank[evtChn][2], insBank[evtChn][0], insBank[evtChn][1]);
-						if (highBankMSB < insBank[evtChn][0])
-							highBankMSB = insBank[evtChn][0];
-					}
-					if (highBankLSB < insBank[evtChn][1])
-						highBankLSB = insBank[evtChn][1];
 				}
 				break;
 			case 0xB0:	// Control Change
@@ -293,19 +418,9 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 				else
 				{
 					if (drumChnMask & (1 << evtChn))
-					{
-						if (insBank[evtChn][0] == 0x7F)
-							xgDrum = 1;
 						DoInstrumentCheck(&modChk, 0x80 | insBank[evtChn][2], insBank[evtChn][0], insBank[evtChn][1]);
-					}
 					else
-					{
 						DoInstrumentCheck(&modChk, insBank[evtChn][2], insBank[evtChn][0], insBank[evtChn][1]);
-						if (highBankMSB < insBank[evtChn][0])
-							highBankMSB = insBank[evtChn][0];
-					}
-					if (highBankLSB < insBank[evtChn][1])
-						highBankLSB = insBank[evtChn][1];
 				}
 				break;
 			case 0xF0:
@@ -328,8 +443,13 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							break;
 						if (evtIt->evtData[0x02] == 0x16)
 						{
-							if (syxReset == SYX_RESET_UNDEF)
-								syxReset = SYX_RESET_MT32;
+							if (evtIt->evtData[0x04] == 0x20)
+								modChk.fmOther |= (1 << FMBALL_TEXT_DISP);	// MT-32: Display ASCII characters
+							else if (evtIt->evtData[0x04] == 0x7F && evtIt->evtData[0x05] == 0x00 && evtIt->evtData[0x06] == 0x00)
+							{
+								syxReset = MODULE_MT32;
+								modChk.fmOther |= (1 << FMBOTH_MT_RESET);	// MT-32: All Parameters Reset
+							}
 							break;
 						}
 						
@@ -341,14 +461,14 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							if (evtIt->evtData[0x04] == 0x40 && evtIt->evtData[0x05] == 0x00 && evtIt->evtData[0x06] == 0x7F)
 							{
 								// GS Reset: F0 41 10 42 12 40 00 7F 00 41 F7
-								syxReset = SYX_RESET_GS;
+								syxReset = MODULE_SC55;
+								modChk.fmGS |= (1 << FMBGS_GS_RESET);
 							}
 							else if (evtIt->evtData[0x04] == 0x00 && evtIt->evtData[0x05] == 0x00 && evtIt->evtData[0x06] == 0x7F)
 							{
 								// SC-88 System Mode Set
-								syxReset = SYX_RESET_GS;
-								if (modChk.GS_Opt < MTGS_SC88)
-									modChk.GS_Opt = MTGS_SC88;
+								syxReset = MODULE_SC55;
+								modChk.fmGS |= (1 << FMBGS_SC_RESET);
 							}
 							else if (evtIt->evtData[0x04] == 0x40 && (evtIt->evtData[0x05] & 0x70) == 0x10)
 							{
@@ -357,6 +477,14 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 								evtChn = PART_ORDER[evtIt->evtData[0x05] & 0x0F];
 								switch(evtIt->evtData[0x06])
 								{
+								case 0x00:	// Tone Number (Bank MSB + instrument ID)
+									insBankBuf[evtChn][0] = evtIt->evtData[0x07];
+									insBank[evtChn][0] = insBankBuf[evtChn][0];
+									insBank[evtChn][1] = insBankBuf[evtChn][1];
+									insBank[evtChn][2] = evtIt->evtData[0x08];
+									// TODO: do more
+									insBank[evtChn][2] |= 0x80;
+									break;
 								case 0x15:	// Drum Channel
 									if (evtIt->evtData[0x07])
 										drumChnMask |= (1 << evtChn);
@@ -373,15 +501,28 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 								switch(evtIt->evtData[0x06])
 								{
 								case 0x00:	// Tone Map Number (== Bank LSB)
+									insBankBuf[evtChn][1] = evtIt->evtData[0x07];
+									break;
 								case 0x01:	// Tone Map 0 Number (== map for Bank LSB 00)
 									if (evtIt->evtData[0x07] <= 0x01)
 										tempByt = MTGS_SC88;
 									else
 										tempByt = evtIt->evtData[0x07] - 0x01 + MTGS_SC55;
-									if (modChk.GS_Opt < tempByt)
-										modChk.GS_Opt = tempByt;
+									// not really the correct to do it (not waiting for the actual
+									// instrument change), but this will do for now
+									modChk.fmGS |= 1 << (FMBALL_INSSET + tempByt);
 									break;
 								}
+							}
+						}
+						else if (evtIt->evtData[0x02] == 0x45)	// Sound Canvas
+						{
+							if (evtIt->evtData[0x04] == 0x10)
+							{
+								if (evtIt->evtData[0x05] == 0x00)
+									modChk.fmGS |= (1 << FMBALL_TEXT_DISP);
+								else if (evtIt->evtData[0x05] < 0x10)
+									modChk.fmGS |= (1 << FMBALL_PIXEL_ART);
 							}
 						}
 						break;
@@ -390,11 +531,44 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							break;
 						if (evtIt->evtData[0x02] == 0x4C)	 // XG
 						{
-							if (evtIt->evtData[0x03] == 0x00 && evtIt->evtData[0x04] == 0x00 &&
-								evtIt->evtData[0x05] == 0x7E)
+							if (evtIt->evtData[0x03] == 0x00 && evtIt->evtData[0x04] == 0x00)
 							{
-								// XG Reset: F0 43 10 4C 00 00 7E 00 F7
-								syxReset = SYX_RESET_XG;
+								if (evtIt->evtData[0x05] == 0x7E)
+								{
+									// XG Reset: F0 43 10 4C 00 00 7E 00 F7
+									syxReset = MODULE_MU50;
+									modChk.fmXG |= (1 << FMBXG_XG_RESET);
+								}
+								else if (evtIt->evtData[0x05] == 0x7F)
+								{
+									// All Parameters Reset
+									syxReset = MODULE_MU50;
+									modChk.fmXG |= (1 << FMBXG_ALL_RESET);
+								}
+							}
+							else if (evtIt->evtData[0x03] == 0x06)
+								modChk.fmXG |= (1 << FMBALL_TEXT_DISP);
+							else if (evtIt->evtData[0x03] == 0x07)
+								modChk.fmXG |= (1 << FMBALL_PIXEL_ART);
+							else if (evtIt->evtData[0x03] == 0x08 || evtIt->evtData[0x03] == 0x0A)
+							{
+								evtChn = evtIt->evtData[0x04] & 0x0F;
+								switch((evtIt->evtData[0x03] << 16) | (evtIt->evtData[0x05] << 0))
+								{
+								case 0x080001:	// Bank MSB
+									insBankBuf[evtChn][0] = evtIt->evtData[0x06];
+									break;
+								case 0x080002:	// Bank LSB
+									insBankBuf[evtChn][1] = evtIt->evtData[0x06];
+									break;
+								case 0x080003:	// Program Number
+									insBank[evtChn][0] = insBankBuf[evtChn][0];
+									insBank[evtChn][1] = insBankBuf[evtChn][1];
+									insBank[evtChn][2] = evtIt->evtData[0x06];
+									// TODO: do more
+									insBank[evtChn][2] |= 0x80;
+									break;
+								}
 							}
 						}
 						else if (evtIt->evtData[0x02] == 0x49)	// MU native
@@ -403,8 +577,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 								evtIt->evtData[0x05] == 0x12)
 							{
 								// Select Voice Map (MU100+ only)
-								if (modChk.XG_Opt < MTXG_MU100)
-									modChk.XG_Opt = MTXG_MU100;
+								// 00 = MU basic, 01 - MU100 native
+								modChk.xgMapSel = evtIt->evtData[0x06];
 							}
 						}
 						break;
@@ -416,9 +590,15 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							// GM Level 1 On: F0 7E 7F 09 01 F7
 							// GM Level 2 On: F0 7E 7F 09 03 F7
 							if (evtIt->evtData[0x03] == 0x01)
-								syxReset = SYX_RESET_GM;
+							{
+								syxReset = MODULE_GM_1;
+								modChk.fmGM |= (1 << FMBGM_L1_RESET);
+							}
 							else if (evtIt->evtData[0x03] == 0x03)
-								syxReset = SYX_RESET_GM2;
+							{
+								syxReset = MODULE_GM_2;
+								modChk.fmGM |= (1 << FMBGM_L2_RESET);
+							}
 						}
 						break;
 					}
@@ -443,134 +623,79 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		}	// end for (evtIt)
 	}
 	
-	//if (syxReset = SYX_RESET_MT32 && modChk.GS_OptLSB > 0x00)
-	//	syxReset = SYX_RESET_UNDEF;
-	if (modChk.GS_OptLSB > 0x00)
+	GS_Min = InsMask2ModuleID(modChk.gsimAllMap, 0x00);
+	GS_Opt = InsMask2ModuleID(modChk.fmGS, modChk.gsimNot);
+	// "SC-88 Mode Set" needs SC-88 or later
+	if (modChk.fmGS & (1 << FMBGS_SC_RESET) && GS_Opt < MTGS_SC88)
+		GS_Opt = MTGS_SC88;
+	
+	// When Bank LSB is used to select an explicit GS instrument map,
+	// then we may want to increase the "optimal module" requirement.
+	// (It is common to use LSB 00 for the "native" map and use LSB 01+ for maps of ancestors.)
+	if (modChk.fmGS & (1 << FMBGS_SC_MAP))
 	{
 		UINT8 minGS;
+		UINT8 defLSB;
 		
-		if (modChk.GS_OptLSB == 0x01)
-			modChk.GS_DefLSB = 1;	// the SC-55 map is only explicitly used on the SC-88
-		else if (modChk.GS_OptLSB >= 0x04)
-			modChk.GS_DefLSB = 0;	// disable "prefer next higher model" for SC-8850
-		else if (modChk.GS_OptLSB == 0x03)
-			modChk.GS_DefLSB = 0;	// for now, don't go from SC-88Pro to SC-8850 by default
+		defLSB = (modChk.fmGS & (1 << FMBGS_DEF_MAP)) ? 1 : 0;
+		if (modChk.gsMaxLSB == 0x01)
+			defLSB = 1;	// the SC-55 map is only explicitly used on the SC-88
+		else if (modChk.gsMaxLSB >= 0x04)
+			defLSB = 0;	// disable "prefer next higher model" for SC-8850
+		else if (modChk.gsMaxLSB == 0x03)
+			defLSB = 0;	// for now, don't go from SC-88Pro to SC-8850 by default
 		// If there is a "default map" instrument set used, assume that the MIDI
 		// was made with the "next higher" module in mind.
-		minGS = (modChk.GS_OptLSB - 0x01) + modChk.GS_DefLSB;
+		minGS = (modChk.gsMaxLSB - 0x01) + defLSB;
 		if (minGS > MTGS_SC8850)
 			minGS = MTGS_SC8850;
-		if (minGS > modChk.GS_Opt)
-			modChk.GS_Opt = minGS;
+		if (minGS > GS_Opt)
+			GS_Opt = minGS;
 	}
 	
+	XG_Opt = InsMask2ModuleID(modChk.fmXG, 0x00);
+	if (modChk.xgMapSel != 0xFF)
 	{
-		const char* gsMinStr;
-		const char* gsOptStr;
-		const char* xgOptStr;
-		UINT8 didPrint;
-		bool gmDerive;
-		
-		gsMinStr = (modChk.GS_Min < 4) ? MODNAMES_GS[1+modChk.GS_Min] : "unknown";
-		gsOptStr = (modChk.GS_Opt < 4) ? MODNAMES_GS[1+modChk.GS_Opt] : "unknown";
-		xgOptStr = (modChk.XG_Opt < 6) ? MODNAMES_XG[1+modChk.XG_Opt] : "unknown";
-		
-		gmDerive = ((syxReset == SYX_RESET_UNDEF) || (syxReset == SYX_RESET_GM));
-		
-		didPrint = 0;
-		if (gmDerive && modChk.MaxDrumMSB == 0x00 && highBankMSB == 0 && highBankLSB == 0)
-		{
-			// enforce GM detection for MIDIs with Bank MSB == 0 + DrumKit > 0 and no XG reset
-			if (modChk.GS_Opt != 0)	// make SC-55 drum kits disable GM detection
-				modChk.MaxDrumKit = 0x00;
-			modChk.XG_Opt = 0;
-			if (modChk.GS_Opt == 0xFF)
-				modChk.GS_Opt = 0;	// required for GM detection
-		}
-		if (highBankMSB == 0 && highBankLSB == 0 && modChk.GS_Opt == 0 && modChk.XG_Opt == 0 && modChk.MaxDrumKit == 0x00)
-		{
-			//if (syxReset == SYX_RESET_GS || syxReset == SYX_RESET_XG)
-			//	syxReset = SYX_RESET_UNDEF;
-			if (syxReset != SYX_RESET_GS)
-			{
-				modChk.GS_Opt = 0xFF;
-				modChk.GS_Min = 0xFF;
-			}
-			if (syxReset != SYX_RESET_XG && ! xgDrum)
-			{
-				modChk.XG_Opt = 0xFF;
-			}
-			printf("GM");
-			gmDerive = false;
-			didPrint = 1;
-		}
-		if ((gmDerive || syxReset == SYX_RESET_GS) && modChk.GS_Min != 0xFF)
-		{
-			if (didPrint)
-				printf(", ");
-			if (gsMinStr != gsOptStr)
-				printf("GS/%s (compatible with %s)", gsOptStr, gsMinStr);
-			else
-				printf("GS/%s", gsOptStr);
-			// If there are unkown XG instruments, but GS instruments were all valid,
-			// then it's probably not XG.
-			if (modChk.GS_Opt != 0xFF && modChk.XG_Opt != 0xFF && modChk.XG_Unknown)
-				modChk.XG_Opt = 0xFF;
-			didPrint = 1;
-		}
-		if ((gmDerive || syxReset == SYX_RESET_XG) && modChk.XG_Opt != 0xFF)
-		{
-			if (didPrint)
-				printf(", ");
-			printf("XG/%s", xgOptStr);
-			if (modChk.XG_Unknown)
-				printf(" (bad instruments)");
-			if (modChk.XG_Opt < 0 && syxReset == SYX_RESET_XG)
-				modChk.XG_Opt = 0;	// TODO: do this in a better way [required for MIDIs that use SysEx for setting instruments]
-			didPrint = 1;
-		}
-		if (! didPrint)
-			printf("unknown");
-		if (xgDrum)
-			printf(" [XG Drums]");
-		putchar('\n');
+		// Note: I only increase the requirement when the MU100 map is selected.
+		//       A MIDI that selects the MU basic map might be intentionally backwards-compatible.
+		if (modChk.xgMapSel > 0x00 && XG_Opt < MTXG_MU100)
+			XG_Opt = MTXG_MU100;
 	}
 	
+	xgDrum = (modChk.MaxDrumMSB == 0x7F);
 	result->hasReset = syxReset;
-	result->GS_Min = (UINT8)modChk.GS_Min;
-	result->GS_Opt = (UINT8)modChk.GS_Opt;
-	result->XG_Opt = (UINT8)modChk.XG_Opt;
-	result->GS_Flags = modChk.GS_User;
-	result->XG_Flags = (xgDrum << 0) | (modChk.XG_Unknown << 7);
+	result->GS_Min = GS_Min;
+	result->GS_Opt = GS_Opt;
+	result->XG_Opt = XG_Opt;
 	result->numPorts = portIDs.size();
 	if (result->numPorts == 0)
 		result->numPorts = 1;
+	result->details = modChk;
 	
-	if (modChk.GS_Opt > MT_UNKNOWN)
-		modChk.GS_Opt = MT_UNKNOWN;
-	if (modChk.XG_Opt > MT_UNKNOWN)
-		modChk.XG_Opt = MT_UNKNOWN;
+	if (GS_Opt > MT_UNKNOWN)
+		GS_Opt = MT_UNKNOWN;
+	if (XG_Opt > MT_UNKNOWN)
+		XG_Opt = MT_UNKNOWN;
 	
-	if (syxReset == SYX_RESET_GM)
-		result->modType = MODULE_GM_1;
-	else if (syxReset == SYX_RESET_GM2)
-		result->modType = MODULE_GM_2;
-	else if (syxReset == SYX_RESET_GS)
-		result->modType = MODULE_TYPE_GS | modChk.GS_Opt;
-	else if (syxReset == SYX_RESET_MT32)
-		result->modType = MODULE_MT32;
-	else if (syxReset == SYX_RESET_XG)
-		result->modType = MODULE_TYPE_XG | modChk.XG_Opt;
+	if (syxReset != SYX_RESET_UNDEF)
+	{
+		if (syxReset == MODULE_SC55)
+			result->modType = MODULE_TYPE_GS | GS_Opt;
+		else if (syxReset == MODULE_MU50)
+			result->modType = MODULE_TYPE_XG | XG_Opt;
+		else
+			result->modType = syxReset;
+	}
 	else
 	{
-		if (modChk.GS_Opt != MT_UNKNOWN && ! xgDrum)
-			result->modType = MODULE_TYPE_GS | modChk.GS_Opt;
-		else if (modChk.XG_Opt != MT_UNKNOWN || xgDrum)
-			result->modType = MODULE_TYPE_XG | modChk.XG_Opt;
-		else if (highBankMSB == 0 && highBankLSB == 0)
-			result->modType = MODULE_GM_1;
-		else if (highBankMSB == 120 || highBankMSB == 121)
+		if (GS_Opt != MT_UNKNOWN && ! xgDrum)
+			result->modType = MODULE_TYPE_GS | GS_Opt;
+		else if (XG_Opt != MT_UNKNOWN || xgDrum)
+			result->modType = MODULE_TYPE_XG | XG_Opt;
+		else if (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL2)))
 			result->modType = MODULE_GM_2;
+		else if (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL1)))
+			result->modType = MODULE_GM_1;
 		else
 			result->modType = 0xFF;
 	}

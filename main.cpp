@@ -561,20 +561,10 @@ void PlayMidi(void)
 	if (forceSrcType != 0xFF)
 		scanRes.modType = forceSrcType;
 	
+	if (scanRes.modType == 0xFF)
 	{
-		vis_printf("MIDI Scan Result: %s\n", GetModuleTypeNameL(scanRes.modType));
-		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_GS && scanRes.GS_Min < scanRes.GS_Opt)
-			vis_printf("    - GS backwards compatible with %s\n",
-						GetModuleTypeNameL(MODULE_TYPE_GS | MMASK_MOD(scanRes.GS_Min)));
-		if (MMASK_TYPE(scanRes.modType) != MODULE_TYPE_XG && (scanRes.XG_Flags & 0x01))
-			vis_printf("    - used XG drums\n");
-		if (MMASK_TYPE(scanRes.modType) == MODULE_TYPE_XG && (scanRes.XG_Flags & 0x80))
-			vis_printf("    - unknown XG instruments found\n");
-		if (scanRes.modType == 0xFF)
-		{
-			scanRes.modType = MODULE_GM_1;
-			vis_printf("Falling back to %s mode ...\n", GetModuleTypeNameL(scanRes.modType));
-		}
+		scanRes.modType = MODULE_GM_1;
+		vis_printf("Falling back to %s mode ...\n", GetModuleTypeNameL(scanRes.modType));
 	}
 	
 	if (forceModID == 0xFF)
@@ -637,7 +627,10 @@ void PlayMidi(void)
 		else if (MMASK_TYPE(scanRes.hasReset) != MMASK_TYPE(mMod->modType))
 			resetOff = false;	// enforce manual reset when MIDI and device types differ
 		else if (MMASK_TYPE(mMod->modType) == MODULE_TYPE_GS && mMod->modType >= MODULE_SC88)
-			resetOff = false;	// enforce manual reset with SC-88 and later for now (TODO: enforce SC-88 reset when only GS reset is present)
+		{
+			if (! (scanRes.details.fmGS & (1 << FMBGS_SC_RESET)))
+				resetOff = false;	// enforce SC-88 reset when missing
+		}
 		if (resetOff)
 			plrOpts.flags &= ~PLROPTS_RESET;
 	}
