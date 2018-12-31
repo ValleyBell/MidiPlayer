@@ -301,8 +301,11 @@ static void DoInstrumentCheck(MODULE_CHECK* modChk, UINT8 ins, UINT8 msb, UINT8 
 		modChk->fmGM |= (1 << (FMBALL_INSSET + MTGM_LVL1));
 	else if (msb == 0x78 || msb == 0x79)
 		modChk->fmGM |= (1 << (FMBALL_INSSET + MTGM_LVL2));
-	DoInsCheck_XG(modChk, ins, msb, lsb);
+	else
+		modChk->fmGM |= (1 << FMBALL_BAD_INS);
+	
 	DoInsCheck_GS(modChk, ins, msb, lsb);
+	DoInsCheck_XG(modChk, ins, msb, lsb);
 	
 	if (ins & 0x80)
 	{
@@ -752,19 +755,24 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			result->modType = MODULE_TYPE_GS | GS_Opt;
 		else if (sv.syxReset == MODULE_MU50)
 			result->modType = MODULE_TYPE_XG | XG_Opt;
+		else if ((modChk.fmGS & (3 << FMBGS_GS_RESET)) && GS_Opt != MT_UNKNOWN)
+			result->modType = MODULE_TYPE_GS | GS_Opt;	// some SC-55 MIDIs have MT-32 *and* GS reset
 		else
 			result->modType = sv.syxReset;
 	}
 	else
 	{
-		if (GS_Opt != MT_UNKNOWN && ! xgDrum)
+		if (! (modChk.fmGM & (1 << FMBALL_BAD_INS)))
+		{
+			if (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL2)))
+				result->modType = MODULE_GM_2;
+			else //if (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL1)))
+				result->modType = MODULE_GM_1;
+		}
+		else if (! (modChk.fmGS & (1 << FMBALL_BAD_INS)) && ! xgDrum)
 			result->modType = MODULE_TYPE_GS | GS_Opt;
-		else if (XG_Opt != MT_UNKNOWN || xgDrum)
+		else if (! (modChk.fmXG & (1 << FMBALL_BAD_INS)) || xgDrum)
 			result->modType = MODULE_TYPE_XG | XG_Opt;
-		else if (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL2)))
-			result->modType = MODULE_GM_2;
-		else if (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL1)))
-			result->modType = MODULE_GM_1;
 		else
 			result->modType = 0xFF;
 	}
