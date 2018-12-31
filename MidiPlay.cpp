@@ -1677,7 +1677,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			dataPtr = &syxData[0x07];
 		}
 		break;
-	case 0x100000:	// System area
+	case 0x100000:	// System Area
 		break;
 	case 0x200000:	// Display
 		if (addr < 0x200100)
@@ -1693,7 +1693,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			vis_addstr("MT-32 SysEx: Display Reset");
 		}
 		break;
-	case 0x7F0000:	// All parameters reset
+	case 0x7F0000:	// All Parameters Reset
 		InitializeChannels();
 		vis_addstr("SysEx: MT-32 Reset\n");
 		break;

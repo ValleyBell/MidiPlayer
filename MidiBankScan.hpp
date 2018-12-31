@@ -40,6 +40,7 @@ typedef struct
 	UINT32 fmGS;
 	UINT32 fmXG;
 	UINT32 fmOther;
+	// additional data
 	UINT8 MaxDrumKit;
 	UINT8 MaxDrumMSB;
 	UINT8 gsimAllMap;	// GS module: instrument mask with ignored instrument map (Bank LSB)
