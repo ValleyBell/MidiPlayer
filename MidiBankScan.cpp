@@ -124,6 +124,7 @@ static void DoInsCheck_XG(MODULE_CHECK* modChk, UINT8 ins, UINT8 ccMsb, UINT8 ls
 	UINT8 msb;
 	UINT8 msbNibH;
 	UINT8 msbNibL;
+	UINT8 vmSel;	// "voice map selection" value
 	
 	if (ccMsb >= 0x80)	// TODO: maybe do for LSB 7F as well? [needs HW checking]
 	{
@@ -138,18 +139,32 @@ static void DoInsCheck_XG(MODULE_CHECK* modChk, UINT8 ins, UINT8 ccMsb, UINT8 ls
 	msbNibH = msb & 0xF0;
 	msbNibL = msb & 0x0F;
 	
-	if (msb == 0x00 && (lsb == 0x00 || lsb == 0x7E || lsb == 0x7F))
+	if (msb == 0x00)
+		vmSel = lsb;	// bank 0: GM/MU50/MU100 bank selection based on Bank LSB
+	else if (msb == 0x7F)
+		vmSel = xgIns & 0x7F;	// drum bank 127: Standard Kit 1 has GM/MU50/MU100 variations
+	else
+		vmSel = 0xFF;	// voice map selection is not relevant for other banks
+	if (vmSel == 0x00)
 	{
-		// LSB 0 is the GM instrument map
-		// LSB 126/127 are MU100 variants of it (and they might be missing from the instrument list)
-		if (lsb == 0x00)
-			modChk->fmXG |= (1 << FMBXG_GM_MAP);
-		else
-			modChk->fmXG |= (lsb == 0x7F) ? (1 << FMBXG_BASIC_MAP) : (1 << FMBXG_MU100_MAP);
+		// LSB 0 is the GM instrument map- (MU50/MU100 voice map selection depends on device setting.)
+		modChk->fmXG |= (1 << FMBXG_GM_MAP);
+	}
+	else if (vmSel == 0x7E)
+	{
+		// LSB 126 is like the GM bank, except that it enforces the MU100 voice map.
+		// Note: Some MU100 voices match MU50 ones and thus might be missing from the instrument list.
+		modChk->fmXG |= (1 << FMBXG_MU100_MAP);
+	}
+	else if (vmSel == 0x7F)
+	{
+		// LSB 127 is like the GM bank with MU50 ("MU basic") voices enforced.
+		modChk->fmXG |= (1 << FMBXG_BASIC_MAP);
 	}
 	else if (msb == 0x00 && lsb >= 0x70)
 	{
 		// Yamaha keyboard panel voices
+		modChk->fmXG |= (1 << FMBXG_PANEL);
 	}
 	else if (msb == 0x3F)
 	{
@@ -195,7 +210,7 @@ static void DoInsCheck_XG(MODULE_CHECK* modChk, UINT8 ins, UINT8 ccMsb, UINT8 ls
 		{
 			insModule = GetInsModuleID(insBankXG, xgIns, msb, 0x00);	// do the usual XG fallback
 			if (insModule < 0x80)
-				modChk->fmXG |= (1 << FMBXG_USES_CTF);
+				modChk->fmXG |= (1 << FMBXG_NEEDS_CTF);
 			else
 				modChk->fmXG |= (1 << FMBALL_BAD_INS);
 		}

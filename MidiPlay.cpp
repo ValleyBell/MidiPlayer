@@ -127,11 +127,11 @@ void MidiPlayer::SetSrcModuleType(UINT8 modType, bool insRefresh)
 	return;
 }
 
-void MidiPlayer::SetDstModuleType(UINT8 modType, bool insRefresh)
+void MidiPlayer::SetDstModuleType(UINT8 modType, bool chnRefresh)
 {
 	_options.dstType = modType;
-	if (insRefresh)
-		AllInsRefresh();
+	if (chnRefresh)
+		AllChannelRefresh();
 	
 	return;
 }
@@ -197,7 +197,7 @@ const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule)
 				*insMapModule = 0x00;
 			return _insBankYGS;
 		}
-		// TG300B instrument is very similar to the SC-88 one
+		// TG300B instrument map is very similar to the SC-88 one
 		return SelectInsMap(MODULE_SC88, insMapModule);
 	case MODULE_MT32:
 		if (insMapModule != NULL)
@@ -252,21 +252,23 @@ UINT8 MidiPlayer::Start(void)
 	if (_options.flags & PLROPTS_RESET)
 	{
 		size_t curPort;
-		vis_addstr("Sending Device Reset");
 		if (_options.dstType == MODULE_MT32)
 		{
 			// MT-32 mode - nothing to do right now
+			//vis_printf("Sending Device Reset (%s) ...", "MT-32");
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GM)
 		{
 			// send GM reset
 			if (MMASK_MOD(_options.dstType) == MTGM_LVL2)
 			{
+				vis_printf("Sending Device Reset (%s) ...", "GM Level 2");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM2), RESET_GM2);
 			}
 			else //if (MMASK_MOD(_options.dstType) == MTGM_LVL1)
 			{
+				vis_printf("Sending Device Reset (%s) ...", "GM");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
 			}
@@ -277,11 +279,13 @@ UINT8 MidiPlayer::Start(void)
 			// send GS reset
 			if (MMASK_MOD(_options.dstType) >= MTGS_SC88 && MMASK_MOD(_options.dstType) != MTGS_TG300B)
 			{
+				vis_printf("Sending Device Reset (%s) ...", "SC-88");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_SC), RESET_SC);
 			}
 			else
 			{
+				vis_printf("Sending Device Reset (%s) ...", "GS");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GS), RESET_GS);
 			}
@@ -290,6 +294,7 @@ UINT8 MidiPlayer::Start(void)
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 		{
 			// send XG reset
+			vis_printf("Sending Device Reset (%s) ...", "XG");
 			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 			{
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
@@ -309,10 +314,17 @@ UINT8 MidiPlayer::Start(void)
 				std::vector<UINT8> syxData(XG_VOICE_MAP, XG_VOICE_MAP + sizeof(XG_VOICE_MAP));
 				UINT8 voiceMap;
 				
-				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG && MMASK_MOD(_options.srcType) >= MTXG_MU100)
-					voiceMap = 0x01;	// voice map: MU100 native
+				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+				{
+					if (MMASK_MOD(_options.srcType) >= MTXG_MU100)
+						voiceMap = 0x01;	// voice map: MU100 native
+					else
+						voiceMap = 0x00;	// voice map: MU basic
+				}
 				else
-					voiceMap = 0x00;	// voice map: MU basic
+				{
+					voiceMap = 0x00;	// "MU basic" sounds sometimes slightly better, IMO
+				}
 				syxData[syxData.size() - 2] = voiceMap;
 				MidiOutPort_SendLongMsg(_outPorts[0], syxData.size(), &syxData[0x00]);
 			}
@@ -814,11 +826,9 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->ctrls[0x41] = 0x00;	// Portamento
 		chnSt->ctrls[0x42] = 0x00;	// Sostenuto
 		chnSt->ctrls[0x43] = 0x00;	// Soft Pedal
-		chnSt->rpnCtrl[0] = 0xFF;	// reset RPN state
-		chnSt->rpnCtrl[1] = 0xFF;
-		chnSt->pbRange = 2;
-		if (_options.srcType == MODULE_MT32)
-			chnSt->pbRange = 12;
+		chnSt->rpnCtrl[0] = 0x7F;	// reset RPN state
+		chnSt->rpnCtrl[1] = 0x7F;
+		chnSt->pbRange = _defPbRange;
 		nvChn->_attr.volume = chnSt->ctrls[0x07];
 		nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 		nvChn->_attr.expression = chnSt->ctrls[0x0B];
@@ -2305,7 +2315,6 @@ void MidiPlayer::AllNotesRestart(void)
 void MidiPlayer::AllInsRefresh(void)
 {
 	size_t curChn;
-	std::list<NoteInfo>::iterator ntIt;
 	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
@@ -2317,6 +2326,102 @@ void MidiPlayer::AllInsRefresh(void)
 		HandleInstrumentEvent(&chnSt, &insEvt, 0x10);
 		if (_evtCbFunc != NULL)
 			_evtCbFunc(_evtCbData, &insEvt, curChn);
+	}
+	
+	return;
+}
+
+void MidiPlayer::AllChannelRefresh(void)
+{
+	size_t curChn;
+	UINT8 curCtrl;
+	std::list<NoteInfo>::iterator ntIt;
+	UINT8 defDstPbRange;
+	
+	if (_options.dstType == MODULE_MT32)
+		defDstPbRange = 12;
+	else
+		defDstPbRange = 2;
+	InitializeChannels_Post();
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+	{
+		ChannelState& chnSt = _chnStates[curChn];
+		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
+		MidiEvent tempEvt;
+		
+		if (chnSt.curIns != 0xFF)
+		{
+			tempEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
+			if (chnSt.ctrls[0x00] != 0xFF)
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x00, chnSt.ctrls[0x00]);
+			if (chnSt.ctrls[0x20] != 0xFF)
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x20, chnSt.ctrls[0x20]);
+			HandleInstrumentEvent(&chnSt, &tempEvt, 0x10);
+			if (_evtCbFunc != NULL)
+				_evtCbFunc(_evtCbData, &tempEvt, curChn);
+		}
+		// Main Volume (7) and Pan (10) may be patched
+		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x07, chnSt.ctrls[0x07]);
+		HandleControlEvent(&chnSt, NULL, &tempEvt);
+		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0A, chnSt.ctrls[0x0A]);
+		HandleControlEvent(&chnSt, NULL, &tempEvt);
+		
+		// We're sending MSB + LSB here. (A few controllers that are handled separately are skipped.)
+		for (curCtrl = 0x01; curCtrl < 0x20; curCtrl ++)
+		{
+			if (curCtrl == 0x06 || curCtrl == 0x07 || curCtrl == 0x0A)
+				continue;
+			// TODO: use 0xFF as default value - 0x00 is unsafe
+			if (chnSt.ctrls[0x00 | curCtrl] != 0x00)
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x00 | curCtrl, chnSt.ctrls[0x00 | curCtrl]);
+			if (chnSt.ctrls[0x20 | curCtrl] != 0x00)
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x20 | curCtrl, chnSt.ctrls[0x20 | curCtrl]);
+		}
+		for (curCtrl = 0x40; curCtrl < 0x60; curCtrl ++)
+		{
+			if (chnSt.ctrls[curCtrl] != 0x00)
+				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, curCtrl, chnSt.ctrls[curCtrl]);
+		}
+		// Channel Mode messages are left out
+		
+		// restore RPNs
+		if (chnSt.pbRange != defDstPbRange)
+		{
+			// set Pitch Bend Range
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x00);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
+		}
+		if (chnSt.tuneCoarse != 0)
+		{
+			// set Coarse Tuning
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x02);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, 0x40 + chnSt.tuneCoarse);
+		}
+		if (chnSt.tuneFine != 0)
+		{
+			// set Fine Tuning
+			UINT8 valM, valL;
+			
+			valM = 0x40 + (chnSt.tuneFine >> 8);
+			valL = (chnSt.tuneFine >> 1) & 0x7F;
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x01);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, valM);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x26, valL);
+		}
+		// restore RPN state
+		if (chnSt.rpnCtrl[0x00] & 0x80)
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x63, chnSt.rpnCtrl[0x00] & 0x7F);
+		else
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, chnSt.rpnCtrl[0x00]);
+		if (chnSt.rpnCtrl[0x01] & 0x80)
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, chnSt.rpnCtrl[0x01] & 0x7F);
+		else
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x62, chnSt.rpnCtrl[0x01]);
+		
+		// TODO: restore Pitch Bend and NRPNs
 	}
 	
 	return;
@@ -2406,6 +2511,10 @@ void MidiPlayer::InitializeChannels(void)
 	size_t curChn;
 	MidiEvent chnInitEvt = MidiTrack::CreateEvent_Std(0x01, 0x00, 0x00);
 	
+	if (_options.srcType == MODULE_MT32)
+		_defPbRange = 12;
+	else
+		_defPbRange = 2;
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
@@ -2426,10 +2535,8 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.ctrls[0x5B] = 40;
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
-		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0xFF;
-		chnSt.pbRange = 2;
-		if (_options.srcType == MODULE_MT32)
-			chnSt.pbRange = 12;
+		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0x7F;
+		chnSt.pbRange = _defPbRange;
 		chnSt.tuneCoarse = 0;
 		chnSt.tuneFine = 0;
 		
@@ -2464,8 +2571,13 @@ void MidiPlayer::InitializeChannels(void)
 void MidiPlayer::InitializeChannels_Post(void)
 {
 	size_t curChn;
+	UINT8 defDstPbRange;
 	
 	_initChnPost = false;
+	if (_options.dstType == MODULE_MT32)
+		defDstPbRange = 12;
+	else
+		defDstPbRange = 2;
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
 	{
 		ChannelState& drumChn = _chnStates[curChn | 0x09];
@@ -2504,8 +2616,7 @@ void MidiPlayer::InitializeChannels_Post(void)
 		
 		if (_options.flags & PLROPTS_STRICT)
 		{
-			// TODO: store default PB range somewhere.
-			if (chnSt.pbRange != 2 && MMASK_TYPE(_options.dstType) < MODULE_TYPE_OT)
+			if (chnSt.pbRange != defDstPbRange)
 			{
 				// set initial Pitch Bend Range
 				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);

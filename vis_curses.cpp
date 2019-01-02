@@ -1067,7 +1067,7 @@ static int vis_keyhandler_devsel(void)
 		delwin(mmsWin);		mmsWin = NULL;
 		currentKeyHandler.pop_back();
 		
-		if (inkey == '\n' && cursorPos != main_GetOpenedModule())
+		if (inkey == '\n')
 		{
 			// confirm selection
 			MidiModule* mMod;

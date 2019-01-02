@@ -27,9 +27,10 @@
 #define FMBXG_GM_MAP		18	// [XG] uses GM instrument map (Bank LSB 0)
 #define FMBXG_MU100_MAP		19	// [XG] uses MU100 native instrument map (Bank LSB 126)
 #define FMBXG_BASIC_MAP		20	// [XG] uses MU Basic instrument map (Bank LSB 127)
-#define FMBXG_USES_CTF		21	// [XG] found an instrument that uses Capital Tone Fallback
-#define FMBXG_PLG_VL		24	// [XG] PLG100-VL voices
-#define FMBXG_PLG_DX		25	// [XG] PLG100-DX voices
+#define FMBXG_NEEDS_CTF		21	// [XG] found an instrument that uses Capital Tone Fallback
+#define FMBXG_PANEL			24	// [XG] uses Yamaha keyboard panel voices
+#define FMBXG_PLG_VL		25	// [XG] uses PLG100-VL voices
+#define FMBXG_PLG_DX		26	// [XG] uses PLG100-DX voices
 
 #define FMBOTH_MT_RESET		16	// MT-32 Reset
 

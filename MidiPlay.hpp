@@ -93,7 +93,7 @@ public:
 	const PlayerOpts& GetOptions(void) const;
 	UINT8 GetModuleType(void) const;	// current MIDI module type used for playback
 	void SetSrcModuleType(UINT8 modType, bool insRefresh = false);
-	void SetDstModuleType(UINT8 modType, bool insRefresh = false);
+	void SetDstModuleType(UINT8 modType, bool chnRefresh = false);
 	UINT32 _numLoops;
 	void SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);
@@ -130,6 +130,7 @@ private:
 	void AllNotesStop(void);
 	void AllNotesRestart(void);
 	void AllInsRefresh(void);
+	void AllChannelRefresh(void);
 	void SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk = NULL);
 	void RestoreLoopState(const LoopPoint& lp);
 	
@@ -157,6 +158,7 @@ private:
 	UINT64 _tmrStep;
 	UINT64 _tmrMinStart;
 	
+	UINT8 _defPbRange;
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
 	NoteVisualization _noteVis;
