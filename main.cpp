@@ -93,6 +93,10 @@ static int strmSrv_curPID;
 
 static iconv_t hCurIConv[2];
 
+static BANKSCAN_RESULT scanRes;
+static size_t modIDOpen;
+static MidiOutPortList* mopList = NULL;
+
 
 #ifdef USE_WMAIN
 int wmain(int argc, wchar_t* wargv[])
@@ -547,14 +551,52 @@ static const char* GetModuleTypeNameL(UINT8 modType)
 	return GetStr1or2(midiModColl.GetLongModName(modType).c_str(), unkStr);
 }
 
+size_t main_GetOpenedModule(void)
+{
+	return modIDOpen;
+}
+
+UINT8 main_CloseModule(void)
+{
+	UINT8 retVal;
+	
+	retVal = midiModColl.ClosePorts(mopList);
+	mopList = NULL;
+	
+	return retVal;
+}
+
+UINT8 main_OpenModule(size_t modID)
+{
+	if (mopList != NULL)
+		return 0xC0;	// already open
+	
+	UINT8 retVal;
+	
+	retVal = midiModColl.OpenModulePorts(modID, scanRes.numPorts, &mopList);
+	if (retVal && mopList->mOuts.empty())
+	{
+		vis_addstr("Error opening MIDI ports!");
+		return retVal;
+	}
+	modIDOpen = modID;
+	midPlay.SetOutputPorts(mopList->mOuts);
+	
+	if ((retVal & 0xF0) == 0x10)
+		vis_addstr("Warning: The module doesn't have enough ports defined for proper playback!");
+	if ((retVal & 0x0F) == 0x01)
+		vis_addstr("Warning: One or more ports could not be opened!");
+	
+	return retVal;
+}
+
+
 void PlayMidi(void)
 {
-	BANKSCAN_RESULT scanRes;
 	PlayerOpts plrOpts;
+	UINT8 retVal;
 	size_t chosenModule;
 	MidiModule* mMod;
-	UINT8 retVal;
-	MidiOutPortList* mopList;
 	
 	// try to detect the instrument set used by the MIDI
 	MidiBankScan(&CMidi, true, &scanRes);
@@ -577,22 +619,17 @@ void PlayMidi(void)
 		vis_getch_wait();
 		return;
 	}
-	mMod = &midiModColl.GetModule(chosenModule);
+	mMod = midiModColl.GetModule(chosenModule);
 	vis_printf("Using module %s.\n", mMod->name.c_str());
 	
 	vis_addstr("Opening MIDI ports ...");
 	vis_update();
-	retVal = midiModColl.OpenModulePorts(chosenModule, scanRes.numPorts, &mopList);
-	if ((retVal & 0xF0) == 0x10)
-		vis_addstr("Warning: The module doesn't have enough ports defined for proper playback!");
+	retVal = main_OpenModule(chosenModule);
 	if (retVal && mopList->mOuts.empty())
 	{
-		vis_addstr("Error opening MIDI ports!");
 		vis_getch_wait();
 		return;
 	}
-	if ((retVal & 0x0F) == 0x01)
-		vis_addstr("Warning: One or more ports could not be opened!");
 	vis_update();
 	
 	if (! syxFile.empty())
@@ -637,10 +674,7 @@ void PlayMidi(void)
 	midPlay.SetOptions(plrOpts);
 	midPlay._numLoops = numLoops ? numLoops : defNumLoops;
 	
-	midPlay.SetOutputPorts(mopList->mOuts);
 	midPlay.SetMidiFile(&CMidi);
-	//vis_set_type_str(0, GetModuleTypeNameS(mMod->modType));
-	vis_set_type_str(0, mMod->name.c_str());
 	if (songList.size() > 1)
 	{
 		vis_set_track_number(1 + curSong);
@@ -648,7 +682,6 @@ void PlayMidi(void)
 	}
 	vis_set_midi_file(midFileName.c_str(), &CMidi);
 	vis_set_midi_player(&midPlay);
-	//vis_set_type_str(1, GetModuleTypeNameS(scanRes.modType));
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
 	if (! strmSrv_metaFile.empty())
@@ -725,7 +758,7 @@ void PlayMidi(void)
 	vis_addstr("Done.");
 	vis_update();
 	
-	midiModColl.ClosePorts(mopList);
+	main_CloseModule();
 	Sleep(100);
 	
 	return;

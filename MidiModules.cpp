@@ -244,9 +244,9 @@ size_t MidiModuleCollection::GetModuleCount(void) const
 	return _modules.size();
 }
 
-MidiModule& MidiModuleCollection::GetModule(size_t moduleID)
+MidiModule* MidiModuleCollection::GetModule(size_t moduleID)
 {
-	return _modules[moduleID];
+	return (moduleID < _modules.size()) ? &_modules[moduleID] : NULL;
 }
 
 MidiModule& MidiModuleCollection::AddModule(const std::string& name, UINT8 modType)

@@ -84,7 +84,8 @@ void MidiPlayer::SetOutputPort(MIDIOUT_PORT* outPort)
 	_outPorts.clear();
 	_outPorts.push_back(outPort);
 	_chnStates.resize(_outPorts.size() * 0x10);
-	_noteVis.Initialize(_outPorts.size());
+	if (_noteVis.GetChnGroupCount() != _outPorts.size())
+		_noteVis.Initialize(_outPorts.size());
 	return;
 }
 
@@ -92,7 +93,8 @@ void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts)
 {
 	_outPorts = outPorts;
 	_chnStates.resize(_outPorts.size() * 0x10);
-	_noteVis.Initialize(_outPorts.size());
+	if (_noteVis.GetChnGroupCount() != _outPorts.size())
+		_noteVis.Initialize(_outPorts.size());
 	return;
 }
 
@@ -119,6 +121,15 @@ UINT8 MidiPlayer::GetModuleType(void) const
 void MidiPlayer::SetSrcModuleType(UINT8 modType, bool insRefresh)
 {
 	_options.srcType = modType;
+	if (insRefresh)
+		AllInsRefresh();
+	
+	return;
+}
+
+void MidiPlayer::SetDstModuleType(UINT8 modType, bool insRefresh)
+{
+	_options.dstType = modType;
 	if (insRefresh)
 		AllInsRefresh();
 	
@@ -1375,11 +1386,13 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 
 static void SanitizeSysExText(std::string& text)
 {
+	// I've seen a few MIDIs using byte 0x00 for spaces. (SC-55 text)
+	// MIDIs from Settlers II use byte 0x14 for spaces (MU-80 text)
 	size_t curChr;
 	
 	for (curChr = 0; curChr < text.size(); curChr ++)
 	{
-		if (text[curChr] == '\0')
+		if (text[curChr] >= 0x00 && text[curChr] <= 0x1F)
 			text[curChr] = ' ';
 	}
 	

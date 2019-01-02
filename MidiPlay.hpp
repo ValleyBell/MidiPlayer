@@ -93,6 +93,7 @@ public:
 	const PlayerOpts& GetOptions(void) const;
 	UINT8 GetModuleType(void) const;	// current MIDI module type used for playback
 	void SetSrcModuleType(UINT8 modType, bool insRefresh = false);
+	void SetDstModuleType(UINT8 modType, bool insRefresh = false);
 	UINT32 _numLoops;
 	void SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);

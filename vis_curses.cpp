@@ -30,6 +30,13 @@
 #include "MidiInsReader.h"	// for MIDI module type
 #include "vis_sc-lcd.hpp"
 
+
+// functions from main.cpp (I'll try to come up with a proper solution later)
+size_t main_GetOpenedModule(void);
+UINT8 main_CloseModule(void);
+UINT8 main_OpenModule(size_t modID);
+
+
 static const char* notes[12] =
 	{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
@@ -107,7 +114,9 @@ static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
 static int vis_keyhandler_normal(void);
 static int vis_keyhandler_mapsel(void);
+static int vis_keyhandler_devsel(void);
 static void vis_show_map_selection(void);
+static void vis_show_device_selection(void);
 
 
 #define CHN_BASE_LINE	3
@@ -126,7 +135,6 @@ static UINT32 trackCnt = 0;
 static UINT32 trackNoDigits = 1;
 static const char* midFName = NULL;
 static MidiPlayer* midPlay = NULL;
-static const char* midDevType = NULL;
 
 static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
@@ -157,6 +165,12 @@ static WINDOW* mmsWin = NULL;
 static PANEL* mmsPan = NULL;
 static int mmsSelection;
 static std::vector<UINT8> mapSelTypes;
+
+// MIDI device selection
+static WINDOW* mdsWin = NULL;
+static PANEL* mdsPan = NULL;
+static int mdsSelection;
+static int mdsCount;
 
 void vis_init(void)
 {
@@ -198,6 +212,7 @@ void vis_init(void)
 	
 	mmsPan = NULL;
 	mmsWin = NULL;
+	mdsWin = NULL;
 	
 	curYline = 0;
 	
@@ -215,6 +230,11 @@ static void vis_clear_all_menus(void)
 	{
 		delwin(mmsWin);
 		mmsWin = NULL;
+	}
+	if (mdsWin != NULL)
+	{
+		delwin(mdsWin);
+		mdsWin = NULL;
 	}
 	update_panels();
 	
@@ -337,18 +357,6 @@ void vis_set_midi_player(MidiPlayer* mPlay)
 	midPlay = mPlay;
 }
 
-void vis_set_type_str(UINT8 key, const char* typeStr)
-{
-	switch(key)
-	{
-	case 0:
-		midDevType = typeStr;
-		break;
-	}
-	
-	return;
-}
-
 void vis_new_song(void)
 {
 	unsigned int nTrks;
@@ -357,6 +365,7 @@ void vis_new_song(void)
 	int titlePosX;
 	size_t maxTitleLen;
 	const PlayerOpts* midOpts;
+	MidiModule* mMod;
 	int posX, posY, sizeY;
 	WINDOW* oldWin;
 	
@@ -395,6 +404,7 @@ void vis_new_song(void)
 	move_panel(lcdPan, posY, posX);
 	
 	midOpts = (midPlay != NULL) ? &midPlay->GetOptions() : NULL;
+	mMod = midiModColl->GetModule(main_GetOpenedModule());
 	mapSelTypes.clear();
 	for (UINT8 curMap = 0x00; curMap < 0xFF; curMap ++)
 	{
@@ -407,6 +417,7 @@ void vis_new_song(void)
 	attrset(A_NORMAL);
 	
 	mvprintw(0, 0, "MIDI Player");
+	mvaddstr(0, 16, "Dev: ");
 	mvprintw(0, 32, "Now Playing: ");
 	titlePosX = getcurx(stdscr);
 	mvprintw(1, 32, "[Q]uit [ ]Pause [B]Previous [N]ext");
@@ -420,9 +431,8 @@ void vis_new_song(void)
 	mvprintw(1, 0, "00:00.0 / 00:00.0");
 	if (midPlay != NULL)
 		vis_mvprintms(1, 10, midPlay->GetSongLength());
-	
-	if (midDevType != NULL)
-		mvprintw(0, 16, "Dev: %.10s", midDevType);
+	if (mMod != NULL)
+		mvprintw(0, 21, "%.10s", mMod->name.c_str());
 	if (midOpts != NULL)
 	{
 		const std::string& mapStr = midiModColl->GetShortModName(midOpts->srcType);
@@ -922,6 +932,9 @@ static int vis_keyhandler_normal(void)
 	case 'M':
 		vis_show_map_selection();
 		break;
+	case 'D':
+		vis_show_device_selection();
+		break;
 	}
 	
 	return 0;
@@ -1032,6 +1045,81 @@ static int vis_keyhandler_mapsel(void)
 	return 0;
 }
 
+static int vis_keyhandler_devsel(void)
+{
+	int inkey;
+	int cursorPos;
+	
+	inkey = vis_getch();
+	if (! inkey)
+		return 0;
+	
+	if (inkey < 0x100 && isalpha(inkey))
+		inkey = toupper(inkey);
+	
+	cursorPos = mdsSelection;
+	switch(inkey)
+	{
+	case 0x1B:	// ESC
+	case 'Q':
+	case '\n':
+		del_panel(mmsPan);	mmsPan = NULL;
+		delwin(mmsWin);		mmsWin = NULL;
+		currentKeyHandler.pop_back();
+		
+		if (inkey == '\n' && cursorPos != main_GetOpenedModule())
+		{
+			// confirm selection
+			MidiModule* mMod;
+			UINT8 state;
+			
+			state = midPlay->GetState();
+			midPlay->Pause();
+			main_CloseModule();
+			main_OpenModule(cursorPos);
+			mMod = midiModColl->GetModule(main_GetOpenedModule());
+			midPlay->SetDstModuleType(mMod->modType, true);
+			if (! (state & 0x02))
+				midPlay->Resume();
+			
+			mvhline(0, 21, ' ', 10);
+			if (mMod != NULL)
+				mvprintw(0, 21, "%.10s", mMod->name.c_str());
+		}
+		
+		update_panels();
+		refresh();
+		return 0;
+	case KEY_UP:
+		cursorPos --;
+		if (cursorPos < 0)
+			cursorPos = 0;
+		break;
+	case KEY_DOWN:
+		cursorPos ++;
+		if (cursorPos >= mdsCount)
+			cursorPos = mdsCount - 1;
+		break;
+	case KEY_PPAGE:
+		cursorPos = 0;
+		break;
+	case KEY_NPAGE:
+		cursorPos = mdsCount - 1;
+		break;
+	}
+	if (cursorPos != mdsSelection)
+	{
+		int sizeX = getmaxx(mmsWin);
+		mvwchgat(mmsWin, 1 + mdsSelection, 1, sizeX - 2, A_NORMAL, 0, NULL);
+		mdsSelection = cursorPos;
+		mvwchgat(mmsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+		
+		wrefresh(mmsWin);
+	}
+	
+	return 0;
+}
+
 static void vis_show_map_selection(void)
 {
 	static const char* menuTitle = "Select Ins. Map";
@@ -1083,6 +1171,59 @@ static void vis_show_map_selection(void)
 	refresh();
 	
 	currentKeyHandler.push_back(&vis_keyhandler_mapsel);
+	
+	return;
+}
+
+static void vis_show_device_selection(void)
+{
+	static const char* menuTitle = "Select Module";
+	size_t mtLen = strlen(menuTitle);
+	std::vector<std::string> modNames;
+	char tempStr[0x80];
+	int sizeX, sizeY;
+	int wsx, wsy;
+	size_t curMod;
+	
+	if (midiModColl == NULL)
+		return;
+	
+	mdsSelection = main_GetOpenedModule();
+	sizeX = 0;
+	tempStr[0x7F] = '\0';
+	for (curMod = 0; curMod < midiModColl->GetModuleCount(); curMod ++)
+	{
+		const MidiModule& mMod = *midiModColl->GetModule(curMod);
+		_snprintf(tempStr, 0x7F, "%u %s [%s]", curMod, mMod.name.c_str(),
+				midiModColl->GetShortModName(mMod.modType).c_str());
+		modNames.push_back(tempStr);
+		if (sizeX < modNames.back().length())
+			sizeX = modNames.back().length();
+	}
+	mdsCount = modNames.size();
+	if (sizeX < mtLen)
+		sizeX = mtLen;
+	sizeX += 4;	// add additional space for borders and margin
+	sizeX += (sizeX ^ mtLen) & 1;	// make title nicely aligned (make both even or odd)
+	sizeY = mdsCount + 2;
+	
+	wsx = (COLS - sizeX) / 2;	wsy = (LINES - sizeY) / 2;	// center of the screen
+	mmsWin = newwin(sizeY, sizeX, wsy, wsx);
+	mmsPan = new_panel(mmsWin);
+	box(mmsWin, 0, 0);
+	
+	wattron(mmsWin, A_BOLD | COLOR_PAIR(0));
+	mvwaddstr(mmsWin, 0, (sizeX - mtLen) / 2, menuTitle);
+	wattroff(mmsWin, A_BOLD | COLOR_PAIR(0));
+	
+	for (size_t curMod = 0; curMod < modNames.size(); curMod ++)
+		mvwaddstr(mmsWin, 1 + curMod, 2, modNames[curMod].c_str());
+	mvwchgat(mmsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+	
+	update_panels();
+	refresh();
+	
+	currentKeyHandler.push_back(&vis_keyhandler_devsel);
 	
 	return;
 }
