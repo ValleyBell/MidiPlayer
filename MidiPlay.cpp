@@ -279,7 +279,7 @@ UINT8 MidiPlayer::Start(void)
 			// send GS reset
 			if (MMASK_MOD(_options.dstType) >= MTGS_SC88 && MMASK_MOD(_options.dstType) != MTGS_TG300B)
 			{
-				vis_printf("Sending Device Reset (%s) ...", "SC-88");
+				vis_printf("Sending Device Reset (%s) ...", "SC");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_SC), RESET_SC);
 			}
@@ -1164,8 +1164,9 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			}
 			if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
 			{
-				if (false)	// TODO: make this an option
-					insInf->ins = 0x00 | 0x80;	// for GM, enforce to Standard Kit 1
+				//if (true)	// TODO: make this an option
+				if ((insInf->ins & 0x47) > 0x00 && insInf->ins != 0x19)
+					insInf->ins = 0x00 | 0x80;	// for GM, enforce Standard Kit 1 for non-GS drum kits
 			}
 		}
 		if (chnSt->flags & 0x80)

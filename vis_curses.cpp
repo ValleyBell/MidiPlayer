@@ -7,13 +7,14 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <stdio.h>
 #include <curses.h>
 #include <panel.h>
 #include <stdarg.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
-#define _WINCON_	// wincon.h from being included (want to redefine curses constants)
+#define _WINCON_	// prevent wincon.h from being included (wants to redefine curses constants)
 #include <Windows.h>
 #else
 #include <unistd.h>
@@ -29,6 +30,10 @@
 #include "utils.hpp"
 #include "MidiInsReader.h"	// for MIDI module type
 #include "vis_sc-lcd.hpp"
+
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define snprintf	_snprintf
+#endif
 
 
 // functions from main.cpp (I'll try to come up with a proper solution later)
@@ -1194,7 +1199,7 @@ static void vis_show_device_selection(void)
 	for (curMod = 0; curMod < midiModColl->GetModuleCount(); curMod ++)
 	{
 		const MidiModule& mMod = *midiModColl->GetModule(curMod);
-		_snprintf(tempStr, 0x7F, "%u %s [%s]", curMod, mMod.name.c_str(),
+		snprintf(tempStr, 0x7F, "%u %s [%s]", curMod, mMod.name.c_str(),
 				midiModColl->GetShortModName(mMod.modType).c_str());
 		modNames.push_back(tempStr);
 		if (sizeX < modNames.back().length())

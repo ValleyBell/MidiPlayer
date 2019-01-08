@@ -601,6 +601,15 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 				sv.insBank[evtChn][0] = sv.insBankBuf[evtChn][0];
 				sv.insBank[evtChn][1] = sv.insBankBuf[evtChn][1];
 				sv.insBank[evtChn][2] = evtIt->evtValA;
+				if (sv.insChkOnNote)
+				{
+					if (sv.drumChnMask & (1 << evtChn))
+					{
+						// for a proper detection, I must keep track of this even when no notes are played on the channel.
+						if (sv.insBank[evtChn][0] != 0xFF && modChk.MaxDrumMSB < sv.insBank[evtChn][0])
+							modChk.MaxDrumMSB = sv.insBank[evtChn][0];
+					}
+				}
 				MayDoInsCheck(&modChk, &sv, evtChn, false);
 				break;
 			case 0xF0:
@@ -763,6 +772,24 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		GS_Opt = MT_UNKNOWN;
 	if (XG_Opt > MT_UNKNOWN)
 		XG_Opt = MT_UNKNOWN;
+	if (xgDrum && ! (modChk.fmXG & (1 << FMBALL_BAD_INS)))
+	{
+		// enforce XG detection for MIDIs with Bank MSB 127 on drum channels
+		modChk.fmGM |= (1 << FMBALL_BAD_INS);
+		modChk.fmGS |= (1 << FMBALL_BAD_INS);
+	}
+	else if (sv.syxReset == MODULE_GM_1)
+	{
+		// The SC-55 treats the GM reset as GS reset, so we check for
+		// non-GM instruments (and drum kits) and patch it to SC-55.
+		UINT8 notGM = 0x00;
+		if (modChk.fmGM & (1 << FMBALL_BAD_INS))
+			notGM |= 0x01;
+		if (modChk.MaxDrumKit > 0x00)
+			notGM |= 0x02;
+		if (notGM && GS_Opt == MTGS_SC55)
+			sv.syxReset = MODULE_SC55;
+	}
 	
 	if (sv.syxReset != SYX_RESET_UNDEF)
 	{
@@ -784,9 +811,9 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			else //if (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL1)))
 				result->modType = MODULE_GM_1;
 		}
-		else if (! (modChk.fmGS & (1 << FMBALL_BAD_INS)) && ! xgDrum)
+		else if (! (modChk.fmGS & (1 << FMBALL_BAD_INS)))
 			result->modType = MODULE_TYPE_GS | GS_Opt;
-		else if (! (modChk.fmXG & (1 << FMBALL_BAD_INS)) || xgDrum)
+		else if (! (modChk.fmXG & (1 << FMBALL_BAD_INS)))
 			result->modType = MODULE_TYPE_XG | XG_Opt;
 		else
 			result->modType = 0xFF;
