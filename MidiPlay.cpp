@@ -1165,7 +1165,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
 			{
 				//if (true)	// TODO: make this an option
-				if ((insInf->ins & 0x47) > 0x00 && insInf->ins != 0x19)
+				if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
 					insInf->ins = 0x00 | 0x80;	// for GM, enforce Standard Kit 1 for non-GS drum kits
 			}
 		}

@@ -155,6 +155,7 @@ static void DoInsCheck_XG(MODULE_CHECK* modChk, UINT8 ins, UINT8 ccMsb, UINT8 ls
 		// LSB 126 is like the GM bank, except that it enforces the MU100 voice map.
 		// Note: Some MU100 voices match MU50 ones and thus might be missing from the instrument list.
 		modChk->fmXG |= (1 << FMBXG_MU100_MAP);
+		modChk->fmXG |= 1 << (FMBALL_INSSET + MTXG_MU100);
 	}
 	else if (vmSel == 0x7F)
 	{
@@ -734,9 +735,9 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		UINT8 defLSB;
 		
 		defLSB = (modChk.fmGS & (1 << FMBGS_DEF_MAP)) ? 1 : 0;
-		if (modChk.gsMaxLSB == 0x01)
-			defLSB = 1;	// the SC-55 map is only explicitly used on the SC-88
-		else if (modChk.gsMaxLSB >= 0x04)
+		//if (modChk.gsMaxLSB == 0x01)
+		//	defLSB = 1;	// the SC-55 map is only explicitly used on the SC-88
+		if (modChk.gsMaxLSB >= 0x04)
 			defLSB = 0;	// disable "prefer next higher model" for SC-8850
 		else if (modChk.gsMaxLSB == 0x03)
 			defLSB = 0;	// for now, don't go from SC-88Pro to SC-8850 by default
@@ -755,6 +756,13 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		// Note: I only increase the requirement when the MU100 map is selected.
 		//       A MIDI that selects the MU basic map might be intentionally backwards-compatible.
 		if (modChk.xgMapSel > 0x00 && XG_Opt < MTXG_MU100)
+			XG_Opt = MTXG_MU100;
+	}
+	if ((modChk.fmXG & (1 << FMBXG_BASIC_MAP)) && (modChk.fmXG & (1 << FMBXG_GM_MAP)))
+	{
+		// When both, the "MU basic" bank (LSB 127) and the GM bank (LSB 0) are used,
+		// we *probably* want to default to MU100 voices for LSB 0.
+		if (XG_Opt < MTXG_MU100)
 			XG_Opt = MTXG_MU100;
 	}
 	
