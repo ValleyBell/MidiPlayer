@@ -1144,36 +1144,52 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		{
 			if (chnSt->insOrg.bnkIgn & BNKMSK_LSB)	// for SC-55 / TG300B
 				insInf->bank[1] = 0x00;
-			if (insInf->bank[1] == 0x00 || MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS)
+			if (_options.flags & PLROPTS_STRICT)
 			{
-				UINT8 defaultDev;
-				// GS song: use bank that is optimal for the song
-				// GM song: use "native" bank for device
-				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
+				if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS)
 				{
-					defaultDev = MMASK_MOD(_options.srcType);
+					insInf->bank[0] = 0x00;
+					insInf->bank[1] = 0x00;
 				}
-				else
+				if (insInf->bank[1] == 0x00)
 				{
-					defaultDev = MMASK_MOD(devType);
-					if (defaultDev == MTGS_SC8850)
-						defaultDev = MTGS_SC88PRO;	// TODO: make configurable
+					UINT8 defaultDev;
+					
+					// GS song: use bank that is optimal for the song
+					// GM song: use "native" bank for device
+					if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
+					{
+						defaultDev = MMASK_MOD(_options.srcType);
+					}
+					else
+					{
+						defaultDev = MMASK_MOD(devType);
+						if (defaultDev == MTGS_SC8850)
+							defaultDev = MTGS_SC88PRO;	// TODO: make configurable
+					}
+					
+					insInf->bank[1] = 0x01 + defaultDev;
+					strictPatch |= BNKMSK_LSB;	// mark for undo when not strict
 				}
-				insInf->bank[1] = 0x01 + defaultDev;
-				strictPatch |= BNKMSK_LSB;	// mark for undo when not strict
+				if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
+				{
+					//if (true)	// TODO: make this an option
+					if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
+						insInf->ins = 0x00 | 0x80;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+				}
 			}
-			if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
+			if (insInf->bank[1] > 0x01 + MMASK_MOD(devType))
 			{
-				//if (true)	// TODO: make this an option
-				if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
-					insInf->ins = 0x00 | 0x80;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+				// When playing an SC-88Pro MIDI on SC-88, we have to fix
+				// the Bank LSB setting to make the instruments work at all.
+				insInf->bank[1] = 0x01 + MMASK_MOD(devType);
 			}
 		}
 		if (chnSt->flags & 0x80)
 		{
 			// set (ignored) MSB to 0 on drum channels
-			if (_options.flags & PLROPTS_STRICT)
-				insInf->bank[0] = 0x00;
+			insInf->bank[0] = 0x00;
+			strictPatch |= BNKMSK_MSB;
 		}
 		if (insBank != NULL && insBank->maxBankLSB == 0x00)
 			insInf->bnkIgn |= BNKMSK_LSB;
@@ -1206,8 +1222,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
 		{
 			// set (ignored) LSB to 0 on drum channels and SFX banks
-			if (_options.flags & PLROPTS_STRICT)
-				insInf->bank[1] = 0x00;
+			insInf->bank[1] = 0x00;
+			strictPatch |= BNKMSK_LSB;
 		}
 	}
 	else if (devType == MODULE_MT32)
@@ -1242,6 +1258,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 					insInf->bank[0] = 0x00;	// additional Bank MSB fallback to prevent sounds from going silent
 			}
 			insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+			strictPatch = BNKMSK_NONE;
 		}
 	}
 	
@@ -1251,7 +1268,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			insInf->bank[0] = insIOld.bank[0];
 		if (strictPatch & BNKMSK_LSB)
 			insInf->bank[1] = insIOld.bank[1];
-		if (strictPatch & BNKMSK_MSB)
+		if (strictPatch & BNKMSK_INS)
 			insInf->ins = insIOld.ins;
 	}
 	else //if (_options.flags & PLROPTS_STRICT)
@@ -1259,7 +1276,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		if (devType == MODULE_SC55 || devType == MODULE_TG300B)
 		{
 			// We had to use LSB 01 for instrument lookup, but we actually send LSB 00.
-			// (LSB is ignored on the SC-55 itself, but LSB 00 is required on the Yamaha MU80.)
+			// All SC-55 models ignore LSB, but early XG devices in TG300B mode do not.
+			// (MU80 is known to require LSB 0, DB50XG/S-YXG50 and MU128 ignore it)
 			insInf->bank[1] = 0x00;
 		}
 	}
@@ -2573,6 +2591,18 @@ void MidiPlayer::InitializeChannels_Post(void)
 {
 	size_t curChn;
 	UINT8 defDstPbRange;
+	UINT8 defInsMap;
+	
+	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS && MMASK_MOD(_options.dstType) < MT_UNKNOWN)
+	{
+		defInsMap = MMASK_MOD(_options.dstType);
+		if (defInsMap == MTGS_SC8850)
+			defInsMap = MTGS_SC88PRO;	// TODO: make configurable
+	}
+	else
+	{
+		defInsMap = 0x00;
+	}
 	
 	_initChnPost = false;
 	if (_options.dstType == MODULE_MT32)
@@ -2589,20 +2619,33 @@ void MidiPlayer::InitializeChannels_Post(void)
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
 				drumChn.insState[0] = 0x00;	// Bank MSB 0
-				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
-					drumChn.insState[1] = 0x01 + MMASK_MOD(_options.srcType);
-				else if (_options.dstType == MODULE_SC8850)
-					drumChn.insState[1] = 0x01 + MTGS_SC88PRO;	// TODO: make configurable
+				if (_options.srcType == MODULE_TG300B)
+				{
+					drumChn.insState[1] = 0x01 + MTGS_SC55;
+				}
+				else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
+				{
+					if (MMASK_MOD(_options.srcType) <= MMASK_MOD(_options.dstType))
+						drumChn.insState[1] = 0x01 + MMASK_MOD(_options.srcType);
+					else
+						drumChn.insState[1] = 0x01 + MMASK_MOD(_options.dstType);
+				}
 				else
-					drumChn.insState[1] = 0x01 + MMASK_MOD(_options.dstType);
+				{
+					drumChn.insState[1] = 0x00;
+				}
 				drumChn.insState[2] = 0x00;	// Instrument: Standard Kit 1
 				
-				if (MMASK_TYPE(_options.srcType) == MODULE_MT32)
+				if (_options.srcType == MODULE_MT32)
 				{
 					drumChn.insState[1] = 0x01;	// SC-55 map
 					drumChn.insState[2] = 0x7F;	// select MT-32 drum kit
 				}
 				
+				if (_options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B)
+					drumChn.insState[1] = 0x00;
+				else if (drumChn.insState[1] == 0x00)
+					drumChn.insState[1] = 0x01 + defInsMap;
 				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x00, drumChn.insState[0]);
 				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x20, drumChn.insState[1]);
 				MidiOutPort_SendShortMsg(outPort, 0xC0 | drumChn.midChn, drumChn.insState[2], 0x00);

@@ -186,14 +186,16 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	wrtBytes = iconv(hIConv, &inPtr, &remBytesIn, &outPtr, &remBytesOut);
 	while(wrtBytes == (size_t)-1)
 	{
-		// In some cases, erro can be EINVAL (instead of E2BIG) and remBytesOut is 0.
-		if (! (errno == E2BIG || remBytesOut < remBytesIn))	// (errno == EILSEQ || errno == EINVAL)
+		// iconv() is supposed to return E2BIG when the output buffer is too small,
+		// but I've also seen it return with erro == EINVAL and remBytesOut == 0 or
+		// or errno == 0 in such cases.
+		if (! (errno == 0 || errno == E2BIG || remBytesOut < remBytesIn))
 		{
 			// invalid encoding - return original string
 #if 0
 			*outPtr = '\0';
-			printf("iconv error:\n\r\tInput:\t%s (stopped at char %zu, left: %zu)\n\r\tOutput: %s\n\r",
-					inStr.c_str(), inPtr - &inStr[0], remBytesIn, outStr.c_str());
+			printf("iconv error: %d\n\r\tInput:\t%s (stopped at char %u, left: %u)\n\r\tOutput: %s\n\r",
+					errno, inStr.c_str(), inPtr - &inStr[0], remBytesIn, outStr.c_str());
 			FILE* hFile = fopen("/tmp/iconv-fail.txt", "wt");
 			if (hFile != NULL)
 			{
@@ -212,7 +214,7 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 		}
 		// errno == E2BIG
 		wrtBytes = outPtr - &outStr[0];
-		outStr.resize(outStr.length() + remBytesIn * 2);
+		outStr.resize(outStr.length() + remBytesIn * 3);
 		
 		remBytesOut = outStr.length() - wrtBytes;
 		outPtr = &outStr[wrtBytes];
