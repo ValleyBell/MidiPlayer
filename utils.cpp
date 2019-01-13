@@ -189,7 +189,7 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 		// iconv() is supposed to return E2BIG when the output buffer is too small,
 		// but I've also seen it return with erro == EINVAL and remBytesOut == 0 or
 		// or errno == 0 in such cases.
-		if (! (errno == 0 || errno == E2BIG || remBytesOut < remBytesIn))
+		if (! (errno == E2BIG || remBytesOut * 2 < remBytesIn))
 		{
 			// invalid encoding - return original string
 #if 0

@@ -54,6 +54,21 @@ static const UINT8 XG_VOICE_MAP[] = {0xF0, 0x43, 0x10, 0x49, 0x00, 0x00, 0x12, 0
 
 extern UINT8 optShowInsChange;
 
+static inline UINT32 ReadBE24(const UINT8* data)
+{
+	return (data[0x00] << 16) | (data[0x01] << 8) | (data[0x02] << 0);
+}
+
+static inline UINT32 ReadBE14(const UINT8* data)	// 2 bytes, 7 bits per byte
+{
+	return ((data[0x00] & 0x7F) << 7) | ((data[0x01] & 0x7F) << 0);
+}
+
+static inline UINT32 ReadBE21(const UINT8* data)	// 3 bytes, 7 bits per byte
+{
+	return ((data[0x00] & 0x7F) << 14) | ((data[0x01] & 0x7F) << 7) | ((data[0x02] & 0x7F) << 0);
+}
+
 MidiPlayer::MidiPlayer() :
 	_cMidi(NULL), _songLength(0),
 	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL),
@@ -321,6 +336,10 @@ UINT8 MidiPlayer::Start(void)
 					else
 						voiceMap = 0x00;	// voice map: MU basic
 				}
+				else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GM)
+				{
+					voiceMap = 0x01;	// let's try the "default" map for GM stuff
+				}
 				else
 				{
 					voiceMap = 0x00;	// "MU basic" sounds sometimes slightly better, IMO
@@ -551,9 +570,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			trkState->evtPos = trkState->endPos;
 			break;
 		case 0x51:	// Trk End
-			_midiTempo = (midiEvt->evtData[0x00] << 16) |
-					(midiEvt->evtData[0x01] <<  8) |
-					(midiEvt->evtData[0x02] <<  0);
+			_midiTempo = ReadBE24(&midiEvt->evtData[0x00]);
 			RefreshTickTime();
 			break;
 		}
@@ -712,12 +729,17 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	case 0x0A:	// Pan
 		{
 			UINT8 panVal = midiEvt->evtValB;
+			bool didPatch = false;
+			
 			if (_options.srcType == MODULE_MT32)
+			{
 				panVal ^= 0x7F;	// MT-32 uses 0x7F (left) .. 0x3F (center) .. 0x00 (right)
+				didPatch = true;
+			}
 			if (panVal == 0x00)
 				panVal = 0x01;	// pan level 0 and 1 are the same in GM/GS/XG
 			nvChn->_attr.pan = (INT8)panVal - 0x40;
-			if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+			if (didPatch && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
 				// MT-32 on GS: send GM-compatible Pan value
 				MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, panVal);
@@ -984,7 +1006,11 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 			else
 			{
 				// drum CTF according to https://www.vogons.org/viewtopic.php?p=501038#p501038
-				UINT8 newIns = insInf->ins & ~0x07;
+				UINT8 newIns;
+				if ((insInf->ins & 0x7F) < 0x40)
+					newIns = insInf->ins & ~0x07;
+				else
+					newIns = insInf->ins;
 				if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], insInf->bank[1], 0xFF) != NULL)
 				{
 					insInf->ins = newIns;
@@ -1182,7 +1208,10 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			{
 				// When playing an SC-88Pro MIDI on SC-88, we have to fix
 				// the Bank LSB setting to make the instruments work at all.
-				insInf->bank[1] = 0x01 + MMASK_MOD(devType);
+				if (insInf->bank[2] == 0x7F || insInf->bank[0] >= 0x7E)
+					insInf->bank[1] = 0x01 + MTGS_SC55;
+				else
+					insInf->bank[1] = 0x01 + MMASK_MOD(devType);
 			}
 		}
 		if (chnSt->flags & 0x80)
@@ -1516,11 +1545,20 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 	case 0x41:	// Roland ID
 		// Data[0x01] == 0x1n - Device Number n
 		// Data[0x02] == Model ID (MT-32 = 0x16, GS = 0x42)
-		// Data[0x03] == Command ID (reqest data RQ1 = 0x11, data set DT1 = 0x12)
-		if (syxData[0x03] == 0x12)
+		// Data[0x03] == Command ID
+		if (syxData[0x03] == 0x11)	// ReQuest 1 (RQ1)
+		{
+			if (syxSize < 0x0B)
+				break;	// We need enough bytes for a full address + checksum.
+			
+			UINT32 addr = ReadBE24(&syxData[0x04]);
+			UINT32 size = ReadBE21(&syxData[0x07]);
+			vis_printf("SysEx: GS Request: Address %06X, size %06X\n", addr, size);
+		}
+		else if (syxData[0x03] == 0x12)	// Data Transmit 1 (DT1)
 		{
 			if (syxSize < 0x08)
-				break;	// We need enough bytes for a full address.
+				break;	// We need enough bytes for a full address + checksum.
 			if (! CheckRolandChecksum(syxSize - 0x05, &syxData[0x04]))	// check data from address until (not including) 0xF7 byte
 				vis_addstr("Warning: SysEx Roland checksum invalid!\n");
 			
@@ -1530,10 +1568,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				return HandleSysEx_GS(trkSt->portID, syxSize, syxData);
 			else if (syxData[0x02] == 0x45)
 			{
-				UINT32 addr;
-				addr =	(syxData[0x04] << 16) |
-						(syxData[0x05] <<  8) |
-						(syxData[0x06] <<  0);
+				UINT32 addr = ReadBE24(&syxData[0x04]);
 				switch(addr & 0xFFFF00)
 				{
 				case 0x100000:	// ASCII Display
@@ -1583,25 +1618,47 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		}
 		break;
 	case 0x43:	// YAMAHA ID
-		// Data[0x01] == 0x1n - Device Number n
-		if (syxSize < 0x07)
-			break;	// We need enough bytes for a full address.
-		if (syxData[0x02] == 0x4C)	// XG
-			return HandleSysEx_XG(trkSt->portID, syxSize, syxData);
-		else if (syxData[0x02] == 0x49)	// MU native
+		// Data[0x01] == 0xcn - Command ID c, Device Number n
+		switch(syxData[0x01] & 0xF0)
 		{
-			UINT32 addr;
-			addr =	(syxData[0x03] << 16) |
-					(syxData[0x04] <<  8) |
-					(syxData[0x05] <<  0);
-			switch(addr)
+		case 0x00:	// Bulk Dump
+			if (syxSize < 0x08)
+				break;	// We need enough bytes for byte count + address.
 			{
-			case 0x000012:	// Select Voice Map (MU100+ only)
-				// 00 = MU Basic, 01 = MU100 Native
-				vis_printf("MU SysEx: Set Voice Map to %u (%s)", syxData[0x06],
-						syxData[0x06] ? "MU100 Native" : "MU Basic");
-				break;
+				UINT16 size = ReadBE14(&syxData[0x03]);
+				UINT32 addr = ReadBE24(&syxData[0x05]);
+				vis_printf("SysEx: XG Bulk Dump to address %06X, size %04X\n", addr, size);
 			}
+			break;
+		case 0x10:	// Parameter Change
+			if (syxSize < 0x07)
+				break;	// We need enough bytes for a full address + at least 1 byte of data.
+			if (syxData[0x02] == 0x4C)	// XG
+				return HandleSysEx_XG(trkSt->portID, syxSize, syxData);
+			else if (syxData[0x02] == 0x49)	// MU native
+			{
+				UINT32 addr = ReadBE24(&syxData[0x03]);
+				switch(addr)
+				{
+				case 0x000012:	// Select Voice Map (MU100+ only)
+					// 00 = MU Basic, 01 = MU100 Native
+					vis_printf("MU SysEx: Set Voice Map to %u (%s)", syxData[0x06],
+							syxData[0x06] ? "MU100 Native" : "MU Basic");
+					break;
+				}
+			}
+			break;
+		case 0x20:	// Dump Request
+		case 0x30:	// Parameter Request
+			if (syxSize < 0x06)
+				break;
+			
+			UINT32 addr = ReadBE24(&syxData[0x03]);
+			if (syxData[0x01] & 0x10)
+				vis_printf("SysEx: XG Request Parameter from address %06X\n", addr);
+			else
+				vis_printf("SysEx: XG Request Dump from address %06X\n", addr);
+			break;
 		}
 		break;
 	case 0x7E:	// Universal Non-Realtime Message
@@ -1652,9 +1709,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 	// Data[0x04]	Address High
 	// Data[0x05]	Address Mid
 	// Data[0x06]	Address Low
-	addr =	(syxData[0x04] << 16) |
-			(syxData[0x05] <<  8) |
-			(syxData[0x06] <<  0);
+	addr = ReadBE24(&syxData[0x04]);
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x030000:	// Patch Temporary Area
@@ -1768,9 +1823,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	// Data[0x04]	Address High
 	// Data[0x05]	Address Mid
 	// Data[0x06]	Address Low
-	addr =	(syxData[0x04] << 16) |
-			(syxData[0x05] <<  8) |
-			(syxData[0x06] <<  0);
+	addr = ReadBE24(&syxData[0x04]);
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x000000:	// System
@@ -2071,9 +2124,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
-	addr =	(syxData[0x03] << 16) |
-			(syxData[0x04] <<  8) |
-			(syxData[0x05] <<  0);
+	addr = ReadBE24(&syxData[0x03]);
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x000000:	// System
@@ -2262,6 +2313,10 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				chnSt->pbRange = 24;
 			nvChn->_pbRange = chnSt->pbRange;
 			break;
+		case 0x080035:	// Receive Note Message
+			vis_printf("SysEx Chn %s: Receive Notes: %s", portChnStr,
+				syxData[0x06] ? "Yes" : "No (muted)");
+			break;
 		case 0x080067:	// Portamento Switch
 			chnSt->ctrls[0x41] = syxData[0x06] ? 0x00 : 0x40;
 			break;
@@ -2370,20 +2425,19 @@ void MidiPlayer::AllChannelRefresh(void)
 		
 		if (chnSt.curIns != 0xFF)
 		{
+			chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;	// enforce resending
 			tempEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
-			if (chnSt.ctrls[0x00] != 0xFF)
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x00, chnSt.ctrls[0x00]);
-			if (chnSt.ctrls[0x20] != 0xFF)
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x20, chnSt.ctrls[0x20]);
 			HandleInstrumentEvent(&chnSt, &tempEvt, 0x10);
 			if (_evtCbFunc != NULL)
 				_evtCbFunc(_evtCbData, &tempEvt, curChn);
 		}
 		// Main Volume (7) and Pan (10) may be patched
 		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x07, chnSt.ctrls[0x07]);
-		HandleControlEvent(&chnSt, NULL, &tempEvt);
+		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
+			MidiOutPort_SendShortMsg(outPort, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
 		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0A, chnSt.ctrls[0x0A]);
-		HandleControlEvent(&chnSt, NULL, &tempEvt);
+		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
+			MidiOutPort_SendShortMsg(outPort, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
 		
 		// We're sending MSB + LSB here. (A few controllers that are handled separately are skipped.)
 		for (curCtrl = 0x01; curCtrl < 0x20; curCtrl ++)
@@ -2475,9 +2529,7 @@ void MidiPlayer::PrepareMidi(void)
 			{
 				TempoChg tc;
 				tc.tick = evtIt->tick;
-				tc.tempo =	(evtIt->evtData[0x00] << 16) |
-							(evtIt->evtData[0x01] <<  8) |
-							(evtIt->evtData[0x02] <<  0);
+				tc.tempo = ReadBE24(&evtIt->evtData[0x00]);
 				tc.tmrTick = 0;
 				_tempoList.push_back(tc);
 			}
