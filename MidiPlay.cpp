@@ -1349,7 +1349,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		{
 			if (chnSt->midChn == 0x09 && ! (chnSt->flags & 0x80))
 			{
-#if 0
+#if 1
 				// for now enforce drum mode on channel 9
 				// TODO: XG allows ch 9 to be melody - what are the exact conditions??
 				chnSt->flags |= 0x80;
@@ -1587,13 +1587,24 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				case 0x100500:
 				{
 					UINT8 pageID;
+					UINT8 startOfs;
+					UINT8 dataLen;
 					
 					pageID = (((addr & 0x00FF00) >> 7) | ((addr & 0x000040) >> 6)) - 1;
 					if (pageID == 1)
 						vis_printf("SC SysEx: Dot Display (Load/Show Page %u)", pageID);
 					else
 						vis_printf("SC SysEx: Dot Display: Load Page %u", pageID);
-					vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, syxSize - 0x07, &syxData[0x07]);
+					
+					// Partial display write DO work and I've seen MIDIs doing it.
+					startOfs = addr & 0x3F;
+					dataLen = syxSize - 0x09;	// 0x07 (start ofs) + 1 (checksum) + 1 (F7 terminator)
+					if (startOfs + dataLen > 0x40)
+						dataLen = 0x40 - startOfs;
+					memcpy(&_pixelPageMem[pageID - 1][startOfs], &syxData[0x07], dataLen);
+					
+					if (pageID == 1)	// only page 1 is shown instantly
+						vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, 0x40, _pixelPageMem[pageID - 1]);
 				}
 					break;
 				case 0x102000:
@@ -1603,7 +1614,10 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 						
 						pageID = syxData[0x07];	// 00 = bar display, 01..0A = page 1..10
 						vis_printf("SC SysEx: Dot Display: Show Page %u", pageID);
-						vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, 0x00, NULL);
+						if (pageID >= 1 && pageID <= 10)
+							vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, 0x40, _pixelPageMem[pageID - 1]);
+						else
+							vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, 0x00, NULL);
 					}
 					else if (addr == 0x102001)	// Dot Display: set display time
 					{
@@ -2197,7 +2211,21 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		break;
 	case 0x070000:	// Display Bitmap
 		vis_addstr("MU SysEx: Display Bitmap");
-		vis_do_syx_bitmap(FULL_CHN_ID(portID, 0), 0x43, syxSize - 0x06, &syxData[0x06]);
+		if ((addr & 0x00FFFF) >= 0x0030)
+			break;	// anything beyond offset 0030 was confirmed to be completely ignored (i.e. image is not drawn)
+	{
+		UINT8 startOfs;
+		UINT8 dataLen;
+		
+		// Partial writes to anywhere in the display memory sets those bits and redraws the image.
+		startOfs = addr & 0xFF;
+		dataLen = syxSize - 0x07;	// 0x06 (start ofs) + 1 (F7 terminator)
+		if (startOfs + dataLen > 0x30)
+			dataLen = 0x30 - startOfs;
+		memcpy(&_pixelPageMem[0][startOfs], &syxData[0x06], dataLen);
+		
+		vis_do_syx_bitmap(FULL_CHN_ID(portID, 0), 0x43, 0x30, _pixelPageMem[0]);
+	}
 		break;
 	case 0x080000:	// Multi Part
 	case 0x0A0000:	// Multi Part (additional)
@@ -2623,6 +2651,9 @@ void MidiPlayer::InitializeChannels(void)
 		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 			drumChn.ctrls[0x00] = 0x7F;
 	}
+	
+	memset(_pixelPageMem, 0x00, 0x40 * 10);
+	
 	_noteVis.Reset();
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{

@@ -161,6 +161,7 @@ private:
 	UINT8 _defPbRange;
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
+	UINT8 _pixelPageMem[10][0x40];
 	NoteVisualization _noteVis;
 	LoopPoint _loopPt;
 	UINT32 _curLoop;

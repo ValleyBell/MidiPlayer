@@ -348,6 +348,7 @@ int main(int argc, char* argv[])
 			if (controlVal == -1 && curSong == 0)
 				controlVal = +1;
 			curSong += controlVal;
+			vis_getch_wait();
 			continue;
 		}
 		//printf("File loaded.\n");
@@ -370,8 +371,8 @@ int main(int argc, char* argv[])
 			break;
 		}
 	}
-	if (resVal)
-		vis_getch_wait();
+	//if (resVal)
+	//	vis_getch_wait();
 	vis_deinit();
 	for (curCP = 0; curCP < 2; curCP ++)
 	{

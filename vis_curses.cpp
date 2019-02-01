@@ -669,8 +669,6 @@ void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data
 		}
 		break;
 	case 0x45:	// Roland SC Dot Display
-		if ((chn & 0x0F) > 1)
-			return;	// We can't do caching yet.
 		{
 			std::bitset<0x100> bitmap;
 			LCDDisplay::SCSysEx2DotMatrix(dataLen, data, bitmap);

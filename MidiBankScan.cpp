@@ -688,12 +688,14 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 							// GM Level 2 On: F0 7E 7F 09 03 F7
 							if (syxData[0x03] == 0x01)
 							{
-								sv.syxReset = MODULE_GM_1;
+								if (sv.syxReset == SYX_RESET_UNDEF || MMASK_TYPE(sv.syxReset) == MODULE_TYPE_GM)
+									sv.syxReset = MODULE_GM_1;
 								modChk.fmGM |= (1 << FMBGM_L1_RESET);
 							}
 							else if (syxData[0x03] == 0x03)
 							{
-								sv.syxReset = MODULE_GM_2;
+								if (sv.syxReset == SYX_RESET_UNDEF || MMASK_TYPE(sv.syxReset) == MODULE_TYPE_GM)
+									sv.syxReset = MODULE_GM_2;
 								modChk.fmGM |= (1 << FMBGM_L2_RESET);
 							}
 						}
