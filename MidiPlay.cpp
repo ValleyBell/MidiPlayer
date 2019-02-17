@@ -71,8 +71,7 @@ static inline UINT32 ReadBE21(const UINT8* data)	// 3 bytes, 7 bits per byte
 
 MidiPlayer::MidiPlayer() :
 	_cMidi(NULL), _songLength(0),
-	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL),
-	_evtCbFunc(NULL), _evtCbData(NULL)
+	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL)
 {
 	_osTimer = OSTimer_Init();
 	_tmrFreq = OSTimer_GetFrequency(_osTimer) << TICK_FP_SHIFT;
@@ -149,12 +148,6 @@ void MidiPlayer::SetDstModuleType(UINT8 modType, bool chnRefresh)
 		AllChannelRefresh();
 	
 	return;
-}
-
-void MidiPlayer::SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData)
-{
-	_evtCbFunc = cbFunc;
-	_evtCbData = cbData;
 }
 
 void MidiPlayer::SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank)
@@ -460,8 +453,8 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	{
 		UINT8 evtType = midiEvt->evtType & 0xF0;
 		UINT8 evtChn = midiEvt->evtType & 0x0F;
-		UINT16 chnID = FULL_CHN_ID(trkState->portID, evtChn);
-		ChannelState* chnSt = &_chnStates[chnID];
+		UINT16 portChnID = FULL_CHN_ID(trkState->portID, evtChn);
+		ChannelState* chnSt = &_chnStates[portChnID];
 		bool didEvt = false;
 		
 		switch(evtType)
@@ -478,7 +471,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			break;
 		case 0xE0:
 			{
-				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnID);
+				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(portChnID);
 				INT32 pbVal = (midiEvt->evtValB << 7) | (midiEvt->evtValA << 0);
 				pbVal = (pbVal - 0x2000) * nvChn->_pbRange;	// 0x2000 per semitone
 				nvChn->_attr.detune[0] = (INT16)(pbVal / 0x20);	// make 8.8 fixed point
@@ -487,8 +480,11 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		}
 		if (! didEvt)
 			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
-		if (_evtCbFunc != NULL)
-			_evtCbFunc(_evtCbData, midiEvt, chnID);
+		
+		if (evtType == 0xB0)
+			vis_do_ctrl_change(portChnID, midiEvt->evtValA);
+		else if (evtType == 0xC0)
+			vis_do_ins_change(portChnID);
 		return;
 	}
 	
@@ -506,8 +502,6 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			memcpy(&msgData[0x01], &midiEvt->evtData[0x00], midiEvt->evtData.size());
 			MidiOutPort_SendLongMsg(outPort, msgData.size(), &msgData[0x00]);
 		}
-		if (_evtCbFunc != NULL)
-			_evtCbFunc(_evtCbData, midiEvt, FULL_CHN_ID(trkState->portID, 0x00));
 		if (_initChnPost)
 			InitializeChannels_Post();
 		break;
@@ -574,8 +568,10 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			RefreshTickTime();
 			break;
 		}
-		if (_evtCbFunc != NULL)
-			_evtCbFunc(_evtCbData, midiEvt, trkState->trkID);
+		if (midiEvt->evtData.empty())
+			vis_print_meta(trkState->trkID, midiEvt->evtValA, 0, NULL);
+		else
+			vis_print_meta(trkState->trkID, midiEvt->evtValA, midiEvt->evtData.size(), (const char*)&midiEvt->evtData[0x00]);
 		break;
 	}
 	
@@ -859,11 +855,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	case 0x7B:	// All Notes Off
 		chnSt->notes.clear();
 		nvChn->ClearNotes();
-		if (_evtCbFunc != NULL)
-		{
-			MidiEvent noteEvt = MidiTrack::CreateEvent_Std(0x01, 0x01, 0x00);	// redraw channel
-			_evtCbFunc(_evtCbData, &noteEvt, FULL_CHN_ID(chnSt->portID, chnSt->midChn));
-		}
+		vis_do_channel_event(FULL_CHN_ID(chnSt->portID, chnSt->midChn), 0x01, 0x00);
 		break;
 	}
 	
@@ -1770,11 +1762,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			{
 				vis_printf("MT-32 SysEx: Set Ch %u instrument = %u", evtChn, newIns);
 			}
-			if (_evtCbFunc != NULL)
-			{
-				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
-				_evtCbFunc(_evtCbData, &insEvt, FULL_CHN_ID(portID, evtChn));
-			}
+			vis_do_ins_change(portChnID);
 			break;
 		}
 		break;
@@ -1965,8 +1953,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 				HandleInstrumentEvent(chnSt, &insEvt, 0x11);
-				if (_evtCbFunc != NULL)
-					_evtCbFunc(_evtCbData, &insEvt, portChnID);
+				vis_do_ins_change(portChnID);
 			}
 			break;
 		case 0x401002:	// Receive Channel
@@ -2005,8 +1992,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 				HandleInstrumentEvent(chnSt, &insEvt, flags);
-				if (_evtCbFunc != NULL)
-					_evtCbFunc(_evtCbData, &insEvt, portChnID);
+				vis_do_ins_change(portChnID);
 			}
 			break;
 		case 0x401016:	// Pitch Key Shift
@@ -2035,21 +2021,13 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x401019:	// Part Level
 			chnSt->ctrls[0x07] = syxData[0x07];
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
-			if (_evtCbFunc != NULL)
-			{
-				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x07, chnSt->ctrls[0x07]);
-				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
-			}
+			vis_do_ctrl_change(portChnID, 0x07);
 			break;
 		case 0x40101C:	// Part Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
 			chnSt->ctrls[0x0A] = syxData[0x07];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
-			if (_evtCbFunc != NULL)
-			{
-				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x0A, chnSt->ctrls[0x0A]);
-				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
-			}
+			vis_do_ctrl_change(portChnID, 0x0A);
 			break;
 		case 0x40101F:	// CC1 Controller Number
 		case 0x401020:	// CC2 Controller Number
@@ -2224,7 +2202,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			dataLen = 0x30 - startOfs;
 		memcpy(&_pixelPageMem[0][startOfs], &syxData[0x06], dataLen);
 		
-		vis_do_syx_bitmap(FULL_CHN_ID(portID, 0), 0x43, 0x30, _pixelPageMem[0]);
+		vis_do_syx_bitmap(FULL_CHN_ID(portID, 0x00), 0x43, 0x30, _pixelPageMem[0]);
 	}
 		break;
 	case 0x080000:	// Multi Part
@@ -2255,8 +2233,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 				HandleInstrumentEvent(chnSt, &insEvt, 0x11);
-				if (_evtCbFunc != NULL)
-					_evtCbFunc(_evtCbData, &insEvt, portChnID);
+				vis_do_ins_change(portChnID);
 			}
 			break;
 		case 0x080004:	// Receive Channel
@@ -2306,21 +2283,13 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x08000B:	// Volume
 			chnSt->ctrls[0x07] = syxData[0x06];
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
-			if (_evtCbFunc != NULL)
-			{
-				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x07, chnSt->ctrls[0x07]);
-				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
-			}
+			vis_do_ctrl_change(portChnID, 0x07);
 			break;
 		case 0x08000E:	// Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
 			chnSt->ctrls[0x0A] = syxData[0x06];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
-			if (_evtCbFunc != NULL)
-			{
-				MidiEvent ctrlEvt = MidiTrack::CreateEvent_Std(0xB0 | evtChn, 0x0A, chnSt->ctrls[0x0A]);
-				_evtCbFunc(_evtCbData, &ctrlEvt, portChnID);
-			}
+			vis_do_ctrl_change(portChnID, 0x0A);
 			break;
 		case 0x080011:	// Dry Level
 			break;
@@ -2426,8 +2395,7 @@ void MidiPlayer::AllInsRefresh(void)
 			continue;
 		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
 		HandleInstrumentEvent(&chnSt, &insEvt, 0x10);
-		if (_evtCbFunc != NULL)
-			_evtCbFunc(_evtCbData, &insEvt, curChn);
+		vis_do_ins_change(curChn);
 	}
 	
 	return;
@@ -2456,8 +2424,7 @@ void MidiPlayer::AllChannelRefresh(void)
 			chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;	// enforce resending
 			tempEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
 			HandleInstrumentEvent(&chnSt, &tempEvt, 0x10);
-			if (_evtCbFunc != NULL)
-				_evtCbFunc(_evtCbData, &tempEvt, curChn);
+			vis_do_ins_change(curChn);
 		}
 		// Main Volume (7) and Pan (10) may be patched
 		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x07, chnSt.ctrls[0x07]);
@@ -2608,7 +2575,6 @@ void MidiPlayer::PrepareMidi(void)
 void MidiPlayer::InitializeChannels(void)
 {
 	size_t curChn;
-	MidiEvent chnInitEvt = MidiTrack::CreateEvent_Std(0x01, 0x00, 0x00);
 	
 	if (_options.srcType == MODULE_MT32)
 		_defPbRange = 12;
@@ -2641,8 +2607,7 @@ void MidiPlayer::InitializeChannels(void)
 		
 		chnSt.notes.clear();
 		
-		if (_evtCbFunc != NULL)
-			_evtCbFunc(_evtCbData, &chnInitEvt, curChn);
+		vis_do_channel_event(curChn, 0x00, 0x00);
 	}
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
 	{

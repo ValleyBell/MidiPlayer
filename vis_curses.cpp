@@ -600,7 +600,7 @@ void vis_do_ins_change(UINT16 chn)
 	return;
 }
 
-void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
+void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
 	const NoteVisualization::ChnInfo* nvChn = midPlay->GetNoteVis()->GetChannel(chn);
@@ -619,11 +619,6 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl, UINT8 value)
 		break;
 	}
 	
-	return;
-}
-
-void vis_do_note(UINT16 chn, UINT8 note, UINT8 volume)
-{
 	return;
 }
 

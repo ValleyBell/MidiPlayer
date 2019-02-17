@@ -736,7 +736,6 @@ void PlayMidi(void)
 		}
 	}
 	
-	midPlay.SetEventCallback(&MidiEventCallback, &midPlay);
 	vis_new_song();
 	
 	midPlay.Start();
@@ -806,41 +805,6 @@ static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::v
 	if (syxStart != (size_t)-1)
 		SendSyxDataToPorts(outPorts, curPos - syxStart, &syxData[syxStart]);
 	
-	return;
-}
-
-static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 chnID)
-{
-	switch(midiEvt->evtType & 0xF0)
-	{
-	case 0x00:	// general events
-		if (midiEvt->evtType == 0x01)
-			vis_do_channel_event(chnID, midiEvt->evtValA, midiEvt->evtValB);
-		break;
-	case 0x80:
-		vis_do_note(chnID, midiEvt->evtValA, 0x00);
-		break;
-	case 0x90:
-		vis_do_note(chnID, midiEvt->evtValA, midiEvt->evtValB);
-		break;
-	case 0xB0:
-		vis_do_ctrl_change(chnID, midiEvt->evtValA, midiEvt->evtValB);
-		break;
-	case 0xC0:
-		vis_do_ins_change(chnID);
-		break;
-	case 0xF0:
-		switch(midiEvt->evtType)
-		{
-		case 0xFF:
-			if (midiEvt->evtData.empty())
-				vis_print_meta(chnID, midiEvt->evtValA, 0, NULL);
-			else
-				vis_print_meta(chnID, midiEvt->evtValA, midiEvt->evtData.size(), (const char*)&midiEvt->evtData[0x00]);
-			break;
-		}
-		break;
-	}
 	return;
 }
 

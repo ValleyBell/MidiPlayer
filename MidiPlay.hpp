@@ -21,8 +21,6 @@ struct PlayerOpts
 	UINT8 flags;	// see PLROPTS_ defines
 };
 
-typedef void (*MIDI_EVT_CB)(void* userData, const MidiEvent* midiEvt, UINT16 chnID);
-
 class MidiPlayer
 {
 public:
@@ -95,7 +93,6 @@ public:
 	void SetSrcModuleType(UINT8 modType, bool insRefresh = false);
 	void SetDstModuleType(UINT8 modType, bool chnRefresh = false);
 	UINT32 _numLoops;
-	void SetEventCallback(MIDI_EVT_CB cbFunc, void* cbData);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);
 	UINT8 Start(void);
 	UINT8 Stop(void);
@@ -148,8 +145,6 @@ private:
 	const INS_BANK* _insBankMT32;
 	
 	PlayerOpts _options;
-	MIDI_EVT_CB _evtCbFunc;
-	void* _evtCbData;
 	
 	std::vector<size_t> _portMap;	// MIDI track port -> ID of MIDIOUT_PORT object
 	std::vector<MIDIOUT_PORT*> _outPorts;
