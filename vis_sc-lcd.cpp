@@ -26,12 +26,16 @@
 	           	01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16
 */
 
+#define LVMODE_OFF		0
+#define LVMODE_NOTES	1
+#define LVMODE_VOL		2
+
 #define MATRIX_BASE_X	16
 #define MATRIX_BASE_Y	2
 #define MAT_XY2IDX(x, y)	((y) * 0x10 + (x))
 #define DEFAULT_NOTE_AGE	800.0f	// in msec
 static int MATRIX_COL_SIZE = 3;
-static bool doLiveVis = true;
+static int liveVisMode = LVMODE_NOTES;
 
 static const char* BLOCK2x2_CHRS[0x10] =
 {
@@ -276,21 +280,28 @@ void LCDDisplay::RefreshDisplay(void)
 		float barHeight = 0.0;
 		int barYHeight;
 		
-		for (nlIt = noteList.begin(); nlIt != noteList.end(); ++nlIt)
+		if (liveVisMode == LVMODE_VOL)
 		{
-			float noteVol = nlIt->velocity / 127.0f * chnVol;
-			float ageAttenuate;
-			if (nlIt->maxAge)
-				ageAttenuate = 1.0f - nlIt->curAge / (float)nlIt->maxAge;
-			else
-				ageAttenuate = 1.0f - nlIt->curAge / DEFAULT_NOTE_AGE;
-			if (ageAttenuate < 0.0f)
-				ageAttenuate = 0.0f;
-			noteVol *= ageAttenuate;
-			if (barHeight < noteVol)
-				barHeight = noteVol;
+			barHeight = chnVol;
 		}
-		if (doLiveVis)
+		else if (liveVisMode == LVMODE_NOTES)
+		{
+			for (nlIt = noteList.begin(); nlIt != noteList.end(); ++nlIt)
+			{
+				float noteVol = nlIt->velocity / 127.0f * chnVol;
+				float ageAttenuate;
+				if (nlIt->maxAge)
+					ageAttenuate = 1.0f - nlIt->curAge / (float)nlIt->maxAge;
+				else
+					ageAttenuate = 1.0f - nlIt->curAge / DEFAULT_NOTE_AGE;
+				if (ageAttenuate < 0.0f)
+					ageAttenuate = 0.0f;
+				noteVol *= ageAttenuate;
+				if (barHeight < noteVol)
+					barHeight = noteVol;
+			}
+		}
+		if (liveVisMode != LVMODE_OFF)
 		{
 			int chnID = curChn & 0x0F;
 			int chnGrp = curChn >> 4;
@@ -315,7 +326,7 @@ void LCDDisplay::RefreshDisplay(void)
 		DrawPage(_allPage);
 	else if (_pageMode == PAGEMODE_CHN)
 		DrawPage(_chnPage);
-	if (doLiveVis)
+	if (liveVisMode != LVMODE_OFF)
 		DrawDotMatrix(_dotMatrix);
 	
 	return;
@@ -352,7 +363,7 @@ void LCDDisplay::DrawLayout(void)
 	mvwprintw(_hWin, 8, 0, "K.Shift");
 	mvwprintw(_hWin, 9, 0, "MIDI CH");
 	
-	if (doLiveVis)
+	if (liveVisMode != LVMODE_OFF)
 	{
 		if (MATRIX_COL_SIZE < 3)
 		{
