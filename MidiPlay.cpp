@@ -2066,7 +2066,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			chnSt->ctrls[0x5E] = syxData[0x07];
 			break;
 		case 0x402010:	// Bend Pitch Control
-			chnSt->pbRange = (INT8)syxData[0x06] - 0x40;
+			chnSt->pbRange = (INT8)syxData[0x07] - 0x40;
 			if ((INT8)chnSt->pbRange < 0)
 				chnSt->pbRange = 0;
 			else if (chnSt->pbRange > 24)

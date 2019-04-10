@@ -11,6 +11,7 @@ struct SCAN_VARS
 {
 	std::set<UINT8> portIDs;
 	UINT16 drumChnMask;	// 16 bits, set = drum, clear = melody channel
+	UINT16 chnUseMask;	// temporary hack, required for MIDIs that set up instruments in a separate track after all notes
 	UINT8 insBankBuf[16][2];
 	UINT8 insBank[16][3];
 	UINT8 lastPortID;
@@ -175,15 +176,32 @@ static void DoInsCheck_XG(MODULE_CHECK* modChk, UINT8 ins, UINT8 ccMsb, UINT8 ls
 	else if (msbNibH >= 0x20 && msbNibH <= 0x60 && msbNibL >= 0x01 && msbNibL <= 0x03)
 	{
 		// known banks:
+		// PLG150-DR:
+		//	MSB 79: DR preset voice
+		//	MSB 47: DR user voice
+		// PLG150-PF:
+		//	MSB 80: PF-XG/A
+		//	MSB 96: PF-XG/B
+		// PLG150-AP:
+		//	MSB 80: AP-XG/A
+		//	MSB 96: AP-XG/B
+		//	MSB 32: preset
 		// PLG100-VL:
 		//	MSB 81: VL-XG/A
 		//	MSB 97: VL-XG/B
 		//	MSB 33: preset (LSB 0..1), custom (LSB 2), internal (LSB 3)
+		// PLG100-SG:
+		//	MSB 82: SG non-proxy
+		//	MSB 98: SG proxy
 		// PLG100-DX:
 		//	MSB 83: DX-XG/A
 		//	MSB 99: DX-XG/B
 		//	MSB 67: SFX voices
 		//	MSB 35: custom voices
+		// PLG150-AN
+		//	MSB 84: AN-XG/A
+		//	MSB 100: AN-XG/B
+		//	MSB 36: preset (LSB 0..1), user (LSB 2)
 		if ((msb & 0x0F) == 0x01)
 		{
 			modChk->fmXG |= (1 << FMBXG_PLG_VL);
@@ -341,6 +359,16 @@ static void MayDoInsCheck(MODULE_CHECK* modChk, SCAN_VARS* sv, UINT8 evtChn, boo
 {
 	UINT8* insData = sv->insBank[evtChn];
 	
+	if (sv->insChkOnNote)
+	{
+		// temporary hack required for MIDIs that set instruments in a track that occours after the note data
+		if (! isNote && (sv->chnUseMask & (1 << evtChn)))
+		{
+			isNote = true;
+			insData[2] |= 0x80;
+			sv->chnUseMask &= ~(1 << evtChn);
+		}
+	}
 	if (! isNote && sv->insChkOnNote)
 	{
 		insData[2] |= 0x80;	// next note will execute instrument check
@@ -557,6 +585,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	modChk.fmOther = 0x00;
 	
 	sv.drumChnMask = (1 << 9);
+	sv.chnUseMask = 0x0000;
 	memset(sv.insBank, 0x00, 16 * 3);
 	sv.portIDs.clear();
 	sv.syxReset = SYX_RESET_UNDEF;
@@ -585,6 +614,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 					sv.lastPortID = sv.curPortID;
 					sv.portIDs.insert(sv.curPortID);
 				}
+				sv.chnUseMask |= (1 << evtChn);
 				MayDoInsCheck(&modChk, &sv, evtChn, true);
 				break;
 			case 0xB0:	// Control Change
