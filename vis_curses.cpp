@@ -1436,7 +1436,8 @@ void ChannelData::DrawNoteName(size_t slot)
 	else
 	{
 		// show note name
-		char octChar = '0' + (note / 12);	// 0..9, @ (for octave 10)
+		int oct = note / 12;
+		char octChar = (oct < 10) ? ('0' + oct) : '@';	// 0..9, @ (for octave 10)
 		sprintf(noteName, "%s%c", notes[note % 12], octChar);
 	}
 	

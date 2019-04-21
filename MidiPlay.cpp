@@ -774,6 +774,10 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				break;
 			}
 		}
+		else if (chnSt->rpnCtrl[0] >= (0x80|0x14) && chnSt->rpnCtrl[0] <= (0x80|0x35))
+		{
+			// TODO: this is drum NRPN
+		}
 		break;
 	case 0x26:	// Data Entry LSB
 		if (chnSt->rpnCtrl[0] == 0x00)
@@ -1650,6 +1654,10 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 					// 00 = MU Basic, 01 = MU100 Native
 					vis_printf("MU SysEx: Set Voice Map to %u (%s)", syxData[0x06],
 							syxData[0x06] ? "MU100 Native" : "MU Basic");
+					// Note: This can break drum channels, if sent in the following order:
+					//	- Bank MSB 127
+					//	- SysEx Voice Map
+					//	- Program Change
 					break;
 				}
 			}

@@ -121,8 +121,8 @@ int main(int argc, char* argv[])
 	{
 		printf("Usage: MidiPlayer.exe [options] file.mid\n");
 		printf("Options:\n");
-		//printf("    -e - ignore empty channels\n");
-		printf("    -o n - set option bitmask (default: 0x07)\n");
+		printf("    -L   - list all MIDI devices and quit\n");
+		printf("    -o n - set option bitmask (default: 0x01)\n");
 		printf("           Bit 0 (0x01) - send GM/GS/XG reset, if missing\n");
 		printf("           Bit 1 (0x02) - strict mode (enforce GS instrument map)\n");
 		printf("           Bit 2 (0x04) - enable Capital Tone Fallback (SC-55 style)\n");
@@ -221,6 +221,23 @@ int main(int argc, char* argv[])
 				break;
 			
 			initSongID = (size_t)strtol(argv[argbase], NULL, 0) - 1;
+		}
+		else if (optChr == 'L')
+		{
+			MIDI_PORT_LIST mpList;
+			MIDI_PORT_DESC* mpDesc;
+			UINT32 curPort;
+			
+			retVal = MidiOut_GetPortList(&mpList);
+			if (retVal)
+				return 1;
+			for (curPort = 0; curPort < mpList.count; curPort ++)
+			{
+				mpDesc = &mpList.ports[curPort];
+				printf("Port %u - ID: %d, Name: \"%s\"\n", curPort, mpDesc->id, mpDesc->name);
+			}
+			MidiOut_FreePortList(&mpList);
+			return 0;
 		}
 		else
 		{

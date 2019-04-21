@@ -275,3 +275,87 @@ UINT8 MidiOutPort_SendLongMsg(MIDIOUT_PORT* mop, size_t dataLen, const void* dat
 	
 	return 0x00;
 }
+
+UINT8 MidiOut_GetPortList(MIDI_PORT_LIST* mpl)
+{
+	snd_seq_t* hSeq;
+	snd_seq_client_info_t* cinfo;
+	snd_seq_port_info_t* pinfo;
+	UINT32 curPort;
+	MIDI_PORT_DESC* pDesc;
+	int retVal;
+	
+	retVal = snd_seq_open(&hSeq, "default", SND_SEQ_OPEN_DUPLEX, 0);
+	if (retVal < 0)
+		return 0xFF;
+	
+	snd_seq_client_info_alloca(&cinfo);
+	snd_seq_port_info_alloca(&pinfo);
+	
+	// at first, count all ports
+	curPort = 0;
+	snd_seq_client_info_set_client(cinfo, -1);
+	while(snd_seq_query_next_client(hSeq, cinfo) >= 0)
+	{
+		snd_seq_port_info_set_client(pinfo, snd_seq_client_info_get_client(cinfo));
+		snd_seq_port_info_set_port(pinfo, -1);
+		while(snd_seq_query_next_port(hSeq, pinfo) >= 0)
+		{
+			if (! (snd_seq_port_info_get_type(pinfo) & SND_SEQ_PORT_TYPE_MIDI_GENERIC))
+				continue;
+			if ((~snd_seq_port_info_get_capability(pinfo) & (SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE)))
+				continue;
+			
+			curPort ++;	// count a valid port
+		}
+	}
+	
+	mpl->count = curPort;
+	mpl->ports = (MIDI_PORT_DESC*)calloc(mpl->count, sizeof(MIDI_PORT_DESC));
+	if (mpl->ports == NULL)
+	{
+		snd_seq_close(hSeq);
+		return 0xFF;
+	}
+	
+	// now collect all information
+	curPort = 0;
+	snd_seq_client_info_set_client(cinfo, -1);
+	while(snd_seq_query_next_client(hSeq, cinfo) >= 0)
+	{
+		snd_seq_port_info_set_client(pinfo, snd_seq_client_info_get_client(cinfo));
+		snd_seq_port_info_set_port(pinfo, -1);
+		while(snd_seq_query_next_port(hSeq, pinfo) >= 0)
+		{
+			// port must support MIDI messages
+			if (! (snd_seq_port_info_get_type(pinfo) & SND_SEQ_PORT_TYPE_MIDI_GENERIC))
+				continue;
+			// port must be writable and write subscription is required
+			if ((~snd_seq_port_info_get_capability(pinfo) & (SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE)))
+				continue;
+			
+			pDesc = &mpl->ports[curPort];
+			// both IDs are 8 bits each
+			pDesc->id = (snd_seq_port_info_get_client(pinfo) << 8) | (snd_seq_port_info_get_port(pinfo) << 0);
+			pDesc->name = strdup(snd_seq_port_info_get_name(pinfo));
+			curPort ++;
+		}
+	}
+	
+	snd_seq_close(hSeq);
+	
+	return 0x00;
+}
+
+void MidiOut_FreePortList(MIDI_PORT_LIST* mpl)
+{
+	UINT32 curPort;
+	
+	for (curPort = 0; curPort < mpl->count; curPort ++)
+		free(mpl->ports[curPort].name);
+	
+	mpl->count = 0;
+	free(mpl->ports);	mpl->ports = NULL;
+	
+	return;
+}

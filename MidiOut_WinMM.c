@@ -10,6 +10,10 @@
 #include <stdtype.h>
 #include "MidiOut.h"
 
+#ifdef _MSC_VER
+#define strdup	_strdup
+#endif
+
 //typedef struct _midiout_port MIDIOUT_PORT;
 struct _midiout_port
 {
@@ -132,4 +136,51 @@ UINT8 MidiOutPort_SendLongMsg(MIDIOUT_PORT* mop, size_t dataLen, const void* dat
 		free(dupData);
 		return retVal;
 	}
+}
+
+UINT8 MidiOut_GetPortList(MIDI_PORT_LIST* mpl)
+{
+	UINT32 curPort;
+	UINT devID;
+	MMRESULT retValMM;
+	MIDIOUTCAPSA moCaps;
+	MIDI_PORT_DESC* pDesc;
+	
+	mpl->count = 1 + midiOutGetNumDevs();
+	mpl->ports = (MIDI_PORT_DESC*)calloc(mpl->count, sizeof(MIDI_PORT_DESC));
+	if (mpl->ports == NULL)
+		return 0xFF;
+	
+	for (curPort = 0; curPort < mpl->count; curPort ++)
+	{
+		pDesc = &mpl->ports[curPort];
+		devID = (curPort == 0) ? MIDI_MAPPER : (UINT)(curPort - 1);
+		
+		retValMM = midiOutGetDevCapsA(devID, &moCaps, sizeof(MIDIOUTCAPSA));
+		if (retValMM != MMSYSERR_NOERROR)
+		{
+			pDesc->id = MIDI_PORT_ID_INVALID;
+			pDesc->name = NULL;
+		}
+		else
+		{
+			pDesc->id = devID;
+			pDesc->name = strdup(moCaps.szPname);
+		}
+	}
+	
+	return 0x00;
+}
+
+void MidiOut_FreePortList(MIDI_PORT_LIST* mpl)
+{
+	UINT32 curPort;
+	
+	for (curPort = 0; curPort < mpl->count; curPort ++)
+		free(mpl->ports[curPort].name);
+	
+	mpl->count = 0;
+	free(mpl->ports);	mpl->ports = NULL;
+	
+	return;
 }
