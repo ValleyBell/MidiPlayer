@@ -60,6 +60,9 @@
     <ClCompile Include="vis_sc-lcd.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="MidiPortAliases.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
     <ClCompile Include="INIReader.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
@@ -102,6 +105,9 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="vis_sc-lcd.hpp">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="MidiPortAliases.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="INIReader.hpp">

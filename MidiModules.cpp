@@ -55,7 +55,7 @@ ModuleNames::ModuleNames()
 	return;
 }
 
-UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue)
+/*static*/ UINT8 MidiModule::GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue)
 {
 	std::map<std::string, UINT8>::const_iterator nameIt;
 	char* endStr;
@@ -76,21 +76,9 @@ UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::strin
 		return 2;	// partly read
 }
 
-void MidiModule::SetPortList(const std::vector<std::string>& portStrList)
+void MidiModule::SetPortList(const std::vector<UINT32>& portList)
 {
-	std::vector<std::string>::const_iterator portIt;
-	
-	this->ports.clear();
-	for (portIt = portStrList.begin(); portIt != portStrList.end(); ++portIt)
-	{
-		UINT8 port;
-		char* endStr;
-		
-		port = (UINT8)strtoul(portIt->c_str(), &endStr, 0);
-		if (endStr != portIt->c_str())
-			this->ports.push_back(port);
-	}
-	
+	this->ports = portList;
 	return;
 }
 
@@ -322,7 +310,7 @@ UINT8 MidiModuleCollection::OpenModulePorts(size_t moduleID, size_t requiredPort
 	for (curPort = 0; curPort < mMod.ports.size() && portList.mOuts.size() < requiredPorts; curPort ++)
 	{
 		UINT8 retVal;
-		UINT8 portID;
+		UINT32 portID;
 		
 		portID = mMod.ports[curPort];
 		if (portID >= _ports.size())

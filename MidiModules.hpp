@@ -9,16 +9,15 @@
 
 #include "MidiOut.h"
 
-UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
-
 struct MidiModule
 {
 	std::string name;
 	UINT8 modType;	// module type
-	std::vector<UINT8> ports;
+	std::vector<UINT32> ports;
 	std::vector<UINT8> playType;	// supported types for playing
 	
-	void SetPortList(const std::vector<std::string>& portStrList);
+	static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
+	void SetPortList(const std::vector<UINT32>& portList);
 	void SetPlayTypes(const std::vector<std::string>& playTypeStrs, const std::map<std::string, UINT8>& playTypeLUT);
 };
 

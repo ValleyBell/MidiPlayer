@@ -19,6 +19,7 @@ set(HEADERS
 		NoteVis.hpp
 		MidiBankScan.hpp
 		MidiInsReader.h
+		MidiPortAliases.hpp
 		MidiModules.hpp
 		utils.hpp
 		m3uargparse.hpp
@@ -35,6 +36,7 @@ set(SOURCES
 		NoteVis.cpp
 		MidiBankScan.cpp
 		MidiInsReader.c
+		MidiPortAliases.cpp
 		MidiModules.cpp
 		utils.cpp
 		m3uargparse.cpp

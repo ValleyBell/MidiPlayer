@@ -146,7 +146,7 @@ UINT8 MidiOut_GetPortList(MIDI_PORT_LIST* mpl)
 	MIDIOUTCAPSA moCaps;
 	MIDI_PORT_DESC* pDesc;
 	
-	mpl->count = 1 + midiOutGetNumDevs();
+	mpl->count = midiOutGetNumDevs();
 	mpl->ports = (MIDI_PORT_DESC*)calloc(mpl->count, sizeof(MIDI_PORT_DESC));
 	if (mpl->ports == NULL)
 		return 0xFF;
@@ -154,7 +154,8 @@ UINT8 MidiOut_GetPortList(MIDI_PORT_LIST* mpl)
 	for (curPort = 0; curPort < mpl->count; curPort ++)
 	{
 		pDesc = &mpl->ports[curPort];
-		devID = (curPort == 0) ? MIDI_MAPPER : (UINT)(curPort - 1);
+		//devID = (curPort == 0) ? MIDI_MAPPER : (UINT)(curPort - 1);
+		devID = (UINT)curPort;
 		
 		retValMM = midiOutGetDevCapsA(devID, &moCaps, sizeof(MIDIOUTCAPSA));
 		if (retValMM != MMSYSERR_NOERROR)

@@ -27,6 +27,7 @@
 
 #include <stdtype.h>
 #include "MidiLib.hpp"
+#include "MidiPortAliases.hpp"
 #include "MidiModules.hpp"
 #include "MidiOut.h"
 #include "MidiPlay.hpp"
@@ -48,6 +49,7 @@ struct InstrumentSetCfg
 static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
+static void GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList);
 static UINT8 LoadConfig(const std::string& cfgFile);
 static const char* GetStr1or2(const char* str1, const char* str2);
 static const char* GetModuleTypeNameS(UINT8 modType);
@@ -70,6 +72,7 @@ static UINT8 playerCfgFlags;	// see PlayerOpts::flags
 static UINT8 forceSrcType;
 static UINT8 forceModID;
 static std::vector<InstrumentSetCfg> insSetFiles;
+static MidiPortAliases midiPortAliases;
 static MidiModuleCollection midiModColl;
 static std::vector<INS_BANK> insBanks;
 static std::string syxFile;
@@ -472,13 +475,52 @@ static void CfgString2Vector(const std::string& valueStr, std::vector<std::strin
 	return;
 }
 
+static void GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList)
+{
+	std::vector<std::string>::const_iterator portIt;
+	std::map<std::string, UINT32>::const_iterator paIt;
+	UINT32 port;
+	char* endStr;
+	const std::map<std::string, UINT32>& portAliases = midiPortAliases.GetAliases();
+	
+	portList.clear();
+	for (portIt = portStrList.begin(); portIt != portStrList.end(); ++portIt)
+	{
+		port = (UINT32)-1;
+		
+		if (port == (UINT32)-1)
+		{
+			paIt = portAliases.find(*portIt);
+			if (paIt != portAliases.end())
+				port = paIt->second;
+		}
+		// TODO: maybe accept "internal hardware ID" in some way?
+		if (port == (UINT32)-1)
+		{
+			unsigned long pVal = strtoul(portIt->c_str(), &endStr, 0);
+			if (endStr != portIt->c_str())
+				port = (UINT32)pVal;
+		}
+		
+		if (port != (UINT32)-1)
+			portList.push_back(port);
+		else
+			printf("Unknown MIDI port: %s\n", portIt->c_str());
+	}
+	
+	return;
+}
+
 static UINT8 LoadConfig(const std::string& cfgFile)
 {
 	std::map<std::string, UINT8> INSSET_NAME_MAP;
 	std::string insSetPath;
 	std::map<std::string, UINT8>::const_iterator nmIt;
+	std::vector<std::string> devList;
 	std::vector<std::string> modList;
-	std::vector<std::string>::const_iterator mlIt;
+	std::vector<std::string>::const_iterator listIt;
+	MIDI_PORT_LIST mpList;
+	UINT8 retVal;
 	
 	INSSET_NAME_MAP["GM"] = MODULE_GM_1;
 	INSSET_NAME_MAP["GM_L2"] = MODULE_GM_2;
@@ -523,20 +565,32 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		}
 	}
 	
+	midiPortAliases.ClearAliases();
+	retVal = MidiOut_GetPortList(&mpList);
+	if (! retVal)
+	{
+		midiPortAliases.LoadPortList(mpList);
+		MidiOut_FreePortList(&mpList);
+	}
+	
+	devList = iniFile.GetKeys("Devices");
+	for (listIt = devList.begin(); listIt != devList.end(); ++listIt)
+		midiPortAliases.AddAlias(*listIt, iniFile.GetString("Devices", *listIt, ""));
+	
 	midiModColl.ClearModules();
 	CfgString2Vector(iniFile.GetString("General", "Modules", ""), modList);
-	for (mlIt = modList.begin(); mlIt != modList.end(); ++mlIt)
+	for (listIt = modList.begin(); listIt != modList.end(); ++listIt)
 	{
 		UINT8 modType;
 		std::vector<std::string> list;
 		
-		if (! GetIDFromNameOrNumber(iniFile.GetString(*mlIt, "ModType", ""), midiModColl.GetShortModNameLUT(), modType))
+		if (! MidiModule::GetIDFromNameOrNumber(iniFile.GetString(*listIt, "ModType", ""), midiModColl.GetShortModNameLUT(), modType))
 			continue;
 		
-		MidiModule& mMod = midiModColl.AddModule(*mlIt, modType);
+		MidiModule& mMod = midiModColl.AddModule(*listIt, modType);
 		
 		CfgString2Vector(iniFile.GetString(mMod.name, "Ports", ""), list);
-		mMod.SetPortList(list);
+		GetMidiPortList(list, mMod.ports);
 		CfgString2Vector(iniFile.GetString(mMod.name, "PlayTypes", ""), list);
 		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
 	}
