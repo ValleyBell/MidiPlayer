@@ -80,7 +80,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="libs\inih\cpp\INIReader.cpp" />
+    <ClCompile Include="INIReader.cpp" />
     <ClCompile Include="libs\inih\ini.c" />
     <ClCompile Include="m3uargparse.cpp" />
     <ClCompile Include="main.cpp" />
@@ -97,7 +97,7 @@
     <ClCompile Include="vis_sc-lcd.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="libs\inih\cpp\INIReader.h" />
+    <ClInclude Include="INIReader.hpp" />
     <ClInclude Include="libs\inih\ini.h" />
     <ClInclude Include="m3uargparse.hpp" />
     <ClInclude Include="MidiBankScan.hpp" />

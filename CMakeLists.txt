@@ -40,19 +40,18 @@ set(SOURCES
 		m3uargparse.cpp
 		)
 
-# --- INI library ---
+# --- INI reading ---
 set(INIH_DIR libs/inih)
 set(HEADERS ${HEADERS}
 		${INIH_DIR}/ini.h
-		${INIH_DIR}/cpp/INIReader.h
+		INIReader.hpp
 	)
 set(SOURCES ${SOURCES}
 		${INIH_DIR}/ini.c
-		${INIH_DIR}/cpp/INIReader.cpp
+		INIReader.cpp
 	)
 set(INCLUDES ${INCLUDES}
-	${INIH_DIR}
-	${INIH_DIR}/cpp
+		${INIH_DIR}
 	)
 
 # --- MIDI output ---

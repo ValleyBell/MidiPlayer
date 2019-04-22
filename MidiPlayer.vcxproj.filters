@@ -45,9 +45,6 @@
     <ClCompile Include="libs\inih\ini.c">
       <Filter>Libraries</Filter>
     </ClCompile>
-    <ClCompile Include="libs\inih\cpp\INIReader.cpp">
-      <Filter>Libraries</Filter>
-    </ClCompile>
     <ClCompile Include="m3uargparse.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
@@ -61,6 +58,9 @@
       <Filter>Quelldateien</Filter>
     </ClCompile>
     <ClCompile Include="vis_sc-lcd.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="INIReader.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
   </ItemGroup>
@@ -86,9 +86,6 @@
     <ClInclude Include="vis.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
-    <ClInclude Include="libs\inih\cpp\INIReader.h">
-      <Filter>Libraries</Filter>
-    </ClInclude>
     <ClInclude Include="libs\inih\ini.h">
       <Filter>Libraries</Filter>
     </ClInclude>
@@ -105,6 +102,9 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="vis_sc-lcd.hpp">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="INIReader.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

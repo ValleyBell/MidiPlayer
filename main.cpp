@@ -23,7 +23,7 @@
 #endif
 #include <iconv.h>
 
-#include <INIReader.h>
+#include "INIReader.hpp"
 
 #include <stdtype.h>
 #include "MidiLib.hpp"
@@ -487,8 +487,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	INSSET_NAME_MAP["XG"] = MODULE_TYPE_XG;
 	INSSET_NAME_MAP["MT-32"] = MODULE_MT32;
 	
-	INIReader iniFile(cfgFile);
-	if (iniFile.ParseError())
+	INIReader iniFile;
+	if (iniFile.ReadFile(cfgFile))
 	{
 		printf("Error reading %s!\n", cfgFile.c_str());
 		return 0xFF;
@@ -497,23 +497,23 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
 	defNumLoops = iniFile.GetInteger("General", "LoopCount", 2);
 	
-	strmSrv_pidFile = iniFile.Get("StreamServer", "PIDFile", "");
-	strmSrv_metaFile = iniFile.Get("StreamServer", "MetadataFile", "");
+	strmSrv_pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
+	strmSrv_metaFile = iniFile.GetString("StreamServer", "MetadataFile", "");
 	
 	optShowInsChange = iniFile.GetBoolean("Display", "ShowInsChange", true);
 	optShowMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
 	optShowMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
 	optShowMeta[0] = iniFile.GetBoolean("Display", "ShowMetaOther", true);
 	
-	defCodepages[0] = iniFile.Get("Display", "DefaultCodepage", "");
-	defCodepages[1] = iniFile.Get("Display", "FallbackCodepage", "");
+	defCodepages[0] = iniFile.GetString("Display", "DefaultCodepage", "");
+	defCodepages[1] = iniFile.GetString("Display", "FallbackCodepage", "");
 	
 	insSetFiles.clear();
-	insSetPath = iniFile.Get("InstrumentSets", "DataPath", INS_SET_PATH);
+	insSetPath = iniFile.GetString("InstrumentSets", "DataPath", INS_SET_PATH);
 	insSetPath = CombinePaths(cfgBasePath, insSetPath);
 	for (nmIt = INSSET_NAME_MAP.begin(); nmIt != INSSET_NAME_MAP.end(); ++nmIt)
 	{
-		std::string fileName = iniFile.Get("InstrumentSets", nmIt->first, "");
+		std::string fileName = iniFile.GetString("InstrumentSets", nmIt->first, "");
 		if (! fileName.empty())
 		{
 			InstrumentSetCfg isc;
@@ -524,20 +524,20 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	}
 	
 	midiModColl.ClearModules();
-	CfgString2Vector(iniFile.Get("General", "Modules", ""), modList);
+	CfgString2Vector(iniFile.GetString("General", "Modules", ""), modList);
 	for (mlIt = modList.begin(); mlIt != modList.end(); ++mlIt)
 	{
 		UINT8 modType;
 		std::vector<std::string> list;
 		
-		if (! GetIDFromNameOrNumber(iniFile.Get(*mlIt, "ModType", ""), midiModColl.GetShortModNameLUT(), modType))
+		if (! GetIDFromNameOrNumber(iniFile.GetString(*mlIt, "ModType", ""), midiModColl.GetShortModNameLUT(), modType))
 			continue;
 		
 		MidiModule& mMod = midiModColl.AddModule(*mlIt, modType);
 		
-		CfgString2Vector(iniFile.Get(mMod.name, "Ports", ""), list);
+		CfgString2Vector(iniFile.GetString(mMod.name, "Ports", ""), list);
 		mMod.SetPortList(list);
-		CfgString2Vector(iniFile.Get(mMod.name, "PlayTypes", ""), list);
+		CfgString2Vector(iniFile.GetString(mMod.name, "PlayTypes", ""), list);
 		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
 	}
 	
