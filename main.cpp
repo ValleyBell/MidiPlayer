@@ -581,18 +581,29 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	CfgString2Vector(iniFile.GetString("General", "Modules", ""), modList);
 	for (listIt = modList.begin(); listIt != modList.end(); ++listIt)
 	{
-		UINT8 modType;
+		MidiModule mMod;
 		std::vector<std::string> list;
 		
-		if (! MidiModule::GetIDFromNameOrNumber(iniFile.GetString(*listIt, "ModType", ""), midiModColl.GetShortModNameLUT(), modType))
+		mMod.name = *listIt;
+		if (! MidiModule::GetIDFromNameOrNumber(iniFile.GetString(*listIt, "ModType", ""), midiModColl.GetShortModNameLUT(), mMod.modType))
 			continue;
-		
-		MidiModule& mMod = midiModColl.AddModule(*listIt, modType);
 		
 		CfgString2Vector(iniFile.GetString(mMod.name, "Ports", ""), list);
 		GetMidiPortList(list, mMod.ports);
 		CfgString2Vector(iniFile.GetString(mMod.name, "PlayTypes", ""), list);
 		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
+		
+		if (mMod.ports.empty())
+		{
+			printf("Module %s: No ports defined!\n", mMod.name.c_str());
+			continue;
+		}
+		if (mMod.playType.empty())
+		{
+			printf("Module %s: No Play Types defined!\n", mMod.name.c_str());
+			continue;
+		}
+		midiModColl.AddModule(mMod);
 	}
 	
 	return 0x00;
@@ -646,7 +657,7 @@ UINT8 main_OpenModule(size_t modID)
 	UINT8 retVal;
 	
 	retVal = midiModColl.OpenModulePorts(modID, scanRes.numPorts, &mopList);
-	if (retVal && mopList->mOuts.empty())
+	if (retVal && (mopList == NULL || mopList->mOuts.empty()))
 	{
 		vis_addstr("Error opening MIDI ports!");
 		return retVal;

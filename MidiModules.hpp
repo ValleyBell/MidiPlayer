@@ -58,6 +58,8 @@ public:
 	size_t GetModuleCount(void) const;
 	MidiModule* GetModule(size_t moduleID);
 	MidiModule& AddModule(const std::string& name, UINT8 modType);
+	MidiModule& AddModule(const MidiModule& mMod);
+	void RemoveModule(size_t moduleID);
 	size_t GetOptimalModuleID(UINT8 playType) const;	// returns module for optimal playback
 	
 	UINT8 OpenModulePorts(size_t moduleID, size_t requiredPorts, MidiOutPortList** retPortList);

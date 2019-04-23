@@ -247,6 +247,20 @@ MidiModule& MidiModuleCollection::AddModule(const std::string& name, UINT8 modTy
 	return _modules.back();
 }
 
+MidiModule& MidiModuleCollection::AddModule(const MidiModule& mMod)
+{
+	_modules.push_back(mMod);
+	return _modules.back();
+}
+
+void MidiModuleCollection::RemoveModule(size_t moduleID)
+{
+	if (moduleID < _modules.size())
+		return;
+	_modules.erase(_modules.begin() + moduleID);
+	return;
+}
+
 size_t MidiModuleCollection::GetOptimalModuleID(UINT8 playType) const
 {
 	size_t curMod;
@@ -256,6 +270,8 @@ size_t MidiModuleCollection::GetOptimalModuleID(UINT8 playType) const
 	for (curMod = 0; curMod < _modules.size(); curMod ++)
 	{
 		const MidiModule& mMod = _modules[curMod];
+		if (mMod.ports.empty())
+			continue;
 		
 		for (curPT = 0; curPT < mMod.playType.size(); curPT ++)
 		{
@@ -267,6 +283,8 @@ size_t MidiModuleCollection::GetOptimalModuleID(UINT8 playType) const
 	for (curMod = 0; curMod < _modules.size(); curMod ++)
 	{
 		const MidiModule& mMod = _modules[curMod];
+		if (mMod.ports.empty())
+			continue;
 		
 		for (curPT = 0; curPT < mMod.playType.size(); curPT ++)
 		{

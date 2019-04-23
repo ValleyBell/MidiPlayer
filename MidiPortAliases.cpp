@@ -65,7 +65,7 @@ void MidiPortAliases::AddAlias(const std::string& aliasName, const std::string& 
 		std::string aPostfix;
 		std::vector<char> numBuf;	// buffer for storing the alias number
 		std::string aNameNew;
-		size_t digits;
+		unsigned int digits;
 		unsigned int aliasID;
 		
 		aPrefix = aliasName.substr(0, hashPos);
@@ -82,7 +82,7 @@ void MidiPortAliases::AddAlias(const std::string& aliasName, const std::string& 
 			{
 				do
 				{
-					snprintf(&numBuf[0], numBuf.size(), "%*u", aliasID);
+					snprintf(&numBuf[0], numBuf.size(), "%*u", digits, aliasID);
 					aNameNew = aPrefix + &numBuf[0] + aPostfix;
 					aliasID ++;
 				} while(_aliases.find(aNameNew) != _aliases.end());	// go to first unused ID
