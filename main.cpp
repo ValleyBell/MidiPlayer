@@ -651,7 +651,7 @@ UINT8 main_CloseModule(void)
 
 UINT8 main_OpenModule(size_t modID)
 {
-	if (mopList != NULL)
+	if (mopList != NULL && mopList->state)
 		return 0xC0;	// already open
 	
 	UINT8 retVal;

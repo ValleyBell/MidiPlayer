@@ -441,6 +441,8 @@ void MidiPlayer::RefreshTickTime(void)
 	
 	tmrMul = _tmrFreq * _midiTempo;
 	tmrDiv = (UINT64)1000000 * _cMidi->GetMidiResolution();
+	if (tmrDiv == 0)
+		tmrDiv = 1000000;
 	_curTickTime = (tmrMul + tmrDiv / 2) / tmrDiv;
 	return;
 }

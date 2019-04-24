@@ -96,10 +96,57 @@ void MidiPortAliases::AddAlias(const std::string& aliasName, const std::string& 
 
 /*static*/ bool MidiPortAliases::PatternMatch(const std::string& pattern, const std::string& match)
 {
-	if (pattern == match)
-		return true;
-	// TODO: handle wildcards * and ?
-	return false;
+	size_t patIdx = 0;
+	size_t matIdx = 0;
+	while(patIdx < pattern.length())
+	{
+		if (pattern[patIdx] == '*')	// '*' == multi-character wildcard
+		{
+			patIdx ++;
+			for (; patIdx < pattern.length(); patIdx ++)
+			{
+				if (pattern[patIdx] == '?')
+					matIdx ++;
+				else if (pattern[patIdx] != '*')
+					break;
+			}
+			if (matIdx > match.length())
+				return false;	// more ?s found than characters available
+			
+			size_t patMIdx = patIdx;	// search next series of matching bytes
+			for (; patMIdx < pattern.length(); patMIdx ++)
+			{
+				if (pattern[patMIdx] == '*' || pattern[patMIdx] == '?')
+					break;
+			}
+			if (patMIdx == patIdx)
+				return true;	// wildcard * at the end - the rest will match
+			
+			std::string subStr = pattern.substr(patIdx, patMIdx - patIdx);
+			matIdx = match.find(subStr, matIdx);
+			if (matIdx == std::string::npos)
+				return false;
+			// skip the subStr in pattern and match (we already fully checked it)
+			patIdx += subStr.length();
+			matIdx += subStr.length();
+		}
+		else
+		{
+			if (matIdx >= match.length())
+				return false;	// match end, but characters left pattern
+			if (pattern[patIdx] != '?')	// '?' == single-character wildcard
+			{
+				if (pattern[patIdx] != match[matIdx])
+					return false;
+			}
+			patIdx ++;
+			matIdx ++;
+		}
+	}
+	if (matIdx >= match.length())
+		return true;	// full match
+	else
+		return false;	// characters left in match
 }
 
 const std::map<std::string, UINT32>& MidiPortAliases::GetAliases() const
