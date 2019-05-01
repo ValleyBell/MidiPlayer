@@ -120,6 +120,10 @@ void MidiPlayer::SetOutPortMapping(size_t numPorts, const size_t* outPorts)
 void MidiPlayer::SetOptions(const PlayerOpts& plrOpts)
 {
 	_options = plrOpts;
+	if (_playing)
+		RefreshSrcDevSettings();
+	
+	return;
 }
 
 const PlayerOpts& MidiPlayer::GetOptions(void) const
@@ -135,8 +139,12 @@ UINT8 MidiPlayer::GetModuleType(void) const
 void MidiPlayer::SetSrcModuleType(UINT8 modType, bool insRefresh)
 {
 	_options.srcType = modType;
-	if (insRefresh)
-		AllInsRefresh();
+	if (_playing)
+	{
+		RefreshSrcDevSettings();
+		if (insRefresh)
+			AllInsRefresh();
+	}
 	
 	return;
 }
@@ -144,7 +152,7 @@ void MidiPlayer::SetSrcModuleType(UINT8 modType, bool insRefresh)
 void MidiPlayer::SetDstModuleType(UINT8 modType, bool chnRefresh)
 {
 	_options.dstType = modType;
-	if (chnRefresh)
+	if (_playing && chnRefresh)
 		AllChannelRefresh();
 	
 	return;
@@ -256,6 +264,9 @@ UINT8 MidiPlayer::Start(void)
 	_tmrMinStart = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
 	initDelay = 0;	// additional time (in ms) to wait due to device reset commands
 	
+	_defSrcInsMap = 0xFF;
+	_defDstInsMap = 0xFF;
+	RefreshSrcDevSettings();
 	InitializeChannels();
 	if (_options.flags & PLROPTS_RESET)
 	{
@@ -311,37 +322,6 @@ UINT8 MidiPlayer::Start(void)
 			}
 			initDelay += 400;	// XG modules take a bit to fully reset
 		}
-	}
-	if (_options.flags & PLROPTS_STRICT)
-	{
-		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
-		{
-			if (MMASK_MOD(_options.dstType) >= MTXG_MU100)
-			{
-				// on MU100+, select the proper default voice map
-				std::vector<UINT8> syxData(XG_VOICE_MAP, XG_VOICE_MAP + sizeof(XG_VOICE_MAP));
-				UINT8 voiceMap;
-				
-				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
-				{
-					if (MMASK_MOD(_options.srcType) >= MTXG_MU100)
-						voiceMap = 0x01;	// voice map: MU100 native
-					else
-						voiceMap = 0x00;	// voice map: MU basic
-				}
-				else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GM)
-				{
-					voiceMap = 0x01;	// let's try the "default" map for GM stuff
-				}
-				else
-				{
-					voiceMap = 0x00;	// "MU basic" sounds sometimes slightly better, IMO
-				}
-				syxData[syxData.size() - 2] = voiceMap;
-				MidiOutPort_SendLongMsg(_outPorts[0], syxData.size(), &syxData[0x00]);
-			}
-		}
-		initDelay += 50;
 	}
 	InitializeChannels_Post();
 	
@@ -1073,8 +1053,9 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 			if (insInf->bank[1] == 0x00)	// Bank LSB = default bank
 			{
 				// enforce the device's "native" bank
-				if (MMASK_MOD(devType) < MT_UNKNOWN)
-					insInf->bank[1] = 0x01 + MMASK_MOD(devType);
+				UINT8 insMap = (chnSt->defInsMap != 0xFF) ? chnSt->defInsMap : (_defSrcInsMap & 0x7F);
+				if (insMap < 0x7F)
+					insInf->bank[1] = 0x01 + insMap;
 				else
 					insInf->bnkIgn |= BNKMSK_LSB;	// unknown device - find anything
 			}
@@ -1088,6 +1069,15 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 			// enforce drum mode
 			if (insInf->bank[0] < 0x7E)
 				insInf->bank[0] = 0x7F;
+		}
+		if (MMASK_MOD(devType) >= MTXG_MU100)
+		{
+			UINT8 insMap = (chnSt->defInsMap != 0xFF) ? chnSt->defInsMap : (_defSrcInsMap & 0x7F);
+			UINT8 insBank = insMap ? 0x7E : 0x7F;	// 7F = MU Basic, 7E = MU100 Native
+			if (insInf->bank[0] == 0x00 && insInf->bank[1] == 0x00)
+				insInf->bank[1] = insBank;
+			else if (insInf->bank[0] == 0x7F && insInf->ins == (0x80|0x00))
+				insInf->ins = 0x80 | insBank;
 		}
 	}
 	
@@ -1170,36 +1160,30 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			}
 			if (insInf->bank[1] == 0x00)
 			{
-				UINT8 defaultDev;
+				// when set to "default" map, select correct map based on source song/destination device
+				UINT8 defaultMap;
 				
 				if (_options.flags & PLROPTS_STRICT)
 				{
 					// GS song: use bank that is optimal for the song
 					// GM song: use "native" bank for device
-					if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
-					{
-						defaultDev = MMASK_MOD(_options.srcType);
-					}
+					if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+						defaultMap = _defSrcInsMap & 0x7F;
 					else
-					{
-						defaultDev = MMASK_MOD(devType);
-						if (defaultDev == MTGS_SC8850)
-							defaultDev = MTGS_SC88PRO;	// TODO: make configurable
-					}
+						defaultMap = _defDstInsMap;
 				}
 				else
 				{
 					// non-strict mode: just look up current device
-					defaultDev = MMASK_MOD(devType);
-					if (defaultDev >= MT_UNKNOWN)
-						defaultDev = 0x00;
+					defaultMap = _defDstInsMap;
 				}
 				
-				insInf->bank[1] = 0x01 + defaultDev;
+				insInf->bank[1] = 0x01 + defaultMap;
 				strictPatch |= BNKMSK_LSB;	// mark for undo when not strict
 			}
 			if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
 			{
+				// drum kit fallback for GM songs
 				// TODO: make this an option
 				if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
 				{
@@ -1246,6 +1230,35 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 				// enforce capital tone
 				if (insInf->bank[0] >= 0x7E)
 					insInf->bank[0] = 0x00;
+			}
+		}
+		if (_options.flags & PLROPTS_STRICT)
+		{
+			if (MMASK_MOD(devType) >= MTXG_MU100)
+			{
+				UINT8 gblInsMap;
+				UINT8 insMap;
+				UINT8 insBank;
+				
+				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+					gblInsMap = _defSrcInsMap & 0x7F;
+				else
+					gblInsMap = _defDstInsMap;
+				insMap = (chnSt->defInsMap != 0xFF) ? chnSt->defInsMap : gblInsMap;
+				
+				insBank = insMap ? 0x7E : 0x7F;	// 7F = MU Basic, 7E = MU100 Native
+				if (insInf->bank[0] == 0x00 && insInf->bank[1] == 0x00)
+					insInf->bank[1] = insBank;
+				else if (insInf->bank[0] == 0x7F && insInf->ins == (0x80|0x00))
+					insInf->ins = 0x80 | insBank;
+			}
+			else
+			{
+				// explicit instrument map (7E/7F) -> GM map (00)
+				if (insInf->bank[0] == 0x00 && insInf->bank[1] >= 0x7E)
+					insInf->bank[1] = 0x00;
+				else if (insInf->bank[0] == 0x7F && insInf->ins >= (0x80|0x7E))
+					insInf->ins = 0x80 | 0x00;
 			}
 		}
 		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
@@ -1434,13 +1447,26 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		didPatch |= (chnSt->insSend.bank[0] != chnSt->ctrls[0x00]) << BNKBIT_MSB;
 		didPatch |= (chnSt->insSend.bank[1] != chnSt->ctrls[0x20]) << BNKBIT_LSB;
 		didPatch |= ((chnSt->insSend.bank[2] & 0x7F) != chnSt->curIns) << BNKBIT_INS;
-		if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+		if (_options.flags & PLROPTS_STRICT)
 		{
-			// only Bank LSB was patched and it was patched from 0 (default instrument map) to the "native" map
-			if (didPatch == BNKMSK_LSB && chnSt->ctrls[0x20] == 0x00)
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
-				didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
-				showOrgIns = true;
+				// only Bank LSB was patched and it was patched from 0 (default instrument map) to the "native" map
+				if (chnSt->ctrls[0x20] == 0x00 && didPatch == BNKMSK_LSB)
+				{
+					didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
+					showOrgIns = true;
+				}
+			}
+			else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+			{
+				// MU instrument map for GM sounds (MSB 0, LSB 0 or drum kit 0)
+				if ((chnSt->ctrls[0x00] == 0x00 && chnSt->ctrls[0x20] == 0x00 && didPatch == BNKMSK_LSB) ||
+					(chnSt->ctrls[0x00] == 0x7F && chnSt->curIns == 0x00 && didPatch == BNKMSK_INS))
+				{
+					didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
+					showOrgIns = true;
+				}
 			}
 		}
 		if (! didPatch && chnSt->insSend.bankPtr == NULL)
@@ -1711,6 +1737,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 					//	- Bank MSB 127
 					//	- SysEx Voice Map
 					//	- Program Change
+					_defSrcInsMap = syxData[0x06];
 					break;
 				}
 			}
@@ -2142,6 +2169,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x404001:	// Tone Map 0 Number (setting when Bank LSB == 0)
 			vis_printf("SysEx Chn %s: Set Default Tone Map to %u", portChnStr, syxData[0x07]);
+			chnSt->defInsMap = syxData[0x07] - 0x01;	// 00,01..04 -> FF,00..03
 			break;
 		}
 		break;
@@ -2231,6 +2259,8 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x00007F:	// All Parameters Reset
 			vis_addstr("SysEx: XG All Parameters Reset");
+			_defSrcInsMap = 0xFF;	// Yes, this one is reset with this SysEx message.
+			RefreshSrcDevSettings();
 			InitializeChannels();
 			if (_options.flags & PLROPTS_STRICT)
 				return true;	// ignore for now, TODO: send, then ensure proper Voice Map
@@ -2635,20 +2665,47 @@ void MidiPlayer::PrepareMidi(void)
 	return;
 }
 
-void MidiPlayer::InitializeChannels(void)
+void MidiPlayer::RefreshSrcDevSettings(void)
 {
-	size_t curChn;
-	
+	if (_defSrcInsMap >= 0x80)
+	{
+		if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+		{
+			if (MMASK_MOD(_options.srcType) < MT_UNKNOWN)
+				_defSrcInsMap = MMASK_MOD(_options.srcType);	// instrument map, depending on model
+			else
+				_defSrcInsMap = 0x00;
+		}
+		else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+		{
+			// XG has only 2 instrument maps: "MU Basic" and "MU100 Native"
+			_defSrcInsMap = (MMASK_MOD(_options.srcType) >= MTXG_MU100) ? 0x01 : 0x00;
+		}
+		else
+		{
+			_defSrcInsMap = 0x00;
+		}
+		_defSrcInsMap |= 0x80;
+	}
 	if (_options.srcType == MODULE_MT32)
 		_defPbRange = 12;
 	else
 		_defPbRange = 2;
+	
+	return;
+}
+
+void MidiPlayer::InitializeChannels(void)
+{
+	size_t curChn;
+	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
 		chnSt.midChn = curChn & 0x0F;
 		chnSt.portID = curChn >> 4;
 		chnSt.flags = 0x00;
+		chnSt.defInsMap = 0xFF;
 		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
 		chnSt.insOrg.bankPtr = NULL;
 		chnSt.insSend.bank[0] = chnSt.insSend.bank[1] = chnSt.insSend.ins = 0xFF;	// initialize to "not set"
@@ -2702,24 +2759,31 @@ void MidiPlayer::InitializeChannels_Post(void)
 {
 	size_t curChn;
 	UINT8 defDstPbRange;
-	UINT8 defInsMap;
 	
-	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS && MMASK_MOD(_options.dstType) < MT_UNKNOWN)
+	_initChnPost = false;
+	
+	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 	{
-		defInsMap = MMASK_MOD(_options.dstType);
-		if (defInsMap == MTGS_SC8850)
-			defInsMap = MTGS_SC88PRO;	// TODO: make configurable
+		if (MMASK_MOD(_options.dstType) < MT_UNKNOWN)
+			_defDstInsMap = MMASK_MOD(_options.dstType);
+		else
+			_defDstInsMap = 0x00;
+		if (_defDstInsMap == MTGS_SC8850)
+			_defDstInsMap = MTGS_SC88PRO;	// TODO: make configurable
+	}
+	else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+	{
+		_defDstInsMap = (MMASK_MOD(_options.dstType) >= MTXG_MU100) ? 0x01 : 0x00;
 	}
 	else
 	{
-		defInsMap = 0x00;
+		_defDstInsMap = 0x00;
 	}
-	
-	_initChnPost = false;
 	if (_options.dstType == MODULE_MT32)
 		defDstPbRange = 12;
 	else
 		defDstPbRange = 2;
+	
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
 	{
 		ChannelState& drumChn = _chnStates[curChn | 0x09];
@@ -2756,7 +2820,7 @@ void MidiPlayer::InitializeChannels_Post(void)
 				if (_options.dstType == MODULE_SC55 || _options.dstType == MODULE_TG300B)
 					drumChn.insState[1] = 0x00;
 				else if (drumChn.insState[1] == 0x00)
-					drumChn.insState[1] = 0x01 + defInsMap;
+					drumChn.insState[1] = 0x01 + _defDstInsMap;
 				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x00, drumChn.insState[0]);
 				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x20, drumChn.insState[1]);
 				MidiOutPort_SendShortMsg(outPort, 0xC0 | drumChn.midChn, drumChn.insState[2], 0x00);

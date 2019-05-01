@@ -43,6 +43,7 @@ public:
 		UINT8 midChn;
 		UINT8 portID;
 		UINT8 flags;		// Bit 7 (80) - is drum channel
+		UINT8 defInsMap;	// default GS/XG instrument map (0xFF = use global default)
 		InstrumentInfo insOrg;	// original instrument set by the song
 		InstrumentInfo insSend;	// patched instrument as sent to the device
 		UINT8 insState[3];	// 0 = Bank MSB, 1 = Bank LSB, 2 = instrument (last sent state)
@@ -109,6 +110,7 @@ private:
 	const INS_BANK* SelectInsMap(UINT8 moduleType, UINT8* insMapModule);
 	static bool tempo_compare(const TempoChg& first, const TempoChg& second);
 	void PrepareMidi(void);
+	void RefreshSrcDevSettings(void);
 	void InitializeChannels(void);
 	void InitializeChannels_Post(void);
 	void RefreshTickTime(void);
@@ -153,6 +155,11 @@ private:
 	UINT64 _tmrStep;
 	UINT64 _tmrMinStart;
 	
+	UINT8 _defSrcInsMap;	// default instrument map of source device
+							// 00..0F when set via MIDI
+							// 80..8F when set based on detected device
+							// FF when not set
+	UINT8 _defDstInsMap;	// default instrument map of destination device (for GM -> GS/XG mapping)
 	UINT8 _defPbRange;
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
