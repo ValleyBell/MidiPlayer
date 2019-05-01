@@ -699,6 +699,7 @@ void PlayMidi(void)
 	if (chosenModule == (size_t)-1 || chosenModule >= midiModColl.GetModuleCount())
 	{
 		vis_printf("Unable to find an appropriate MIDI module!\n");
+		vis_update();
 		vis_getch_wait();
 		return;
 	}

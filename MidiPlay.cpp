@@ -874,8 +874,10 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 static const INS_DATA* GetInsMapData(const INS_PRG_LST* insPrg, UINT8 msb, UINT8 lsb, UINT8 maxModuleID)
 {
 	const INS_DATA* insData;
+	const INS_DATA* idLowerMod;
 	UINT32 curIns;
 	
+	idLowerMod = NULL;
 	for (curIns = 0; curIns < insPrg->count; curIns ++)
 	{
 		insData = &insPrg->instruments[curIns];
@@ -885,23 +887,12 @@ static const INS_DATA* GetInsMapData(const INS_PRG_LST* insPrg, UINT8 msb, UINT8
 			{
 				if (insData->moduleID == maxModuleID)
 					return insData;
+				else if (insData->moduleID < maxModuleID && idLowerMod == NULL)
+					idLowerMod = insData;
 			}
 		}
 	}
-	for (curIns = 0; curIns < insPrg->count; curIns ++)
-	{
-		insData = &insPrg->instruments[curIns];
-		if (msb == 0xFF || insData->bankMSB == msb)
-		{
-			if (lsb == 0xFF || insData->bankLSB == lsb)
-			{
-				if (insData->moduleID <= maxModuleID)
-					return insData;
-			}
-		}
-	}
-	
-	return NULL;
+	return idLowerMod;
 }
 
 static const INS_DATA* GetExactInstrument(const INS_BANK* insBank, const MidiPlayer::InstrumentInfo* insInf, UINT8 maxModuleID)
@@ -984,6 +975,8 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 	{
 		if (devType == MODULE_SC55)
 		{
+			UINT8 bankLSB = (insInf->bnkIgn & BNKMSK_LSB) ? 0xFF : insInf->bank[1];
+			
 			// This implements the Capital Tone Fallback mode from SC-55 v1.
 			if (! (chnSt->flags & 0x80))
 			{
@@ -994,7 +987,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 					
 					// 1. sub-CTF according to https://www.vogons.org/viewtopic.php?p=501280#p501280
 					insInf->bank[0] &= ~0x07;
-					if (GetInsMapData(insPrg, insInf->bank[0], insInf->bank[1], 0xFF) != NULL)
+					if (GetInsMapData(insPrg, insInf->bank[0], bankLSB, 0xFF) != NULL)
 						return;
 				}
 				
@@ -1009,7 +1002,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 					newIns = insInf->ins & ~0x07;
 				else
 					newIns = insInf->ins;
-				if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], insInf->bank[1], 0xFF) != NULL)
+				if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], bankLSB, 0xFF) != NULL)
 				{
 					insInf->ins = newIns;
 					return;
@@ -1109,10 +1102,11 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 				tmpII.bank[0] = 0x00;
 				tmpII.bank[1] = (insInf->bank[0] == 0x41) ? 0x01 : insInf->bank[1];
 				tmpII.ins = insInf->ins;
+				// get instrument name from the instrument the user instrument is based on
 				insInf->bankPtr = GetExactInstrument(insBank, &tmpII, mapModType);
 			}
 		}
-		else if (_options.flags & PLROPTS_ENABLE_CTF)
+		else
 		{
 			// handle device-specific fallback modes
 			HandleIns_DoFallback(chnSt, insInf, devType, insBank);
@@ -1168,17 +1162,18 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		{
 			if (chnSt->insOrg.bnkIgn & BNKMSK_LSB)	// for SC-55 / TG300B
 				insInf->bank[1] = 0x00;
-			if (_options.flags & PLROPTS_STRICT)
+			if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS)
 			{
-				if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_GS)
+				insInf->bank[0] = 0x00;
+				insInf->bank[1] = 0x00;
+				// do NOT mark as "strict", as these patches are required for proper playback
+			}
+			if (insInf->bank[1] == 0x00)
+			{
+				UINT8 defaultDev;
+				
+				if (_options.flags & PLROPTS_STRICT)
 				{
-					insInf->bank[0] = 0x00;
-					insInf->bank[1] = 0x00;
-				}
-				if (insInf->bank[1] == 0x00)
-				{
-					UINT8 defaultDev;
-					
 					// GS song: use bank that is optimal for the song
 					// GM song: use "native" bank for device
 					if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS && MMASK_MOD(_options.srcType) < MT_UNKNOWN)
@@ -1191,15 +1186,25 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 						if (defaultDev == MTGS_SC8850)
 							defaultDev = MTGS_SC88PRO;	// TODO: make configurable
 					}
-					
-					insInf->bank[1] = 0x01 + defaultDev;
-					strictPatch |= BNKMSK_LSB;	// mark for undo when not strict
 				}
-				if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
+				else
 				{
-					//if (true)	// TODO: make this an option
-					if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
-						insInf->ins = 0x00 | 0x80;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+					// non-strict mode: just look up current device
+					defaultDev = MMASK_MOD(devType);
+					if (defaultDev >= MT_UNKNOWN)
+						defaultDev = 0x00;
+				}
+				
+				insInf->bank[1] = 0x01 + defaultDev;
+				strictPatch |= BNKMSK_LSB;	// mark for undo when not strict
+			}
+			if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
+			{
+				// TODO: make this an option
+				if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
+				{
+					insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+					strictPatch |= BNKMSK_INS;
 				}
 			}
 			if (insInf->bank[1] > 0x01 + MMASK_MOD(devType))
@@ -1223,27 +1228,24 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	}
 	else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
 	{
-		if (_options.flags & PLROPTS_STRICT)
+		if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_XG)
 		{
-			if (MMASK_TYPE(_options.srcType) != MODULE_TYPE_XG)
+			insInf->bank[0] = (chnSt->flags & 0x80) ? 0x7F : 0x00;
+			insInf->bank[1] = 0x00;
+		}
+		else
+		{
+			if (chnSt->flags & 0x80)
 			{
-				insInf->bank[0] = (chnSt->flags & 0x80) ? 0x7F : 0x00;
-				insInf->bank[1] = 0x00;
+				// enforce drum mode
+				if (insInf->bank[0] < 0x7E)
+					insInf->bank[0] = 0x7F;
 			}
 			else
 			{
-				if (chnSt->flags & 0x80)
-				{
-					// enforce drum mode
-					if (insInf->bank[0] < 0x7E)
-						insInf->bank[0] = 0x7F;
-				}
-				else
-				{
-					// enforce capital tone
-					if (insInf->bank[0] >= 0x7E)
-						insInf->bank[0] = 0x00;
-				}
+				// enforce capital tone
+				if (insInf->bank[0] >= 0x7E)
+					insInf->bank[0] = 0x00;
 			}
 		}
 		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
@@ -1275,16 +1277,65 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		else if (_options.flags & PLROPTS_ENABLE_CTF)
 		{
 			// handle device-specific fallback modes
-			UINT8 fbDevType = devType;
-			if (true && MMASK_TYPE(fbDevType) == MODULE_TYPE_GS)
-				fbDevType = MODULE_SC55;	// use SC-55 fallback method for all GS devices
-			HandleIns_DoFallback(chnSt, insInf, fbDevType, insBank);
-			if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
+			if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
+			{
+				// 1. ignore the instrument map (Bank LSB)
+				insInf->bnkIgn |= BNKMSK_LSB;
+				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				if (insInf->bankPtr != NULL)
+					insInf->bank[1] = insInf->bankPtr->bankLSB;
+				
+				// 2. ignore the variation setting (Bank MSB) via SC-55 fallback
+				if (insInf->bankPtr == NULL)
+				{
+					HandleIns_DoFallback(chnSt, insInf, MODULE_SC55, insBank);
+					insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				}
+				
+				// 3. fall back to GM
+			}
+			else if (MMASK_TYPE(devType) == MODULE_TYPE_XG)
 			{
 				if (insInf->bank[0] > 0x00 && insInf->bank[0] < 0x40)
 					insInf->bank[0] = 0x00;	// additional Bank MSB fallback to prevent sounds from going silent
+				HandleIns_DoFallback(chnSt, insInf, devType, insBank);
+				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				
+				if (insInf->bankPtr == NULL)
+				{
+					// GM fallback while keeping melody/drum mode intact
+					if (chnSt->flags & 0x80)
+					{
+						insInf->bank[0] = 0x7F;
+						insInf->bnkIgn |= BNKMSK_LSB | BNKMSK_INS;
+					}
+					else
+					{
+						insInf->bank[0] = 0x00;
+						insInf->bnkIgn |= BNKMSK_LSB;
+					}
+					insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				}
 			}
-			insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+			else
+			{
+				HandleIns_DoFallback(chnSt, insInf, devType, insBank);
+				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+			}
+			if (insInf->bankPtr == NULL)
+			{
+				// try GM fallback
+				insInf->bnkIgn |= BNKMSK_ALLBNK;
+				if (chnSt->flags & 0x80)
+					insInf->bnkIgn |= BNKMSK_INS;
+				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+			}
+			if (insInf->bankPtr != NULL)
+			{
+				insInf->bank[0] = insInf->bankPtr->bankMSB;
+				insInf->bank[1] = insInf->bankPtr->bankLSB;
+				insInf->ins = insInf->bankPtr->program;
+			}
 			strictPatch = BNKMSK_NONE;
 		}
 	}
@@ -1304,7 +1355,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		{
 			// We had to use LSB 01 for instrument lookup, but we actually send LSB 00.
 			// All SC-55 models ignore LSB, but early XG devices in TG300B mode do not.
-			// (MU80 is known to require LSB 0, DB50XG/S-YXG50 and MU128 ignore it)
+			// (MU80 is known to require LSB 0, DB50XG/S-YXG50 and MU128 don't care.)
 			insInf->bank[1] = 0x00;
 		}
 	}
@@ -1860,7 +1911,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				evtChn = PART_ORDER[syxData[0x06] & 0x0F];
 				evtPort = portID;
 				if (syxData[0x06] & 0x10)
-					evtPort ^= 0x01;
+					evtPort ^= 0x01;	// TODO: verify this
 				PrintPortChn(portChnStr, evtPort, evtChn);
 				vis_printf("SysEx Chn %s: Receive from Port %c", portChnStr, 'A' + syxData[0x07]);
 			}
@@ -1885,10 +1936,12 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		break;
 	case 0x400000:	// Patch (port A)
 	case 0x500000:	// Patch (port B)
+	case 0x600000:	// Patch (port C) (SC-8850 only)
+	case 0x700000:	// Patch (port D) (SC-8850 only)
 		evtPort = portID;
 		if (addr & 0x100000)
-			evtPort ^= 0x01;
-		addr &= ~0x100000;	// remove port bit
+			evtPort ^= 0x01;	// TODO: what does the 8850 do here?
+		addr &= ~0x300000;	// remove port bits
 		if ((addr & 0x00F000) >= 0x001000)
 		{
 			addr &= ~0x000F00;	// remove channel ID
