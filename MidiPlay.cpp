@@ -242,6 +242,7 @@ UINT8 MidiPlayer::Start(void)
 	
 	_loopPt.used = false;
 	_curLoop = 0;
+	_karaokeMode = 0;
 	
 	_trkStates.clear();
 	for (curTrk = 0; curTrk < _cMidi->GetTrackCount(); curTrk ++)
@@ -498,13 +499,57 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	case 0xFF:	// Meta Event
 		switch(midiEvt->evtValA)
 		{
-		case 0x03:	// Text/Sequence Name
+		//case 0x00:	// Sequence Number
+		case 0x01:	// Text
+			{
+				std::string text = Vector2String(midiEvt->evtData);
+				if (text.empty())
+					break;
+				if (text == "@KMIDI KARAOKE FILE")
+				{
+					_karaokeMode = 1;	// Soft Karaoke .kar files
+					_softKarTrack = trkState->trkID;
+					vis_addstr("Soft Karaoke Mode enabled.");
+				}
+				if (_karaokeMode == 1)
+				{
+					if (text.length() >= 2 && text[0] == '@')
+					{
+						// tag handling according to https://www.mixagesoftware.com/en/midikit/help/HTML/karaoke_formats.html
+						// TODO: Should I really lock karaoke handling to a certain track?
+						// I've seen MIDIs that have the @K/@V in the 2nd track and @T + all lyrics in the 3rd track.
+						_softKarTrack = trkState->trkID;
+						switch(text[1])
+						{
+						case 'K':	// .kar mode enable
+							break;
+						case 'V':	// version information
+							break;
+						case 'L':	// language
+							break;
+						case 'T':	// song title, artist, sequencer
+							break;
+						case 'I':	// additional information
+							break;
+						}
+						break;	// allow printing song information
+					}
+					if (_softKarTrack == trkState->trkID)
+						return;	// but don't show karaoke text
+				}
+			}
+			break;
+		//case 0x02:	// Copyright
+		case 0x03:	// Track/Sequence Name
 			if (trkState->trkID == 0 || _cMidi->GetMidiFormat() == 2)
 			{
 				std::string text = Vector2String(midiEvt->evtData);
 				//printf("Text: %s\n", text.c_str());
 			}
 			break;
+		//case 0x04:	// Instrument Name
+		case 0x05:	// Lyric
+			return;	// don't print for now
 		case 0x06:	// Marker
 			{
 				std::string text = Vector2String(midiEvt->evtData);
@@ -529,6 +574,10 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 				}
 			}
 			break;
+		//case 0x07:	// Cue Point
+		//case 0x08:	// Program Name
+		//case 0x09:	// Port Name
+		//case 0x20:	// Channel Prefix
 		case 0x21:	// MIDI Port
 			if (midiEvt->evtData.size() >= 1)
 			{
@@ -545,10 +594,14 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		case 0x2F:	// Track End
 			trkState->evtPos = trkState->endPos;
 			break;
-		case 0x51:	// Trk End
+		case 0x51:	// Tempo
 			_midiTempo = ReadBE24(&midiEvt->evtData[0x00]);
 			RefreshTickTime();
 			break;
+		//case 0x54:	// SMPTE offset
+		//case 0x58:	// Time Signature
+		//case 0x59:	// Key Signature
+		//case 0x7F:	// Sequence Specific
 		}
 		if (midiEvt->evtData.empty())
 			vis_print_meta(trkState->trkID, midiEvt->evtValA, 0, NULL);
@@ -1195,7 +1248,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			{
 				// When playing an SC-88Pro MIDI on SC-88, we have to fix
 				// the Bank LSB setting to make the instruments work at all.
-				if (insInf->bank[2] == 0x7F || insInf->bank[0] >= 0x7E)
+				if (insInf->ins == (0x80|0x7F) || insInf->bank[0] >= 0x7E)
 					insInf->bank[1] = 0x01 + MTGS_SC55;
 				else
 					insInf->bank[1] = 0x01 + MMASK_MOD(devType);
@@ -1446,7 +1499,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		
 		didPatch |= (chnSt->insSend.bank[0] != chnSt->ctrls[0x00]) << BNKBIT_MSB;
 		didPatch |= (chnSt->insSend.bank[1] != chnSt->ctrls[0x20]) << BNKBIT_LSB;
-		didPatch |= ((chnSt->insSend.bank[2] & 0x7F) != chnSt->curIns) << BNKBIT_INS;
+		didPatch |= ((chnSt->insSend.ins & 0x7F) != chnSt->curIns) << BNKBIT_INS;
 		if (_options.flags & PLROPTS_STRICT)
 		{
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)

@@ -793,7 +793,11 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		curYline ++;
 		break;
 	case 0x05:	// Lyric
-		// don't print for now
+		//if (! optShowMeta[5])
+		//	break;
+		str_prepare_print(text);
+		wprintw(logWin, "Lyric: %s", text.c_str());
+		curYline ++;
 		break;
 	case 0x06:	// Marker
 		if (! optShowMeta[6])

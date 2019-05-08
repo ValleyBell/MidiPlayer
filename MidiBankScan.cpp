@@ -556,6 +556,16 @@ static UINT8 InsMask2ModuleID(UINT32 featureMask, UINT8 notInsMask)
 	return modID;
 }
 
+static int MetaEvtStrCmp(midevt_const_it eventIt, const char* text)
+{
+	size_t textLen;
+	
+	textLen = strlen(text);
+	if (eventIt->evtData.size() != textLen)
+		return -2;	// TODO: handle in a better way
+	return strncmp((const char*)&eventIt->evtData[0], text, textLen);
+}
+
 void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result)
 {
 	UINT16 curTrk;
@@ -572,6 +582,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	UINT8 GS_Opt;		// GS module ID: optimal playback
 	UINT8 XG_Opt;		// XG module ID: optimal playback
 	UINT8 xgDrum;
+	UINT8 spcFeature;
 	
 	modChk.gsMaxLSB = 0x00;
 	modChk.MaxDrumKit = 0x00;
@@ -583,6 +594,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	modChk.fmGS = 0x00;
 	modChk.fmXG = 0x00;
 	modChk.fmOther = 0x00;
+	spcFeature = 0x00;
 	
 	sv.drumChnMask = (1 << 9);
 	sv.chnUseMask = 0x0000;
@@ -735,6 +747,10 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 				case 0xFF:	// Meta Event
 					switch(evtIt->evtValA)
 					{
+					case 0x01:	// Text
+						if (! MetaEvtStrCmp(evtIt, "@KMIDI KARAOKE FILE"))
+							spcFeature |= (1 << SPCFEAT_KARAOKE);
+						break;
 					case 0x21:	// MIDI Port
 						if (evtIt->evtData[0x00] != sv.curPortID)
 						{
@@ -799,6 +815,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	}
 	
 	xgDrum = (modChk.MaxDrumMSB == 0x7F);
+	result->spcFeature = spcFeature;
 	result->hasReset = sv.syxReset;
 	result->GS_Min = GS_Min;
 	result->GS_Opt = GS_Opt;

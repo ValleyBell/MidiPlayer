@@ -34,6 +34,8 @@
 
 #define FMBOTH_MT_RESET		16	// MT-32 Reset
 
+#define SPCFEAT_KARAOKE		0	// Soft Karaoke (.kar) file
+
 typedef struct
 {
 	// feature masks
@@ -54,6 +56,7 @@ typedef struct
 	UINT8 modType;		// module type (GM/GS/XG)
 	UINT8 numPorts;		// number of MIDI ports required for proper playback
 	UINT8 hasReset;
+	UINT8 spcFeature;	// special features (e.g. karaoke)
 	UINT8 GS_Min;		// GS module ID: minimum compatibility (using non-GM fallback instruments)
 	UINT8 GS_Opt;		// GS module ID: optimal playback
 	UINT8 XG_Opt;		// XG module ID: optimal playback
