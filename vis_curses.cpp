@@ -579,7 +579,7 @@ void vis_do_ins_change(UINT16 chn)
 	else if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_XG)
 	{
 		insName = "  " + insName;
-		if ((chnSt->flags & 0x80) && chnSt->curIns == 0x00)
+		if ((chnSt->flags & 0x80) && (insInf->ins & 0x7F) == 0x00)
 			insName[0] = ' ';	// GM drums
 		else if (insInf->bank[0] == 0x00 && insInf->bank[1] == 0x00)
 			insName[0] = ' ';	// GM instrument
@@ -1196,7 +1196,7 @@ static void vis_show_device_selection(void)
 	for (curMod = 0; curMod < midiModColl->GetModuleCount(); curMod ++)
 	{
 		const MidiModule& mMod = *midiModColl->GetModule(curMod);
-		snprintf(tempStr, 0x7F, "%u %s [%s]", curMod, mMod.name.c_str(),
+		snprintf(tempStr, 0x7F, "%u %s [%s]", (unsigned int)curMod, mMod.name.c_str(),
 				midiModColl->GetShortModName(mMod.modType).c_str());
 		modNames.push_back(tempStr);
 		if (sizeX < modNames.back().length())

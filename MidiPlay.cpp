@@ -811,7 +811,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		else if (chnSt->rpnCtrl[0] >= (0x80|0x14) && chnSt->rpnCtrl[0] <= (0x80|0x35))
 		{
-			// TODO: this is drum NRPN
+			chnSt->hadDrumNRPN = true;
 		}
 		break;
 	case 0x26:	// Data Entry LSB
@@ -1567,6 +1567,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 			MidiOutPort_SendShortMsg(outPort, evtType, 0x20, chnSt->insState[1]);
 	}
 	MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, chnSt->insState[2], 0x00);
+	chnSt->hadDrumNRPN = false;	// setting the drum kit resets any drum NRPN modifications
 	return true;
 }
 
@@ -2539,6 +2540,13 @@ void MidiPlayer::AllInsRefresh(void)
 		
 		if (chnSt.curIns == 0xFF)
 			continue;
+		
+		if ((chnSt.flags & 0x80) && chnSt.hadDrumNRPN)
+		{
+			char portChnStr[4];
+			PrintPortChn(portChnStr, curChn >> 4, curChn & 0x0F);
+			vis_printf("Warning: Channel %s: Drum NRPNs reset due to instrument refresh!", portChnStr);
+		}
 		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
 		HandleInstrumentEvent(&chnSt, &insEvt, 0x10);
 		vis_do_ins_change(curChn);
@@ -2774,6 +2782,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0x7F;
+		chnSt.hadDrumNRPN = false;
 		chnSt.pbRange = _defPbRange;
 		chnSt.tuneCoarse = 0;
 		chnSt.tuneFine = 0;
