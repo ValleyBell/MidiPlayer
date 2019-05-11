@@ -66,6 +66,9 @@
     <ClCompile Include="INIReader.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="RCPLoader.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MidiLib.hpp">
@@ -111,6 +114,9 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="INIReader.hpp">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="RCPLoader.hpp">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

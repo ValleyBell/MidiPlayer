@@ -23,6 +23,7 @@ set(HEADERS
 		MidiModules.hpp
 		utils.hpp
 		m3uargparse.hpp
+		RCPLoader.hpp
 		OSTimer.h
 		MidiOut.h
 		vis.hpp
@@ -40,6 +41,7 @@ set(SOURCES
 		MidiModules.cpp
 		utils.cpp
 		m3uargparse.cpp
+		RCPLoader.cpp
 		)
 
 # --- INI reading ---

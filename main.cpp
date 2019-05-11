@@ -36,6 +36,7 @@
 #include "vis.hpp"
 #include "utils.hpp"
 #include "m3uargparse.hpp"
+#include "RCPLoader.hpp"
 
 
 struct InstrumentSetCfg
@@ -357,6 +358,13 @@ int main(int argc, char* argv[])
 		else
 		{
 			retVal = CMidi.LoadFile(hFile);
+			if (retVal >= 0x10)
+			{
+				rewind(hFile);
+				retVal = LoadRCPAsMidi(hFile, CMidi);
+				vis_update();
+				vis_getch_wait();
+			}
 			fclose(hFile);
 		}
 		if (retVal)

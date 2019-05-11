@@ -93,6 +93,7 @@
     <ClCompile Include="MidiPortAliases.cpp" />
     <ClCompile Include="NoteVis.cpp" />
     <ClCompile Include="OSTimer_Win.c" />
+    <ClCompile Include="RCPLoader.cpp" />
     <ClCompile Include="utils.cpp" />
     <ClCompile Include="vis_curses.cpp" />
     <ClCompile Include="vis_sc-lcd.cpp" />
@@ -110,6 +111,7 @@
     <ClInclude Include="MidiPortAliases.hpp" />
     <ClInclude Include="NoteVis.hpp" />
     <ClInclude Include="OSTimer.h" />
+    <ClInclude Include="RCPLoader.hpp" />
     <ClInclude Include="utils.hpp" />
     <ClInclude Include="vis.hpp" />
     <ClInclude Include="vis_sc-lcd.hpp" />
