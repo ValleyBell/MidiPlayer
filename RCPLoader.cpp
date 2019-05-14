@@ -1,4 +1,9 @@
 // RCP MIDI reader by Valley Bell
+#include <string>
+#include <vector>
+#include <string.h>
+#include <stdio.h>
+
 #include <stdtype.h>
 #include "MidiLib.hpp"
 #include "RCPLoader.hpp"

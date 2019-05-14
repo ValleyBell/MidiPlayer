@@ -937,6 +937,9 @@ static int vis_keyhandler_normal(void)
 	case 'D':
 		vis_show_device_selection();
 		break;
+	case 'F':
+		midPlay->FadeOutT(5.0);
+		break;
 	}
 	
 	return 0;

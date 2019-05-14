@@ -363,7 +363,7 @@ int main(int argc, char* argv[])
 				rewind(hFile);
 				retVal = LoadRCPAsMidi(hFile, CMidi);
 				vis_update();
-				vis_getch_wait();
+				//vis_getch_wait();
 			}
 			fclose(hFile);
 		}

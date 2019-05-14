@@ -100,6 +100,7 @@ public:
 	UINT8 Stop(void);
 	UINT8 Pause(void);
 	UINT8 Resume(void);
+	UINT8 FadeOutT(double fadeTime);	// fade out over x seconds
 	UINT8 GetState(void) const;
 	double GetSongLength(void) const;	// returns length in seconds
 	double GetPlaybackPos(void) const;
@@ -130,6 +131,7 @@ private:
 	void AllNotesStop(void);
 	void AllNotesRestart(void);
 	void AllInsRefresh(void);
+	void FadeVolRefresh(void);
 	void AllChannelRefresh(void);
 	void SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk = NULL);
 	void RestoreLoopState(const LoopPoint& lp);
@@ -155,6 +157,9 @@ private:
 	UINT64 _tmrFreq;	// number of virtual timer ticks for 1 second
 	UINT64 _tmrStep;
 	UINT64 _tmrMinStart;
+	UINT64 _tmrFadeStart;
+	UINT64 _tmrFadeLen;
+	UINT64 _tmrFadeNext;
 	
 	UINT8 _defSrcInsMap;	// default instrument map of source device
 							// 00..0F when set via MIDI
@@ -164,6 +169,12 @@ private:
 	UINT8 _defPbRange;
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
+	UINT8 _mstVol;			// master volume, according to SysEx
+	
+	UINT8 _fadeVolMode;		// see FDVMODE_ constants
+	UINT8 _filteredVol;		// bitmask for types of filtered volume
+	UINT8 _mstVolFade;		// master volume, after applying FadeOut value
+	
 	UINT8 _pixelPageMem[10][0x40];
 	NoteVisualization _noteVis;
 	LoopPoint _loopPt;
@@ -175,6 +186,7 @@ private:
 	UINT32 _midiTempo;
 	UINT32 _nextEvtTick;
 	UINT64 _curTickTime;	// time for 1 MIDI tick at current tempo
+	UINT16 _fadeVol;		// current fade out volume (8.8 fixed point)
 };
 
 #endif	// __MIDIPLAY_HPP__

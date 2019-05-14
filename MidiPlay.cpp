@@ -20,8 +20,10 @@
 // VC6 has an implementation for [signed] __int64 -> double
 // but support for unsigned __int64 is missing
 #define U64_TO_DBL(x)	(double)(INT64)(x)
+#define DBL_TO_U64(x)	(UINT64)(INT64)(x)
 #else
 #define U64_TO_DBL(x)	(double)(x)
+#define DBL_TO_U64(x)	(UINT64)(x)
 #endif
 #ifdef _MSC_VER
 #define snprintf	_snprintf
@@ -31,6 +33,16 @@
 #define TICK_FP_MUL		(1 << TICK_FP_SHIFT)
 
 #define FULL_CHN_ID(portID, midChn)	(((portID) << 4) | ((midChn) << 0))
+
+// filtered volume bits
+#define FILTVOL_CCVOL	0	// Main Volume controller
+#define FILTVOL_CCEXPR	1	// Expression controller
+#define FILTVOL_GMSYX	2	// GM Master Volume SysEx
+
+// fade volume mode constants
+#define FDVMODE_CCVOL	FILTVOL_CCVOL
+#define FDVMODE_CCEXPR	FILTVOL_CCEXPR
+#define FDVMODE_GMSYX	FILTVOL_GMSYX
 
 #define BNKBIT_MSB		0
 #define BNKBIT_LSB		1
@@ -51,6 +63,7 @@ static const UINT8 RESET_SC[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x00, 0x00, 0x7F,
 static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7};
 static const UINT8 RESET_XG_PARAM[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7F, 0x00, 0xF7};
 static const UINT8 XG_VOICE_MAP[] = {0xF0, 0x43, 0x10, 0x49, 0x00, 0x00, 0x12, 0xFF, 0xF7};
+static const UINT8 GM_MST_VOL[] = {0xF0, 0x7F, 0x7F, 0x04, 0x01, 0x00, 0x00, 0xF7};
 
 extern UINT8 optShowInsChange;
 
@@ -264,6 +277,11 @@ UINT8 MidiPlayer::Start(void)
 	_tmrStep = 0;
 	_tmrMinStart = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
 	initDelay = 0;	// additional time (in ms) to wait due to device reset commands
+	_tmrFadeStart = 0;
+	_tmrFadeLen = 0;
+	_fadeVol = 0x100;
+	_fadeVolMode = 0xFF;
+	_filteredVol = 0x00;
 	
 	_defSrcInsMap = 0xFF;
 	_defDstInsMap = 0xFF;
@@ -366,6 +384,36 @@ UINT8 MidiPlayer::Resume(void)
 	
 	_tmrStep = 0;
 	_paused = false;
+	return 0x00;
+}
+
+UINT8 MidiPlayer::FadeOutT(double fadeTime)
+{
+	if (! _playing)
+		return 0xFF;
+	
+	_tmrFadeStart = (UINT64)-1;
+	_tmrFadeLen = DBL_TO_U64(fadeTime *_tmrFreq);
+	vis_printf("Fading Out ... (%.2f s)", fadeTime);
+	
+	UINT8 devType = MMASK_TYPE(_options.dstType);
+	UINT8 devMod = MMASK_MOD(_options.dstType);
+	
+	if ((devType == MODULE_TYPE_GM && devMod >= MTGM_LVL2) ||
+		devType == MODULE_TYPE_GS || devType == MODULE_TYPE_XG)
+	{
+		// prefer using GM Master Volume SysEx for GM2, GS and XG
+		// ("GM1" might be used for all sorts of generic stuff that doesn't know SysEx.)
+		_fadeVolMode = FDVMODE_GMSYX;
+		_filteredVol |= (1 << FILTVOL_GMSYX);
+	}
+	else
+	{
+		// for all others, send Main Volume controller
+		_fadeVolMode = FDVMODE_CCVOL;
+		_filteredVol |= (1 << FILTVOL_CCVOL);
+	}
+	
 	return 0x00;
 }
 
@@ -623,6 +671,26 @@ void MidiPlayer::DoPlaybackStep(void)
 	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
 	if (! _tmrStep && curTime < _tmrMinStart)
 		_tmrStep = _tmrMinStart;	// handle "initial delay" after starting the song
+	if (_tmrFadeLen && _tmrFadeStart == (UINT64)-1)
+	{
+		_tmrFadeStart = curTime;	// start fading
+		_tmrFadeNext = _tmrFadeStart;
+	}
+	
+	if (_tmrFadeLen && curTime >= _tmrFadeNext)
+	{
+		UINT64 fadeStep;
+		
+		_tmrFadeNext += _tmrFreq * 200 / 1000;	// update once every 0.2 s
+		
+		fadeStep = (curTime - _tmrFadeStart) * 0x100 / _tmrFadeLen;
+		_fadeVol = (fadeStep < 0x100) ? (UINT16)(0x100 - fadeStep) : 0x00;
+		
+		FadeVolRefresh();
+		
+		if (_fadeVol == 0x00)
+			Stop();
+	}
 	if (curTime < _tmrStep)
 		return;
 	
@@ -754,7 +822,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->insState[1] = chnSt->ctrls[0x20];
 		break;
 	case 0x07:	// Main Volume
-		// if (Fading) then calculate new volume + send event + return true
+		if (_filteredVol & (1 << FILTVOL_CCVOL))
+		{
+			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] *  _fadeVol + 0x80) / 0x100);
+			nvChn->_attr.volume = val;
+			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, val);
+			return true;
+		}
 		nvChn->_attr.volume = chnSt->ctrls[0x07];
 		break;
 	case 0x0A:	// Pan
@@ -779,6 +853,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		break;
 	case 0x0B:	// Expression
+		if (_filteredVol & (1 << FILTVOL_CCEXPR))
+		{
+			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] *  _fadeVol + 0x80) / 0x100);
+			nvChn->_attr.expression = val;
+			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, val);
+			return true;
+		}
 		nvChn->_attr.expression = chnSt->ctrls[0x0B];
 		break;
 	case 0x06:	// Data Entry MSB
@@ -1838,8 +1919,11 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			{
 			case 0x01:	// Master Volume
 				// F0 7F 7F 04 01 ll mm F7
-				vis_printf("SysEx: GM Master Volume = %u", syxData[0x05]);
-				_noteVis.GetAttributes().volume = syxData[0x05];
+				_mstVol = syxData[0x05];
+				vis_printf("SysEx: GM Master Volume = %u", _mstVol);
+				if (_filteredVol & (1 << FILTVOL_GMSYX))
+					return true;	// don't send when fading
+				_noteVis.GetAttributes().volume = _mstVol;
 				break;
 			}
 		}
@@ -2053,8 +2137,11 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x400004:	// Master Volume
-			vis_printf("SysEx: GS Master Volume = %u", syxData[0x07]);
-			_noteVis.GetAttributes().volume = syxData[0x07];
+			_mstVol = syxData[0x07];
+			vis_printf("SysEx: GS Master Volume = %u", _mstVol);
+			if (_filteredVol & (1 << FILTVOL_GMSYX))
+				return true;	// don't send when fading
+			_noteVis.GetAttributes().volume = _mstVol;
 			break;
 		case 0x400005:	// Master Key-Shift
 			{
@@ -2164,6 +2251,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x401019:	// Part Level
 			chnSt->ctrls[0x07] = syxData[0x07];
+			if (_filteredVol & (1 << FILTVOL_CCVOL))
+				return true;
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
 			vis_do_ctrl_change(portChnID, 0x07);
 			break;
@@ -2284,8 +2373,11 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x000004:	// Master Volume
-			vis_printf("SysEx: XG Master Volume = %u", syxData[0x06]);
-			_noteVis.GetAttributes().volume = syxData[0x06];
+			_mstVol = syxData[0x06];
+			vis_printf("SysEx: XG Master Volume = %u", _mstVol);
+			if (_filteredVol & (1 << FILTVOL_GMSYX))
+				return true;	// don't send when fading
+			_noteVis.GetAttributes().volume = _mstVol;
 			break;
 		case 0x000005:	// Master Attenuator
 			vis_printf("SysEx: XG Master Attenuator = %u", syxData[0x06]);
@@ -2429,6 +2521,8 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x08000B:	// Volume
 			chnSt->ctrls[0x07] = syxData[0x06];
+			if (_filteredVol & (1 << FILTVOL_CCVOL))
+				return true;
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
 			vis_do_ctrl_change(portChnID, 0x07);
 			break;
@@ -2555,6 +2649,57 @@ void MidiPlayer::AllInsRefresh(void)
 	return;
 }
 
+void MidiPlayer::FadeVolRefresh(void)
+{
+	if (_fadeVolMode == FDVMODE_GMSYX)
+	{
+		UINT8 newVol = (_mstVol * _fadeVol + 0x80) / 0x100;
+		if (newVol == _mstVolFade)
+			return;
+		_mstVolFade = newVol;
+		
+		std::vector<UINT8> syxData(sizeof(GM_MST_VOL));
+		size_t curPort;
+		
+		memcpy(&syxData[0], GM_MST_VOL, syxData.size());
+		syxData[0x05] = 0x00;			// master volume LSB
+		syxData[0x06] = _mstVolFade;	// master volume MSB
+		for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+			MidiOutPort_SendLongMsg(_outPorts[curPort], syxData.size(), &syxData[0]);
+		
+		_noteVis.GetAttributes().volume = _mstVolFade;
+		//vis_printf("Master Volume (fade): %u", _mstVolFade);
+	}
+	else
+	{
+		size_t curChn;
+		UINT8 ctrlID;
+		UINT8 val;
+		
+		// Expression or Main Volume controller
+		ctrlID = (_fadeVolMode == FDVMODE_CCEXPR) ? 0x0B : 0x07;
+		
+		// send volume controllers to all channels
+		for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+		{
+			ChannelState& chnSt = _chnStates[curChn];
+			MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
+			NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
+			
+			val = (UINT8)((chnSt.ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
+			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, ctrlID, val);
+			
+			if (_fadeVolMode == FDVMODE_CCVOL)
+				nvChn->_attr.volume = val;
+			else if (_fadeVolMode == FDVMODE_CCEXPR)
+				nvChn->_attr.expression = val;
+			vis_do_ctrl_change(curChn, ctrlID);
+		}
+	}
+	
+	return;
+}
+
 void MidiPlayer::AllChannelRefresh(void)
 {
 	size_t curChn;
@@ -2587,11 +2732,14 @@ void MidiPlayer::AllChannelRefresh(void)
 		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0A, chnSt.ctrls[0x0A]);
 		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
 			MidiOutPort_SendShortMsg(outPort, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
+		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0B, chnSt.ctrls[0x0B]);
+		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
+			MidiOutPort_SendShortMsg(outPort, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
 		
 		// We're sending MSB + LSB here. (A few controllers that are handled separately are skipped.)
 		for (curCtrl = 0x01; curCtrl < 0x20; curCtrl ++)
 		{
-			if (curCtrl == 0x06 || curCtrl == 0x07 || curCtrl == 0x0A)
+			if (curCtrl == 0x06 || curCtrl == 0x07 || curCtrl == 0x0A || curCtrl == 0x0B)
 				continue;
 			// TODO: use 0xFF as default value - 0x00 is unsafe
 			if (chnSt.ctrls[0x00 | curCtrl] != 0x00)
@@ -2760,6 +2908,8 @@ void MidiPlayer::InitializeChannels(void)
 {
 	size_t curChn;
 	
+	_mstVol = 0x7F;
+	_mstVolFade = (_mstVol * _fadeVol + 0x80) / 0x100;
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
@@ -2802,6 +2952,7 @@ void MidiPlayer::InitializeChannels(void)
 	memset(_pixelPageMem, 0x00, 0x40 * 10);
 	
 	_noteVis.Reset();
+	_noteVis.GetAttributes().volume = _mstVolFade;
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
