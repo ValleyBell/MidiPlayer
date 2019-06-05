@@ -69,6 +69,7 @@ static MidiPlayer midPlay;
 
 static UINT32 numLoops;
 static UINT32 defNumLoops;
+static double fadeTime;
 static UINT8 playerCfgFlags;	// see PlayerOpts::flags
 static UINT8 forceSrcType;
 static UINT8 forceModID;
@@ -546,6 +547,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
 	defNumLoops = iniFile.GetInteger("General", "LoopCount", 2);
+	fadeTime = iniFile.GetFloat("General", "FadeTime", 5.0);
 	
 	strmSrv_pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
 	strmSrv_metaFile = iniFile.GetString("StreamServer", "MetadataFile", "");
@@ -679,6 +681,11 @@ UINT8 main_OpenModule(size_t modID)
 		vis_addstr("Warning: One or more ports could not be opened!");
 	
 	return retVal;
+}
+
+double main_GetFadeTime(void)
+{
+	return fadeTime;
 }
 
 

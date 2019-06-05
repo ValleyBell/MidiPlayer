@@ -155,7 +155,7 @@ static std::vector<UINT8> ProcessRcpSysEx(const std::vector<UINT8>& syxData, UIN
 				chkSum = 0x00;
 				break;
 			case 0x84:	// put Roland Checksum
-				data = (0x100 - chkSum) & 0x7F;
+				data = (-chkSum) & 0x7F;
 				break;
 			case 0xF7:	// SysEx end
 				syxBuf.push_back(data);
@@ -501,7 +501,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					break;
 				}
 			}
-			if (cmdDurat > 0)
+			if (cmdDurat > 0 && cmdP2 > 0)
 			{
 				trk->AppendEvent(curDly, 0x90 | midChn, cmdType, cmdP2);
 				curDly = 0;
@@ -622,7 +622,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					tempBufU[4 + cmdP1] = gsParams[2 + cmdP1];
 					chkSum += gsParams[2 + cmdP1];	// add to checksum
 				}
-				tempBufU[8] = (0x100 - chkSum) & 0x7F;
+				tempBufU[8] = (-chkSum) & 0x7F;
 				tempBufU[9] = 0xF7;
 				trk->AppendSysEx(curDly, 10, tempBufU);
 				curDly = 0;

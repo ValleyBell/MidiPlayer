@@ -40,6 +40,7 @@
 size_t main_GetOpenedModule(void);
 UINT8 main_CloseModule(void);
 UINT8 main_OpenModule(size_t modID);
+double main_GetFadeTime(void);
 
 
 static const char* notes[12] =
@@ -938,7 +939,7 @@ static int vis_keyhandler_normal(void)
 		vis_show_device_selection();
 		break;
 	case 'F':
-		midPlay->FadeOutT(5.0);
+		midPlay->FadeOutT(main_GetFadeTime());
 		break;
 	}
 	
