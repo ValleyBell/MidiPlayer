@@ -403,6 +403,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	UINT16 cmdDurat;
 	UINT32 curDly;
 	UINT8 loopIdx;
+	UINT32 loopPPos[8];
 	UINT32 loopPos[8];
 	UINT16 loopCnt[8];
 	UINT8 gsParams[6];	// 0 device ID, 1 model ID, 2 address high, 3 address low
@@ -761,6 +762,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					}
 					if (takeLoop)
 					{
+						parentPos = loopPPos[loopIdx];
 						fseek(infile, loopPos[loopIdx], SEEK_SET);
 						loopIdx ++;
 					}
@@ -776,8 +778,11 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				}
 				else
 				{
+					loopPPos[loopIdx] = parentPos;	// required by YS-2･018.RCP
 					loopPos[loopIdx] = ftell(infile);
 					loopCnt[loopIdx] = 0;
+					if (loopIdx > 0 && loopPos[loopIdx] == loopPos[loopIdx - 1])
+						loopIdx --;	// ignore loop command (required by YS-2･018.RCP)
 					loopIdx ++;
 				}
 				cmdP0Delay = 0;
@@ -818,11 +823,23 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					
 					if (! parentPos)	// this check was verified to be necessary for some files
 						parentPos = ftell(infile);
-					// using cachedPos here, just in case the offsets are incorrect
-					fseek(infile, trkBasePos + cachedPos, SEEK_SET);
+					if (rcpInf->fileVer == 2)
+					{
+						fseek(infile, trkBasePos + repeatPos, SEEK_SET);	// YS3-25.RCP relies on this
+					}
+					else
+					{
+						// using cachedPos here, just in case the offsets are incorrect
+						fseek(infile, trkBasePos + cachedPos, SEEK_SET);
+					}
 				}
 				break;
 			case 0xFD:	// measure end
+				if (curBar >= 0x8000)	// prevent infinite loops
+				{
+					trkEnd = 1;
+					break;
+				}
 				//sprintf(tempBuf, "Bar %u", 1 + curBar);
 				//trk->AppendMetaEvent(curDly, 0x06, strlen(tempBuf), tempBuf);
 				//curDly = 0;
