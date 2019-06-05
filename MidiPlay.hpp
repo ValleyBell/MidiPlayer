@@ -179,6 +179,7 @@ private:
 	NoteVisualization _noteVis;
 	LoopPoint _loopPt;
 	UINT32 _curLoop;
+	UINT8 _rcpMidTextMode;
 	UINT8 _karaokeMode;
 	UINT16 _softKarTrack;
 	bool _breakMidiProc;

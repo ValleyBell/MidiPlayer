@@ -255,6 +255,7 @@ UINT8 MidiPlayer::Start(void)
 	
 	_loopPt.used = false;
 	_curLoop = 0;
+	_rcpMidTextMode = 0;
 	_karaokeMode = 0;
 	
 	_trkStates.clear();
@@ -593,6 +594,34 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			{
 				std::string text = Vector2String(midiEvt->evtData);
 				//printf("Text: %s\n", text.c_str());
+				if (trkState->trkID == 0 && _rcpMidTextMode < 2)
+				{
+					// fix poor title/comment conversion of RCP2MID programs
+					if (_rcpMidTextMode == 0)
+					{
+						// The event is the song title, which is always 64 characters long. (padded with spaces)
+						if (text.length() == 0x40)
+							_rcpMidTextMode = 1;
+						// We don't remove the padding, so we can just let it be printed as is.
+					}
+					else if (_rcpMidTextMode == 1)
+					{
+						// The "song title" is followed by another event that contains the comment section.
+						// The comment section consists of 12 lines with 28 (RCP v2) or 30 (RCP v3) characters each.
+						// There are no "newline" characters in RCP songs. Instead, each line is padded with spaces.
+						if (text.length() == 12 * 28 || text.length() == 12 * 30)
+						{
+							size_t lineSize = text.length() / 12;
+							size_t curPos;
+							
+							// print each line separately (and use "Text" event instead of "Title")
+							for (curPos = 0; curPos < text.length(); curPos += lineSize)
+								vis_print_meta(trkState->trkID, 0x01, lineSize, (const char*)&midiEvt->evtData[curPos]);
+							_rcpMidTextMode = 2;
+							return;
+						}
+					}
+				}
 			}
 			break;
 		//case 0x04:	// Instrument Name
