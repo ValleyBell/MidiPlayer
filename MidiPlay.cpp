@@ -842,13 +842,19 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		ctrlID = 0x11;
 	
 	chnSt->ctrls[ctrlID] = midiEvt->evtValB;
+	if (chnSt->ctrls[ctrlID] > 0x7F)
+	{
+		vis_printf("Warning: Bad controller data (%02X %02X %02X)\n", midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
+		chnSt->ctrls[ctrlID] = 0x7F;
+	}
+	
 	switch(ctrlID)
 	{
 	case 0x00:	// Bank MSB
-		chnSt->insState[0] = chnSt->ctrls[0x00];
+		chnSt->insState[0] = chnSt->ctrls[ctrlID];
 		break;
 	case 0x20:	// Bank LSB
-		chnSt->insState[1] = chnSt->ctrls[0x20];
+		chnSt->insState[1] = chnSt->ctrls[ctrlID];
 		break;
 	case 0x07:	// Main Volume
 		if (_filteredVol & (1 << FILTVOL_CCVOL))
@@ -858,11 +864,11 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, val);
 			return true;
 		}
-		nvChn->_attr.volume = chnSt->ctrls[0x07];
+		nvChn->_attr.volume = chnSt->ctrls[ctrlID];
 		break;
 	case 0x0A:	// Pan
 		{
-			UINT8 panVal = midiEvt->evtValB;
+			UINT8 panVal = chnSt->ctrls[ctrlID];
 			bool didPatch = false;
 			
 			if (_options.srcType == MODULE_MT32)
@@ -889,7 +895,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, val);
 			return true;
 		}
-		nvChn->_attr.expression = chnSt->ctrls[0x0B];
+		nvChn->_attr.expression = chnSt->ctrls[ctrlID];
 		break;
 	case 0x06:	// Data Entry MSB
 		if (chnSt->rpnCtrl[0] == 0x00)
@@ -897,19 +903,19 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			switch(chnSt->rpnCtrl[1])
 			{
 			case 0x00:	// Pitch Bend Range
-				chnSt->pbRange = midiEvt->evtValB;
+				chnSt->pbRange = chnSt->ctrls[ctrlID];
 				if (chnSt->pbRange > 24)
 					chnSt->pbRange = 24;
 				nvChn->_pbRange = chnSt->pbRange;
 				break;
 			case 0x01:	// Fine Tuning
 				chnSt->tuneFine &= ~0xFF00;
-				chnSt->tuneFine |= ((INT16)midiEvt->evtValB - 0x40) << 8;
+				chnSt->tuneFine |= ((INT16)chnSt->ctrls[ctrlID] - 0x40) << 8;
 				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
 				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
 				break;
 			case 0x02:	// Coarse Tuning
-				chnSt->tuneCoarse = (INT8)midiEvt->evtValB - 0x40;
+				chnSt->tuneCoarse = (INT8)chnSt->ctrls[ctrlID] - 0x40;
 				if (chnSt->tuneCoarse < -24)
 					chnSt->tuneCoarse = -24;
 				else if (chnSt->tuneCoarse > +24)
@@ -931,7 +937,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			{
 			case 0x01:	// Fine Tuning
 				chnSt->tuneFine &= ~0x00FF;
-				chnSt->tuneFine |= midiEvt->evtValB << 1;
+				chnSt->tuneFine |= chnSt->ctrls[ctrlID] << 1;
 				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
 				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
 				break;
@@ -939,18 +945,18 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		break;
 	case 0x62:	// NRPN LSB
-		chnSt->rpnCtrl[1] = 0x80 | midiEvt->evtValB;
+		chnSt->rpnCtrl[1] = 0x80 | chnSt->ctrls[ctrlID];
 		break;
 	case 0x63:	// NRPN MSB
-		chnSt->rpnCtrl[0] = 0x80 | midiEvt->evtValB;
+		chnSt->rpnCtrl[0] = 0x80 | chnSt->ctrls[ctrlID];
 		if (true)
 			break;
-		if (midiEvt->evtValB == 20)
+		if (chnSt->ctrls[ctrlID] == 20)
 		{
 			vis_addstr("NRPN Loop Start found.");
 			SaveLoopState(_loopPt, trkSt);
 		}
-		else if (midiEvt->evtValB == 30)
+		else if (chnSt->ctrls[ctrlID] == 30)
 		{
 			if (_loopPt.used && _loopPt.tick < _nextEvtTick)
 			{
@@ -965,13 +971,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		break;
 	case 0x64:	// RPN LSB
-		chnSt->rpnCtrl[1] = 0x00 | midiEvt->evtValB;
+		chnSt->rpnCtrl[1] = 0x00 | chnSt->ctrls[ctrlID];
 		break;
 	case 0x65:	// RPN MSB
-		chnSt->rpnCtrl[0] = 0x00 | midiEvt->evtValB;
+		chnSt->rpnCtrl[0] = 0x00 | chnSt->ctrls[ctrlID];
 		break;
 	case 0x6F:	// RPG Maker loop controller
-		if (midiEvt->evtValB == 0 || midiEvt->evtValB == 111 || midiEvt->evtValB == 127)
+		if (chnSt->ctrls[ctrlID] == 0 || chnSt->ctrls[ctrlID] == 111 || chnSt->ctrls[ctrlID] == 127)
 		{
 			if (! _loopPt.used)
 			{
@@ -981,7 +987,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		else
 		{
-			vis_printf("Ctrl 111, value %u.", midiEvt->evtValB);
+			vis_printf("Ctrl 111, value %u.", chnSt->ctrls[ctrlID]);
 		}
 		break;
 	case 0x79:	// Reset All Controllers
@@ -1008,8 +1014,11 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	}
 	
-	if (ctrlID != midiEvt->evtValA)
-		MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, midiEvt->evtValB);
+	if (ctrlID != midiEvt->evtValA || chnSt->ctrls[ctrlID] != midiEvt->evtValB)
+	{
+		MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, chnSt->ctrls[ctrlID]);
+		return true;
+	}
 	
 	return false;
 }
