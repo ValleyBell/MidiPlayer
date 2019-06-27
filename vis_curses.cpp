@@ -144,6 +144,7 @@ static MidiPlayer* midPlay = NULL;
 
 static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
+static bool stopAfterSong = false;
 
 static std::string lastMeta01;
 static std::string lastMeta03;
@@ -306,7 +307,7 @@ void vis_printf(const char* format, ...)
 	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
 	
 	va_start(args, format);
-	vwprintw(logWin, format, args);
+	vw_printw(logWin, format, args);
 	va_end(args);
 	
 	curYline ++;
@@ -941,6 +942,13 @@ static int vis_keyhandler_normal(void)
 	case 'F':
 		midPlay->FadeOutT(main_GetFadeTime());
 		break;
+	case 0x18:	// Ctrl+X
+		stopAfterSong = ! stopAfterSong;
+		if (stopAfterSong)
+			vis_addstr("Quitting after song end.\n");
+		else
+			vis_addstr("Not quitting after song end.\n");
+		break;
 	}
 	
 	return 0;
@@ -956,7 +964,7 @@ int vis_main(void)
 	int result;
 	
 	lastUpdateTime = 0;
-	result = +1;	// default: finished normally - next song
+	result = 0;
 	while(midPlay->GetState() & 0x01)
 	{
 		int retval = 0;
@@ -975,6 +983,13 @@ int vis_main(void)
 			break;
 		}
 		Sleep(1);
+	}
+	if (! result)
+	{
+		if (stopAfterSong)
+			result = 9;	// quit
+		else
+			result = +1;	// finished normally - next song
 	}
 	
 	vis_clear_all_menus();

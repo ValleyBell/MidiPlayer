@@ -710,7 +710,7 @@ void MidiPlayer::DoPlaybackStep(void)
 	{
 		UINT64 fadeStep;
 		
-		_tmrFadeNext += _tmrFreq * 200 / 1000;	// update once every 0.2 s
+		_tmrFadeNext += _tmrFreq * 100 / 1000;	// update once every 0.1 s
 		
 		fadeStep = (curTime - _tmrFadeStart) * 0x100 / _tmrFadeLen;
 		_fadeVol = (fadeStep < 0x100) ? (UINT16)(0x100 - fadeStep) : 0x00;
