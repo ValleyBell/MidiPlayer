@@ -58,6 +58,7 @@ public:
 		INT8 tuneCoarse;
 		INT16 tuneFine;		// stored as 8.8 fixed point
 		
+		const char* userInsName;
 		std::list<NoteInfo> notes;	// currently running notes
 	};
 private:
@@ -176,6 +177,13 @@ private:
 	UINT8 _mstVolFade;		// master volume, after applying FadeOut value
 	
 	UINT8 _pixelPageMem[10][0x40];
+	std::string _sc88UsrDrmNames[2];
+	std::string _mt32TimbreNames[0x40];
+	UINT8 _mt32PatchTGrp[0x80];	// 0x00 - preset A, 0x01 - preset B, 0x02 - internal?, 0x03 - rhythm?
+	UINT8 _mt32PatchTNum[0x80];	// 0x00 .. 0x3F
+	UINT8 _cm32pPatchTMedia[0x80];	// 0x00 - internal, 0x01 - card
+	UINT8 _cm32pPatchTNum[0x80];	// 0x00 .. 0x7F
+	
 	NoteVisualization _noteVis;
 	LoopPoint _loopPt;
 	UINT32 _curLoop;

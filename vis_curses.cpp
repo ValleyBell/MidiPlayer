@@ -546,7 +546,11 @@ void vis_do_ins_change(UINT16 chn)
 	std::string insName;
 	char userInsName[20];
 	
-	if (chnSt->userInsID != 0xFFFF)
+	if (chnSt->userInsName != NULL)
+	{
+		insName = chnSt->userInsName;
+	}
+	else if (chnSt->userInsID != 0xFFFF)
 	{
 		if (chnSt->userInsID & 0x8000)
 			sprintf(userInsName, "User Drum %u", chnSt->userInsID & 0x7FFF);

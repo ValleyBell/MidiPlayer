@@ -1562,6 +1562,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	
 	chnSt->curIns = midiEvt->evtValA;
 	chnSt->userInsID = 0xFFFF;
+	chnSt->userInsName = NULL;
 	
 	// handle user instruments and channel mode changes
 	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
@@ -1569,9 +1570,15 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		if (MMASK_MOD(_options.srcType) >= MTGS_SC88 && MMASK_MOD(_options.srcType) != MTGS_TG300B)
 		{
 			if ((chnSt->flags & 0x80) && (chnSt->curIns == 0x40 || chnSt->curIns == 0x41))	// user drum kit
+			{
 				chnSt->userInsID = 0x8000 | (chnSt->curIns & 0x01);
+				if (_sc88UsrDrmNames[chnSt->curIns & 0x01][0] != '\0')	// use only when set by the MIDI
+					chnSt->userInsName = _sc88UsrDrmNames[chnSt->curIns & 0x01].c_str();
+			}
 			else if (bankMSB == 0x40 || bankMSB == 0x41)	// user instrument
+			{
 				chnSt->userInsID = ((bankMSB & 0x01) << 7) | chnSt->curIns;
+			}
 		}
 	}
 	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
@@ -1609,6 +1616,51 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	
 	HandleIns_GetOriginal(chnSt, &chnSt->insOrg);
 	HandleIns_GetRemapped(chnSt, &chnSt->insSend);
+	if (_options.dstType == MODULE_MT32)
+	{
+		// On the MT-32, you can remap the patch set to other timbres.
+		InstrumentInfo insInf;
+		const INS_BANK* insBank;
+		UINT8 mapModType;
+		
+		insInf.bank[0] = (chnSt->midChn <= 0x09) ? 0x00 : 0x01;	// MT-32/CM-32L (0x00) vs. CM-32P (0x01)
+		insInf.bank[1] = 0x00;
+		if (insInf.bank[0] == 0x00)
+			insInf.ins = (_mt32PatchTGrp[chnSt->curIns] << 6) | (_mt32PatchTNum[chnSt->curIns] << 0);
+		else
+			insInf.ins = (_cm32pPatchTMedia[chnSt->curIns] << 7) | (_cm32pPatchTNum[chnSt->curIns] << 0);
+		if (insInf.ins < 0x80)
+		{
+			// MT-32/CM-32L: timbre group A/B
+			// CM-32P: internal group
+			if (insInf.ins != chnSt->curIns)
+			{
+				insBank = SelectInsMap(_options.dstType, &mapModType);
+				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &insInf, mapModType);
+				chnSt->userInsName = chnSt->insSend.bankPtr->insName;
+			}
+		}
+		else
+		{
+			if (insInf.bank[0] == 0x00)
+			{
+				if (insInf.ins < 0xC0)
+				{
+					// MT-32/CM-32L: timbre group I
+					chnSt->userInsName = _mt32TimbreNames[insInf.ins & 0x3F].c_str();
+				}
+				else
+				{
+					// MT-32/CM-32L: timbre group R
+					// TODO: I need drum names for this one.
+				}
+			}
+			else
+			{
+				// CM-32P: card group
+			}
+		}
+	}
 	
 	if (optShowInsChange && ! (noact & 0x10))
 	{
@@ -2006,15 +2058,18 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
 			if (newIns < 0x80)
 			{
+				InstrumentInfo insInf;
 				const INS_BANK* insBank;
 				UINT8 mapModType;
 				
 				chnSt->curIns = newIns;
 				chnSt->userInsID = 0xFFFF;
-				//HandleIns_GetOriginal(chnSt, &chnSt->insOrg);
-				//HandleIns_GetRemapped(chnSt, &chnSt->insSend);
+				insInf.bank[0] = 0x00;
+				insInf.bank[1] = 0x00;
+				insInf.ins = newIns;
 				insBank = SelectInsMap(_options.dstType, &mapModType);
-				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &chnSt->insSend, mapModType);
+				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &insInf, mapModType);
+				chnSt->userInsName = chnSt->insSend.bankPtr->insName;
 			}
 			else
 			{
@@ -2022,6 +2077,10 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 				chnSt->userInsID = newIns & 0x7F;
 				chnSt->insOrg.bankPtr = NULL;
 				chnSt->insSend.bankPtr = NULL;
+				if (chnSt->userInsID < 0x40)
+					chnSt->userInsName = _mt32TimbreNames[chnSt->userInsID].c_str();
+				//else
+				//	// timbre group R
 			}
 			chnSt->pbRange = dataPtr[0x04];
 			nvChn->_pbRange = chnSt->pbRange;
@@ -2036,11 +2095,41 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 	case 0x040000:	// Timbre Temporary Area
 		break;
 	case 0x050000:	// Patch Memory
+		{
+			UINT32 dataLen = syxSize - 0x09;
+			const UINT8* data = &syxData[0x07];
+			for (; dataLen > 0; addr ++, data ++, dataLen --)
+			{
+				UINT8 patchID = ((addr & 0x000700) >> 4) | ((addr & 0x000078) >> 3);
+				UINT8 patchAddr = addr & 0x00007;
+				switch(patchAddr)
+				{
+				case 0x00:
+					_mt32PatchTGrp[patchID] = *data;
+					break;
+				case 0x01:
+					_mt32PatchTNum[patchID] = *data;
+					break;
+				}
+			}
+		}
 		break;
 	case 0x080000:	// Timbre Memory
 		{
 			UINT8 timID = (addr & 0x007E00) >> 9;
+			UINT16 timAddr = addr & 0x0001FF;
+			
 			dataPtr = &syxData[0x07];
+			if (timAddr >= 0x00 && timAddr <= 0x0A)
+			{
+				size_t copyLen;
+				std::string timName = Vector2String(syxData, 0x07, syxSize - 2);
+				SanitizeSysExText(timName);
+				
+				copyLen = _mt32TimbreNames[timID].length() - timAddr;
+				copyLen = (timName.length() <= copyLen) ? timName.length() : copyLen;
+				memcpy(&_mt32TimbreNames[timID][timAddr], timName.c_str(), copyLen);
+			}
 		}
 		break;
 	case 0x100000:	// System Area
@@ -2059,7 +2148,31 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			vis_addstr("SysEx MT-32: Display Reset");
 		}
 		break;
-	case 0x7F0000:	// All Parameters Reset
+	case 0x500000:	// CM-32P Patch Temporary Area
+	case 0x510000:	// CM-32P Patch Memory
+		{
+			UINT32 dataLen = syxSize - 0x09;
+			const UINT8* data = &syxData[0x07];
+			for (; dataLen > 0; addr ++, data ++, dataLen --)
+			{
+				UINT16 ofs = ((addr & 0x007F00) >> 7) | ((addr & 0x00007F) >> 0);
+				UINT8 patchID = ofs / 0x13;
+				UINT8 patchAddr = ofs % 0x13;
+				switch(patchAddr)
+				{
+				case 0x00:
+					_cm32pPatchTMedia[patchID] = *data;
+					break;
+				case 0x01:
+					_cm32pPatchTNum[patchID] = *data;
+					break;
+				}
+			}
+		}
+		break;
+	case 0x520000:	// CM-32P System Area
+		break;
+	case 0x7F0000:	// All Parameters Reset (applies to MT-32/CM-32L *and* CM-32P)
 		InitializeChannels();
 		vis_addstr("SysEx: MT-32 Reset\n");
 		break;
@@ -2131,11 +2244,20 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		{
 		case 0x210000:	// Drum Set Name
 		{
+			size_t copyLen;
+			
 			std::string drmName = Vector2String(syxData, 0x07, syxSize - 2);
+			SanitizeSysExText(drmName);
 			if (syxData[0x06] == 0x00 && drmName.length() > 1)
 				vis_printf("SysEx SC-88: Set User Drum Set %u Name = \"%s\"\n", evtChn, drmName.c_str());
 			else
 				vis_printf("SysEx SC-88: Set User Drum Set %u Name [%X] = \"%s\"\n", evtChn, syxData[0x06], drmName.c_str());
+			if (evtChn >= 2)
+				break;
+			
+			copyLen = _sc88UsrDrmNames[evtChn].length() - syxData[0x06];
+			copyLen = (drmName.length() <= copyLen) ? drmName.length() : copyLen;
+			memcpy(&_sc88UsrDrmNames[evtChn][syxData[0x06]], drmName.c_str(), copyLen);
 		}
 			break;
 		}
@@ -2948,6 +3070,7 @@ void MidiPlayer::RefreshSrcDevSettings(void)
 void MidiPlayer::InitializeChannels(void)
 {
 	size_t curChn;
+	size_t curIns;
 	
 	_mstVol = 0x7F;
 	_mstVolFade = (_mstVol * _fadeVol + 0x80) / 0x100;
@@ -2965,6 +3088,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;
 		chnSt.curIns = 0xFF;
 		chnSt.userInsID = 0xFFFF;
+		chnSt.userInsName = NULL;
 		memset(&chnSt.ctrls[0], 0x00, 0x80);
 		chnSt.ctrls[0x07] = 100;
 		chnSt.ctrls[0x0A] = 0x40;
@@ -2991,6 +3115,23 @@ void MidiPlayer::InitializeChannels(void)
 	}
 	
 	memset(_pixelPageMem, 0x00, 0x40 * 10);
+	for (curIns = 0; curIns < 2; curIns ++)
+	{
+		_sc88UsrDrmNames[curIns] = std::string(0x0C, ' ');
+		_sc88UsrDrmNames[curIns][0] = '\0';
+	}
+	for (curIns = 0x00; curIns < 0x80; curIns ++)
+	{
+		_mt32PatchTGrp[curIns] = (curIns >> 6) & 0x03;
+		_mt32PatchTNum[curIns] = (curIns >> 0) & 0x3F;
+		_cm32pPatchTMedia[curIns] = 0x00;
+		_cm32pPatchTNum[curIns] = curIns;
+	}
+	for (curIns = 0x00; curIns < 0x40; curIns ++)
+	{
+		_mt32TimbreNames[curIns] = std::string(0x0A, ' ');
+		_mt32TimbreNames[curIns][0] = '\0';
+	}
 	
 	_noteVis.Reset();
 	_noteVis.GetAttributes().volume = _mstVolFade;
