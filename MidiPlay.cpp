@@ -1320,7 +1320,18 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			else
 			{
 				// channels 1-10: MT-32/CM-32L, channels 11-16: CM-32P
-				insInf->bank[0] = (chnSt->midChn <= 0x09) ? 0x7F : 0x7E;
+				if (chnSt->midChn <= 0x09)
+				{
+					insInf->bank[0] = 0x7F;
+					insInf->ins = (_mt32PatchTGrp[chnSt->curIns] << 6) | (_mt32PatchTNum[chnSt->curIns] << 0);
+				}
+				else
+				{
+					insInf->bank[0] = 0x7E;
+					insInf->ins = (_cm32pPatchTMedia[chnSt->curIns] << 7) | (_cm32pPatchTNum[chnSt->curIns] << 0);
+				}
+				if (insInf->ins >= 0x80)	// ignore for user instruments
+					insInf->ins = insIOld.ins;
 			}
 		}
 		else
@@ -1616,7 +1627,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	
 	HandleIns_GetOriginal(chnSt, &chnSt->insOrg);
 	HandleIns_GetRemapped(chnSt, &chnSt->insSend);
-	if (_options.dstType == MODULE_MT32)
+	if (_options.dstType == MODULE_MT32 && ! (chnSt->flags & 0x80))
 	{
 		// On the MT-32, you can remap the patch set to other timbres.
 		InstrumentInfo insInf;
@@ -2067,9 +2078,10 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 				insInf.bank[0] = 0x00;
 				insInf.bank[1] = 0x00;
 				insInf.ins = newIns;
-				insBank = SelectInsMap(_options.dstType, &mapModType);
+				insBank = SelectInsMap(_options.srcType, &mapModType);
 				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &insInf, mapModType);
-				chnSt->userInsName = chnSt->insSend.bankPtr->insName;
+				if (chnSt->insSend.bankPtr != NULL)
+					chnSt->userInsName = chnSt->insSend.bankPtr->insName;
 			}
 			else
 			{
@@ -2098,10 +2110,11 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		{
 			UINT32 dataLen = syxSize - 0x09;
 			const UINT8* data = &syxData[0x07];
-			for (; dataLen > 0; addr ++, data ++, dataLen --)
+			UINT16 internalAddr = ((addr & 0x007F00) >> 1) | ((addr & 0x00007F) >> 0);
+			for (; dataLen > 0 && internalAddr < 0x0400; ofs ++, data ++, dataLen --)
 			{
-				UINT8 patchID = ((addr & 0x000700) >> 4) | ((addr & 0x000078) >> 3);
-				UINT8 patchAddr = addr & 0x00007;
+				UINT8 patchID = internalAddr >> 3;
+				UINT8 patchAddr = internalAddr & 0x0007;
 				switch(patchAddr)
 				{
 				case 0x00:
@@ -2153,11 +2166,11 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		{
 			UINT32 dataLen = syxSize - 0x09;
 			const UINT8* data = &syxData[0x07];
-			for (; dataLen > 0; addr ++, data ++, dataLen --)
+			UINT16 internalAddr = ((addr & 0x007F00) >> 1) | ((addr & 0x00007F) >> 0);
+			for (; dataLen > 0 && internalAddr < 0x0980; ofs ++, data ++, dataLen --)
 			{
-				UINT16 ofs = ((addr & 0x007F00) >> 7) | ((addr & 0x00007F) >> 0);
-				UINT8 patchID = ofs / 0x13;
-				UINT8 patchAddr = ofs % 0x13;
+				UINT8 patchID = internalAddr / 0x13;
+				UINT8 patchAddr = internalAddr % 0x13;
 				switch(patchAddr)
 				{
 				case 0x00:
