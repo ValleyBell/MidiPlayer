@@ -842,10 +842,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		ctrlID = 0x11;
 	
 	chnSt->ctrls[ctrlID] = midiEvt->evtValB;
-	if (chnSt->ctrls[ctrlID] > 0x7F)
+	if (chnSt->ctrls[ctrlID] > 0x7F && (_options.flags & PLROPTS_STRICT))
 	{
 		vis_printf("Warning: Bad controller data (%02X %02X %02X)\n", midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
-		chnSt->ctrls[ctrlID] = 0x7F;
+		if (ctrlID == 0x07 || ctrlID == 0x0B)
+			chnSt->ctrls[ctrlID] = 0x7F;	// clip to maximum volume
+		else
+			chnSt->ctrls[ctrlID] &= 0x7F;	// just remove the invalid bit
 	}
 	
 	switch(ctrlID)

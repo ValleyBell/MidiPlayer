@@ -145,6 +145,7 @@ static MidiPlayer* midPlay = NULL;
 static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
 static bool stopAfterSong = false;
+static bool restartSong = false;
 
 static std::string lastMeta01;
 static std::string lastMeta03;
@@ -577,6 +578,8 @@ void vis_do_ins_change(UINT16 chn)
 			insName[1] = '+';	// variation sound
 		else
 			insName[1] = ' ';	// capital sound
+		if (midPlay->GetModuleType() == MODULE_TG300B)
+			insName = insName.substr(1);	// TG300B mode has only 1 map
 	}
 	else if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_XG)
 	{
@@ -934,9 +937,11 @@ static int vis_keyhandler_normal(void)
 		midPlay->Start();
 		break;
 	case 'M':
+		restartSong = false;
 		vis_show_map_selection();
 		break;
 	case 'D':
+		restartSong = false;
 		vis_show_device_selection();
 		break;
 	case 'F':
@@ -1024,7 +1029,14 @@ static int vis_keyhandler_mapsel(void)
 		{
 			// confirm selection
 			UINT8 mapType = mapSelTypes[mmsSelection];
+			if (restartSong)
+				midPlay->Stop();
 			midPlay->SetSrcModuleType(mapType, true);
+			if (restartSong)
+			{
+				midPlay->Start();
+				restartSong = false;
+			}
 			
 			const PlayerOpts& midOpts = midPlay->GetOptions();
 			const std::string& mapStr = midiModColl->GetShortModName(midOpts.srcType);
@@ -1051,6 +1063,15 @@ static int vis_keyhandler_mapsel(void)
 		break;
 	case KEY_NPAGE:
 		cursorPos = mapSelTypes.size() - 1;
+		break;
+	case 'R':
+		restartSong = ! restartSong;
+		{
+			int sizeY = getmaxy(mmsWin);
+			chtype rsChar = restartSong ? 'R' : ACS_HLINE;
+			mvwaddch(mmsWin, sizeY - 1, 1, rsChar);
+			wrefresh(mmsWin);
+		}
 		break;
 	}
 	if (cursorPos != mmsSelection)
@@ -1095,13 +1116,24 @@ static int vis_keyhandler_devsel(void)
 			UINT8 state;
 			
 			state = midPlay->GetState();
-			midPlay->Pause();
+			if (! restartSong)
+				midPlay->Pause();
+			else
+				midPlay->Stop();
 			main_CloseModule();
 			main_OpenModule(cursorPos);
 			mMod = midiModColl->GetModule(main_GetOpenedModule());
 			midPlay->SetDstModuleType(mMod->modType, true);
-			if (! (state & 0x02))
-				midPlay->Resume();
+			if (! restartSong)
+			{
+				if (! (state & 0x02))
+					midPlay->Resume();
+			}
+			else
+			{
+				midPlay->Start();
+				restartSong = false;
+			}
 			
 			mvhline(0, 21, ' ', 10);
 			if (mMod != NULL)
@@ -1126,6 +1158,15 @@ static int vis_keyhandler_devsel(void)
 		break;
 	case KEY_NPAGE:
 		cursorPos = mdsCount - 1;
+		break;
+	case 'R':
+		restartSong = ! restartSong;
+		{
+			int sizeY = getmaxy(mmsWin);
+			chtype rsChar = restartSong ? 'R' : ACS_HLINE;
+			mvwaddch(mmsWin, sizeY - 1, 1, rsChar);
+			wrefresh(mmsWin);
+		}
 		break;
 	}
 	if (cursorPos != mdsSelection)
