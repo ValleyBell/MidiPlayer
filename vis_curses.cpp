@@ -604,6 +604,26 @@ void vis_do_ins_change(UINT16 chn)
 		if (insName[1] == ' ')	// make [bank] optional, as XG names can be pretty long
 			insName = insName[0] + insName.substr(2);
 	}
+	else if (midPlay->GetModuleType() == MODULE_MT32)
+	{
+		insName = " " + insName;
+		if (chnSt->midChn <= 0x09)
+		{
+			if (chnSt->userInsID == 0xFFFF || chnSt->userInsID < 0x80)
+				insName[0] = ' ';	// timbre group A/B
+			else if (chnSt->userInsID < 0xC0)
+				insName[0] = '+';	// timbre group I
+			else
+				insName[0] = '#';	// timbre group R
+		}
+		else
+		{
+			if (chnSt->userInsID == 0xFFFF || chnSt->userInsID < 0x80)
+				insName[0] = ' ';	// tone media: internal
+			else
+				insName[0] = '+';	// tone media: card
+		}
+	}
 	dispChns[chn].ShowInsName(insName.c_str());
 	
 	return;
@@ -719,6 +739,10 @@ static void str_prepare_print(std::string& text)
 {
 	str_remove_cr(text);
 	str_locale_conv(text);
+#ifdef _WIN32	// PDCurses vwprintw() bug workaround (it allocates a 512 byte buffer on the stack)
+	if (text.length() >= 0x1F0)
+		text.resize(0x1F0);
+#endif
 	
 	return;
 }

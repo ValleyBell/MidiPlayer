@@ -867,7 +867,10 @@ static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_
 	std::vector<MIDIOUT_PORT*>::const_iterator portIt;
 	
 	for (portIt = outPorts.begin(); portIt != outPorts.end(); ++portIt)
+	{
 		MidiOutPort_SendLongMsg(*portIt, dataLen, data);
+		midPlay.HandleRawEvent(dataLen, data);
+	}
 	
 	// wait for data to be transferred
 	// (transfer speed = 31250 bits per second)

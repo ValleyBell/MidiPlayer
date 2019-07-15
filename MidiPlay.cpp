@@ -84,7 +84,8 @@ static inline UINT32 ReadBE21(const UINT8* data)	// 3 bytes, 7 bits per byte
 
 MidiPlayer::MidiPlayer() :
 	_cMidi(NULL), _songLength(0),
-	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL)
+	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL),
+	_hardReset(true)
 {
 	_osTimer = OSTimer_Init();
 	_tmrFreq = OSTimer_GetFrequency(_osTimer) << TICK_FP_SHIFT;
@@ -287,7 +288,6 @@ UINT8 MidiPlayer::Start(void)
 	_defSrcInsMap = 0xFF;
 	_defDstInsMap = 0xFF;
 	RefreshSrcDevSettings();
-	InitializeChannels();
 	if (_options.flags & PLROPTS_RESET)
 	{
 		size_t curPort;
@@ -327,6 +327,7 @@ UINT8 MidiPlayer::Start(void)
 				vis_printf("Sending Device Reset (%s) ...", "GS");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GS), RESET_GS);
+				_hardReset = true;
 			}
 			initDelay += 200;
 		}
@@ -340,9 +341,11 @@ UINT8 MidiPlayer::Start(void)
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG), RESET_XG);
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_PARAM), RESET_XG_PARAM);
 			}
+			_hardReset = true;	// due to XG All Parameter Reset
 			initDelay += 400;	// XG modules take a bit to fully reset
 		}
 	}
+	InitializeChannels();
 	InitializeChannels_Post();
 	
 	_tmrMinStart += initDelay * _tmrFreq / 1000;
@@ -474,6 +477,46 @@ void MidiPlayer::RefreshTickTime(void)
 	if (tmrDiv == 0)
 		tmrDiv = 1000000;
 	_curTickTime = (tmrMul + tmrDiv / 2) / tmrDiv;
+	return;
+}
+
+void MidiPlayer::HandleRawEvent(size_t dataLen, const UINT8* data)
+{
+	if (_trkStates.empty())
+		return;
+	
+	MidiEvent midiEvt;
+	midiEvt.evtType = data[0x00];
+	
+	if (! (midiEvt.evtType & 0x80))
+		return;
+	if (midiEvt.evtType < 0xF0)
+	{
+		if ((midiEvt.evtType & 0xE0) == 0xC0)
+		{
+			midiEvt.evtValA = data[0x01];
+		}
+		else
+		{
+			midiEvt.evtValA = data[0x01];
+			midiEvt.evtValB = data[0x02];
+		}
+	}
+	else if (midiEvt.evtType == 0xF0 || midiEvt.evtType == 0xF7)
+	{
+		midiEvt.evtData.assign(&data[0x01], &data[dataLen]);
+	}
+	else if (midiEvt.evtType == 0xFF)
+	{
+		midiEvt.evtValA = data[0x01];
+		midiEvt.evtData.assign(&data[0x02], &data[dataLen]);
+	}
+	else
+	{
+		return;
+	}
+	DoEvent(&_trkStates[0], &midiEvt);
+	
 	return;
 }
 
@@ -1646,6 +1689,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 			// CM-32P: internal group
 			if (insInf.ins != chnSt->curIns)
 			{
+				chnSt->userInsID = insInf.ins;
 				insBank = SelectInsMap(_options.dstType, &mapModType);
 				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &insInf, mapModType);
 				chnSt->userInsName = chnSt->insSend.bankPtr->insName;
@@ -1653,6 +1697,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		}
 		else
 		{
+			chnSt->userInsID = insInf.ins;
 			if (insInf.bank[0] == 0x00)
 			{
 				if (insInf.ins < 0xC0)
@@ -2067,14 +2112,16 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			chnSt = &_chnStates[portChnID];
 			nvChn = _noteVis.GetChannel(portChnID);
 			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
+			chnSt->curIns = 0xFF;
+			chnSt->userInsID = newIns;
+			chnSt->insOrg.bankPtr = NULL;
+			chnSt->insSend.bankPtr = NULL;
 			if (newIns < 0x80)
 			{
 				InstrumentInfo insInf;
 				const INS_BANK* insBank;
 				UINT8 mapModType;
 				
-				chnSt->curIns = newIns;
-				chnSt->userInsID = 0xFFFF;
 				insInf.bank[0] = 0x00;
 				insInf.bank[1] = 0x00;
 				insInf.ins = newIns;
@@ -2085,12 +2132,8 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			}
 			else
 			{
-				chnSt->curIns = 0xFF;
-				chnSt->userInsID = newIns & 0x7F;
-				chnSt->insOrg.bankPtr = NULL;
-				chnSt->insSend.bankPtr = NULL;
-				if (chnSt->userInsID < 0x40)
-					chnSt->userInsName = _mt32TimbreNames[chnSt->userInsID].c_str();
+				if (chnSt->userInsID < 0xC0)
+					chnSt->userInsName = _mt32TimbreNames[chnSt->userInsID & 0x3F].c_str();
 				//else
 				//	// timbre group R
 			}
@@ -2111,7 +2154,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			UINT32 dataLen = syxSize - 0x09;
 			const UINT8* data = &syxData[0x07];
 			UINT16 internalAddr = ((addr & 0x007F00) >> 1) | ((addr & 0x00007F) >> 0);
-			for (; dataLen > 0 && internalAddr < 0x0400; ofs ++, data ++, dataLen --)
+			for (; dataLen > 0 && internalAddr < 0x0400; internalAddr ++, data ++, dataLen --)
 			{
 				UINT8 patchID = internalAddr >> 3;
 				UINT8 patchAddr = internalAddr & 0x0007;
@@ -2167,7 +2210,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			UINT32 dataLen = syxSize - 0x09;
 			const UINT8* data = &syxData[0x07];
 			UINT16 internalAddr = ((addr & 0x007F00) >> 1) | ((addr & 0x00007F) >> 0);
-			for (; dataLen > 0 && internalAddr < 0x0980; ofs ++, data ++, dataLen --)
+			for (; dataLen > 0 && internalAddr < 0x0980; internalAddr ++, data ++, dataLen --)
 			{
 				UINT8 patchID = internalAddr / 0x13;
 				UINT8 patchAddr = internalAddr % 0x13;
@@ -2186,8 +2229,9 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 	case 0x520000:	// CM-32P System Area
 		break;
 	case 0x7F0000:	// All Parameters Reset (applies to MT-32/CM-32L *and* CM-32P)
-		InitializeChannels();
 		vis_addstr("SysEx: MT-32 Reset\n");
+		_hardReset = true;
+		InitializeChannels();
 		break;
 	}
 	
@@ -2227,10 +2271,11 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x00007F:	// SC-88 System Mode Set
-			InitializeChannels();	// it completely resets the device
 			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + syxData[0x07]);
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
+			_hardReset = true;
+			InitializeChannels();	// it completely resets the device
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
 			{
 				// for devices that don't understand the message, send GS reset instead
@@ -2338,11 +2383,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x40007F:	// GS reset
-			// F0 41 10 42 12 40 00 7F 00 41 F7
-			InitializeChannels();
 			vis_addstr("SysEx: GS Reset\n");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
+			InitializeChannels();
 			break;
 		case 0x400100:	// Patch Name
 		{
@@ -2573,16 +2617,16 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			vis_printf("SysEx XG: Drum %u Reset", syxData[0x06]);
 			break;
 		case 0x00007E:	// XG System On
-			// XG Reset: F0 43 10 4C 00 00 7E 00 F7
-			InitializeChannels();
 			vis_addstr("SysEx: XG Reset");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
 				return true;	// prevent XG reset on other devices
+			InitializeChannels();
 			break;
 		case 0x00007F:	// All Parameters Reset
 			vis_addstr("SysEx XG: All Parameters Reset");
 			_defSrcInsMap = 0xFF;	// Yes, this one is reset with this SysEx message.
 			RefreshSrcDevSettings();
+			_hardReset = true;
 			InitializeChannels();
 			if (_options.flags & PLROPTS_STRICT)
 				return true;	// ignore for now, TODO: send, then ensure proper Voice Map
@@ -3085,6 +3129,29 @@ void MidiPlayer::InitializeChannels(void)
 	size_t curChn;
 	size_t curIns;
 	
+	memset(_pixelPageMem, 0x00, 0x40 * 10);
+	if (_hardReset)
+	{
+		_hardReset = false;
+		for (curIns = 0; curIns < 2; curIns ++)
+		{
+			_sc88UsrDrmNames[curIns] = std::string(0x0C, ' ');
+			_sc88UsrDrmNames[curIns][0] = '\0';
+		}
+		for (curIns = 0x00; curIns < 0x80; curIns ++)
+		{
+			_mt32PatchTGrp[curIns] = (curIns >> 6) & 0x03;
+			_mt32PatchTNum[curIns] = (curIns >> 0) & 0x3F;
+			_cm32pPatchTMedia[curIns] = 0x00;
+			_cm32pPatchTNum[curIns] = curIns;
+		}
+		for (curIns = 0x00; curIns < 0x40; curIns ++)
+		{
+			_mt32TimbreNames[curIns] = std::string(0x0A, ' ');
+			_mt32TimbreNames[curIns][0] = '\0';
+		}
+	}
+	
 	_mstVol = 0x7F;
 	_mstVolFade = (_mstVol * _fadeVol + 0x80) / 0x100;
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
@@ -3125,25 +3192,6 @@ void MidiPlayer::InitializeChannels(void)
 		drumChn.flags |= 0x80;	// set drum channel mode
 		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 			drumChn.ctrls[0x00] = 0x7F;
-	}
-	
-	memset(_pixelPageMem, 0x00, 0x40 * 10);
-	for (curIns = 0; curIns < 2; curIns ++)
-	{
-		_sc88UsrDrmNames[curIns] = std::string(0x0C, ' ');
-		_sc88UsrDrmNames[curIns][0] = '\0';
-	}
-	for (curIns = 0x00; curIns < 0x80; curIns ++)
-	{
-		_mt32PatchTGrp[curIns] = (curIns >> 6) & 0x03;
-		_mt32PatchTNum[curIns] = (curIns >> 0) & 0x3F;
-		_cm32pPatchTMedia[curIns] = 0x00;
-		_cm32pPatchTNum[curIns] = curIns;
-	}
-	for (curIns = 0x00; curIns < 0x40; curIns ++)
-	{
-		_mt32TimbreNames[curIns] = std::string(0x0A, ' ');
-		_mt32TimbreNames[curIns][0] = '\0';
 	}
 	
 	_noteVis.Reset();

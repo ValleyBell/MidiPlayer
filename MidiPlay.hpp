@@ -107,6 +107,7 @@ public:
 	double GetPlaybackPos(void) const;
 	const std::vector<ChannelState>& GetChannelStates(void) const;
 	NoteVisualization* GetNoteVis(void);
+	void HandleRawEvent(size_t dataLen, const UINT8* data);
 	
 	void DoPlaybackStep(void);
 private:
@@ -191,6 +192,7 @@ private:
 	UINT8 _karaokeMode;
 	UINT16 _softKarTrack;
 	bool _breakMidiProc;
+	bool _hardReset;		// enforce "hard" reset (resets custom instrument maps)
 	bool _initChnPost;
 	UINT32 _midiTempo;
 	UINT32 _nextEvtTick;
