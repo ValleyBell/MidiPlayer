@@ -50,6 +50,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 static UINT16 ReadLE16(FILE* infile);
 static UINT32 ReadLE32(FILE* infile);
 
+static const UINT8 MT32_PATCH_CHG[0x10] = {0x41, 0x10, 0x16, 0x12, 0x03, 0x00, 0x00, 0xFF, 0xFF, 0x18, 0x32, 0x0C, 0x00, 0x01, 0xCC, 0xF7};
+
 static UINT16 NUM_LOOPS = 2;
 
 static std::string RcpStr2StdStr(const char* rcpStr)
@@ -436,7 +438,9 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	transp = fgetc(infile);				// transposition
 	startTick = (INT8)fgetc(infile);	// start tick
 	trkMute = fgetc(infile);			// mute
-	fread(tempBuf, 0x01, 0x24, infile);	tempBuf[0x24] = '\0';
+	curDly = fread(tempBuf, 0x01, 0x24, infile);	tempBuf[0x24] = '\0';
+	if (curDly < 0x24)
+		return 0x01;
 	trkName = RcpStr2StdStr(tempBuf);
 	
 	if (! trkName.empty())
@@ -670,8 +674,25 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				curDly = 0;
 				break;
 			case 0xEC:	// Instrument
-				trk->AppendEvent(curDly, 0xC0 | midChn, cmdP1, 0x00);
-				curDly = 0;
+				if (cmdP1 < 0x80)
+				{
+					trk->AppendEvent(curDly, 0xC0 | midChn, cmdP1, 0x00);
+					curDly = 0;
+				}
+				else if (cmdP1 < 0xC0 && (midChn >= 1 && midChn < 9))
+				{
+					// set MT-32 instrument
+					memcpy(tempBufU, MT32_PATCH_CHG, 0x10);
+					tempBufU[0x06] = (midChn - 1) << 4;
+					tempBufU[0x07] = (cmdP1 >> 6) & 0x03;
+					tempBufU[0x08] = (cmdP1 >> 0) & 0x3F;
+					chkSum = 0x00;	// initialize checksum
+					for (cmdP1 = 0x04; cmdP1 < 0x0E; cmdP1 ++)
+						chkSum += tempBufU[cmdP1];	// add to checksum
+					tempBufU[0x0E] = (-chkSum) & 0x7F;
+					trk->AppendSysEx(curDly, 0x10, tempBufU);
+					curDly = 0;
+				}
 				break;
 			case 0xED:	// Note Aftertouch
 				trk->AppendEvent(curDly, 0xA0 | midChn, cmdP1, cmdP2);
