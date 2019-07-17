@@ -224,6 +224,7 @@ void vis_init(void)
 	
 	mmsPan = NULL;
 	mmsWin = NULL;
+	mdsPan = NULL;
 	mdsWin = NULL;
 	
 	curYline = 0;
@@ -242,6 +243,11 @@ static void vis_clear_all_menus(void)
 	{
 		delwin(mmsWin);
 		mmsWin = NULL;
+	}
+	if (mdsPan != NULL)
+	{
+		del_panel(mdsPan);
+		mdsPan = NULL;
 	}
 	if (mdsWin != NULL)
 	{
@@ -1141,8 +1147,8 @@ static int vis_keyhandler_devsel(void)
 	case 0x1B:	// ESC
 	case 'Q':
 	case '\n':
-		del_panel(mmsPan);	mmsPan = NULL;
-		delwin(mmsWin);		mmsWin = NULL;
+		del_panel(mdsPan);	mdsPan = NULL;
+		delwin(mdsWin);		mdsWin = NULL;
 		currentKeyHandler.pop_back();
 		
 		if (inkey == '\n')
@@ -1198,10 +1204,10 @@ static int vis_keyhandler_devsel(void)
 	case 'R':
 		restartSong = ! restartSong;
 		{
-			int sizeY = getmaxy(mmsWin);
+			int sizeY = getmaxy(mdsWin);
 			chtype rsChar = restartSong ? 'R' : ACS_HLINE;
-			mvwaddch(mmsWin, sizeY - 1, 1, rsChar);
-			wrefresh(mmsWin);
+			mvwaddch(mdsWin, sizeY - 1, 1, rsChar);
+			wrefresh(mdsWin);
 		}
 		break;
 	case 'D':
@@ -1211,12 +1217,12 @@ static int vis_keyhandler_devsel(void)
 	}
 	if (cursorPos != mdsSelection)
 	{
-		int sizeX = getmaxx(mmsWin);
-		mvwchgat(mmsWin, 1 + mdsSelection, 1, sizeX - 2, A_NORMAL, 0, NULL);
+		int sizeX = getmaxx(mdsWin);
+		mvwchgat(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_NORMAL, 0, NULL);
 		mdsSelection = cursorPos;
-		mvwchgat(mmsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+		mvwchgat(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
 		
-		wrefresh(mmsWin);
+		wrefresh(mdsWin);
 	}
 	
 	return 0;
@@ -1320,19 +1326,19 @@ static void vis_show_device_selection(void)
 	sizeY = mdsCount + 2;
 	
 	wsx = (COLS - sizeX) / 2;	wsy = (LINES - sizeY) / 2;	// center of the screen
-	mmsWin = newwin(sizeY, sizeX, wsy, wsx);
-	mmsPan = new_panel(mmsWin);
-	box(mmsWin, 0, 0);
+	mdsWin = newwin(sizeY, sizeX, wsy, wsx);
+	mdsPan = new_panel(mdsWin);
+	box(mdsWin, 0, 0);
 	
-	wattron(mmsWin, A_BOLD | COLOR_PAIR(0));
-	mvwaddstr(mmsWin, 0, (sizeX - mtLen) / 2, menuTitle);
-	wattroff(mmsWin, A_BOLD | COLOR_PAIR(0));
+	wattron(mdsWin, A_BOLD | COLOR_PAIR(0));
+	mvwaddstr(mdsWin, 0, (sizeX - mtLen) / 2, menuTitle);
+	wattroff(mdsWin, A_BOLD | COLOR_PAIR(0));
 	
 	for (size_t curMod = 0; curMod < modNames.size(); curMod ++)
-		mvwaddstr(mmsWin, 1 + curMod, 2, modNames[curMod].c_str());
+		mvwaddstr(mdsWin, 1 + curMod, 2, modNames[curMod].c_str());
 	if (mdsDefaultSel != -1)
-		mvwaddch(mmsWin, 1 + mdsDefaultSel, 1, '*');
-	mvwchgat(mmsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+		mvwaddch(mdsWin, 1 + mdsDefaultSel, 1, '*');
+	mvwchgat(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
 	
 	update_panels();
 	refresh();
