@@ -41,6 +41,8 @@ size_t main_GetOpenedModule(void);
 UINT8 main_CloseModule(void);
 UINT8 main_OpenModule(size_t modID);
 double main_GetFadeTime(void);
+UINT8 main_GetSongInsMap(void);
+size_t main_GetSongOptDevice(void);
 
 
 static const char* notes[12] =
@@ -172,12 +174,14 @@ static bool lcdEnable = true;
 static WINDOW* mmsWin = NULL;
 static PANEL* mmsPan = NULL;
 static int mmsSelection;
+static int mmsDefaultSel;
 static std::vector<UINT8> mapSelTypes;
 
 // MIDI device selection
 static WINDOW* mdsWin = NULL;
 static PANEL* mdsPan = NULL;
 static int mdsSelection;
+static int mdsDefaultSel;
 static int mdsCount;
 
 void vis_init(void)
@@ -1101,6 +1105,10 @@ static int vis_keyhandler_mapsel(void)
 			wrefresh(mmsWin);
 		}
 		break;
+	case 'D':
+		if (mmsDefaultSel != -1)
+			cursorPos = mmsDefaultSel;
+		break;
 	}
 	if (cursorPos != mmsSelection)
 	{
@@ -1196,6 +1204,10 @@ static int vis_keyhandler_devsel(void)
 			wrefresh(mmsWin);
 		}
 		break;
+	case 'D':
+		if (mdsDefaultSel != -1)
+			cursorPos = mdsDefaultSel;
+		break;
 	}
 	if (cursorPos != mdsSelection)
 	{
@@ -1218,9 +1230,12 @@ static void vis_show_map_selection(void)
 	int wsx, wsy;
 	size_t curMap;
 	UINT8 midMapType;
+	UINT8 songMapType;
 	
+	songMapType = main_GetSongInsMap();
 	midMapType = (midPlay != NULL) ? midPlay->GetOptions().srcType : 0x00;
 	mmsSelection = 0;
+	mmsDefaultSel = -1;
 	sizeX = 0;
 	for (curMap = 0; curMap < mapSelTypes.size(); curMap ++)
 	{
@@ -1230,6 +1245,8 @@ static void vis_show_map_selection(void)
 			sizeX = mapStr.length();
 		if (mapType == midMapType)
 			mmsSelection = (int)curMap;
+		if (mapType == songMapType)
+			mmsDefaultSel = (int)curMap;
 	}
 	sizeX += 3;	// 3 for map ID number
 	if (sizeX < mtLen)
@@ -1255,6 +1272,8 @@ static void vis_show_map_selection(void)
 		
 		mvwprintw(mmsWin, 1 + curMap, 2, "%02X %s", mapType, mapStr2);
 	}
+	if (mmsDefaultSel != -1)
+		mvwaddch(mmsWin, 1 + mmsDefaultSel, 1, '*');
 	mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
 	
 	update_panels();
@@ -1278,7 +1297,10 @@ static void vis_show_device_selection(void)
 	if (midiModColl == NULL)
 		return;
 	
-	mdsSelection = main_GetOpenedModule();
+	mdsSelection = (int)main_GetOpenedModule();
+	mdsDefaultSel = (int)main_GetSongOptDevice();
+	if (mdsDefaultSel < 0 || mdsDefaultSel >= midiModColl->GetModuleCount())
+		mdsDefaultSel = -1;
 	sizeX = 0;
 	tempStr[0x7F] = '\0';
 	for (curMod = 0; curMod < midiModColl->GetModuleCount(); curMod ++)
@@ -1308,6 +1330,8 @@ static void vis_show_device_selection(void)
 	
 	for (size_t curMod = 0; curMod < modNames.size(); curMod ++)
 		mvwaddstr(mmsWin, 1 + curMod, 2, modNames[curMod].c_str());
+	if (mdsDefaultSel != -1)
+		mvwaddch(mmsWin, 1 + mdsDefaultSel, 1, '*');
 	mvwchgat(mmsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
 	
 	update_panels();

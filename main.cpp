@@ -84,6 +84,8 @@ static std::vector<SongFileList> songList;
 static std::vector<std::string> plList;
 static int controlVal;
 static size_t curSong;
+static UINT8 songInsMap;	// detected instrument map
+static size_t songOptDev;	// optimal device
 
 extern std::vector<UINT8> optShowMeta;
 extern UINT8 optShowInsChange;
@@ -688,6 +690,16 @@ double main_GetFadeTime(void)
 	return fadeTime;
 }
 
+UINT8 main_GetSongInsMap(void)
+{
+	return songInsMap;
+}
+
+size_t main_GetSongOptDevice(void)
+{
+	return songOptDev;
+}
+
 
 void PlayMidi(void)
 {
@@ -700,6 +712,7 @@ void PlayMidi(void)
 	MidiBankScan(&CMidi, true, &scanRes);
 	if (forceSrcType != 0xFF)
 		scanRes.modType = forceSrcType;
+	songInsMap = scanRes.modType;
 	
 	if (scanRes.modType == 0xFF)
 	{
@@ -707,10 +720,8 @@ void PlayMidi(void)
 		vis_printf("Falling back to %s mode ...\n", GetModuleTypeNameL(scanRes.modType));
 	}
 	
-	if (forceModID == 0xFF)
-		chosenModule = midiModColl.GetOptimalModuleID(scanRes.modType);
-	else
-		chosenModule = forceModID;
+	songOptDev = midiModColl.GetOptimalModuleID(scanRes.modType);
+	chosenModule = (forceModID != 0xFF) ? forceModID : songOptDev;
 	if (chosenModule == (size_t)-1 || chosenModule >= midiModColl.GetModuleCount())
 	{
 		vis_printf("Unable to find an appropriate MIDI module!\n");
