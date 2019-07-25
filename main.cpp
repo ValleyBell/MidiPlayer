@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>	// for memcmp()
 #include <ctype.h>
 #include <locale.h>
 #include <errno.h>
@@ -361,6 +362,17 @@ int main(int argc, char* argv[])
 		else
 		{
 			retVal = CMidi.LoadFile(hFile);
+			if (retVal >= 0x10)
+			{
+				char fileSig[4];
+				rewind(hFile);
+				fread(fileSig, 1, 4, hFile);
+				if (! memcmp(fileSig, "RIFF", 4))	// .rmi file?
+				{
+					fseek(hFile, 0x14, SEEK_SET);	// attempt to seek over to actual MIDI data
+					retVal = CMidi.LoadFile(hFile);	// and try reading again from there
+				}
+			}
 			if (retVal >= 0x10)
 			{
 				rewind(hFile);

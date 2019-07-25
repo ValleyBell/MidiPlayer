@@ -81,6 +81,8 @@ find_package(Iconv REQUIRED)
 set(LIBRARIES ${LIBRARIES} Iconv::Iconv)
 
 set(CURSES_NEED_WIDE TRUE)
+# Note: If it segfaults during initscr(), make sure to fix CURSES_EXTRA_LIBRARY and
+# CURSES_FORM_LIBRARY to use the wide-character versions of the libs.
 find_package(Curses REQUIRED)
 set(SOURCES ${SOURCES}
 	vis_curses.cpp
