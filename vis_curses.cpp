@@ -1097,9 +1097,46 @@ static int vis_keyhandler_mapsel(void)
 			cursorPos = mapSelTypes.size() - 1;
 		break;
 	case KEY_PPAGE:
-		cursorPos = 0;
+		if (cursorPos <= 0)
+			break;
+		{
+			// go to either
+			//	- first device of current module type (e.g. SC-88Pro -> SC-55)
+			//	- first device of previous module type (SC-55 -> GM)
+			UINT8 destModType;
+			
+			// destination module type is the one of the previous device
+			cursorPos --;
+			destModType = MMASK_TYPE(mapSelTypes[cursorPos]);
+			for (; cursorPos >= 0; cursorPos --)
+			{
+				if (MMASK_TYPE(mapSelTypes[cursorPos]) != destModType)
+					break;	// exit when leaving the destination category
+			}
+			cursorPos = cursorPos + 1;	// we overshot, so make up for it
+		}
 		break;
 	case KEY_NPAGE:
+		if (cursorPos >= mapSelTypes.size() - 1)
+			break;
+		{
+			// go to first device of next module type (e.g. SC-55 [GS] -> MU50 [XG])
+			UINT8 curModType;
+			
+			curModType = MMASK_TYPE(mapSelTypes[cursorPos]);
+			for (cursorPos = cursorPos + 1; cursorPos < mapSelTypes.size(); cursorPos ++)
+			{
+				if (MMASK_TYPE(mapSelTypes[cursorPos]) != curModType)
+					break;
+			}
+			if (cursorPos >= mapSelTypes.size())
+				cursorPos = mapSelTypes.size() - 1;
+		}
+		break;
+	case KEY_HOME:
+		cursorPos = 0;
+		break;
+	case KEY_END:
 		cursorPos = mapSelTypes.size() - 1;
 		break;
 	case 'R':
@@ -1195,9 +1232,11 @@ static int vis_keyhandler_devsel(void)
 		if (cursorPos >= mdsCount)
 			cursorPos = mdsCount - 1;
 		break;
+	case KEY_HOME:
 	case KEY_PPAGE:
 		cursorPos = 0;
 		break;
+	case KEY_END:
 	case KEY_NPAGE:
 		cursorPos = mdsCount - 1;
 		break;
