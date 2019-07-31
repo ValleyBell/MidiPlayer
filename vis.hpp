@@ -1,6 +1,7 @@
 #ifndef __VIS_HPP__
 #define __VIS_HPP__
 
+#include <stddef.h>	// for size_t
 #include <stdtype.h>
 class MidiModuleCollection;
 class MidiFile;

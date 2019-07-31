@@ -712,6 +712,16 @@ size_t main_GetSongOptDevice(void)
 	return songOptDev;
 }
 
+UINT8* main_GetForcedInsMap(void)
+{
+	return &forceSrcType;
+}
+
+UINT8* main_GetForcedModule(void)
+{
+	return &forceModID;
+}
+
 
 void PlayMidi(void)
 {

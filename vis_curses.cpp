@@ -43,6 +43,8 @@ UINT8 main_OpenModule(size_t modID);
 double main_GetFadeTime(void);
 UINT8 main_GetSongInsMap(void);
 size_t main_GetSongOptDevice(void);
+UINT8* main_GetForcedInsMap(void);
+UINT8* main_GetForcedModule(void);
 
 
 static const char* notes[12] =
@@ -112,15 +114,39 @@ public:
 
 typedef int (*KEYHANDLER)(void);
 
+static int mvwattron(WINDOW* win, int y, int x, int n, attr_t attr);
+static int mvwattroff(WINDOW* win, int y, int x, int n, attr_t attr);
+//void vis_init(void);
 static void vis_clear_all_menus(void);
+//void vis_deinit(void);
+//int vis_getch(void);
+//int vis_getch_wait(void);
+//void vis_addstr(const char* text);
+//void vis_printf(const char* format, ...);
+//void vis_set_locales(size_t numLocales, void* localeArrPtr);
+//void vis_set_track_number(UINT32 trkNo);
+//void vis_set_track_count(UINT32 trkCnt);
+//void vis_set_midi_modules(MidiModuleCollection* mmc);
+//void vis_set_midi_file(const char* fileName, MidiFile* mFile);
+//void vis_set_midi_player(MidiPlayer* mPlay);
+//void vis_new_song(void);
+//void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data);
+//void vis_do_ins_change(UINT16 chn);
+//void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl);
+//void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text);
+//void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data);
+static bool char_is_cr(const char c);
 static void str_remove_cr(std::string& text);
 static void str_locale_conv(std::string& text);
 static void str_prepare_print(std::string& text);
 static bool string_is_empty(const std::string& str);
+//void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data);
 static void refresh_cursor_y(void);
 static void vis_printms(double time);
 static void vis_mvprintms(int row, int col, double time);
+//void vis_update(void);
 static int vis_keyhandler_normal(void);
+//int vis_main(void);
 static int vis_keyhandler_mapsel(void);
 static int vis_keyhandler_devsel(void);
 static void vis_show_map_selection(void);
@@ -175,6 +201,7 @@ static WINDOW* mmsWin = NULL;
 static PANEL* mmsPan = NULL;
 static int mmsSelection;
 static int mmsDefaultSel;
+static int mmsForcedType;
 static std::vector<UINT8> mapSelTypes;
 
 // MIDI device selection
@@ -182,7 +209,40 @@ static WINDOW* mdsWin = NULL;
 static PANEL* mdsPan = NULL;
 static int mdsSelection;
 static int mdsDefaultSel;
+static int mdsForcedDevice;
 static int mdsCount;
+
+static int mvwattron(WINDOW* win, int y, int x, int n, attr_t attr)
+{
+	int posX;
+	int ret;
+	
+	for (posX = x; posX < x + n; posX ++)
+	{
+		chtype ch_attr = mvwinch(win, y, posX);
+		ch_attr |= attr;
+		ret = wchgat(win, 1, ch_attr, 0, NULL);
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
+
+static int mvwattroff(WINDOW* win, int y, int x, int n, attr_t attr)
+{
+	int posX;
+	int ret;
+	
+	for (posX = x; posX < x + n; posX ++)
+	{
+		chtype ch_attr = mvwinch(win, y, posX);
+		ch_attr &= ~attr;
+		ret = wchgat(win, 1, ch_attr, 0, NULL);
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
 
 void vis_init(void)
 {
@@ -1152,13 +1212,35 @@ static int vis_keyhandler_mapsel(void)
 		if (mmsDefaultSel != -1)
 			cursorPos = mmsDefaultSel;
 		break;
+	case 'L':
+		if (cursorPos < 0 || cursorPos >= mapSelTypes.size())
+			break;
+		{
+			UINT8* forceSrcType = main_GetForcedInsMap();
+			UINT8 selMap = mapSelTypes[cursorPos];
+			
+			if (mmsForcedType != -1)
+				mvwattroff(mmsWin, 1 + mmsForcedType, 1, 1, A_UNDERLINE);
+			if (*forceSrcType == selMap)
+			{
+				*forceSrcType = 0xFF;
+			}
+			else
+			{
+				*forceSrcType = selMap;
+				mmsForcedType = cursorPos;
+				mvwattron(mmsWin, 1 + mmsForcedType, 1, 1, A_UNDERLINE);
+			}
+			wrefresh(mmsWin);
+		}
+		break;
 	}
 	if (cursorPos != mmsSelection)
 	{
 		int sizeX = getmaxx(mmsWin);
-		mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_NORMAL, 0, NULL);
+		mvwattroff(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE);
 		mmsSelection = cursorPos;
-		mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+		mvwattron(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE);
 		
 		wrefresh(mmsWin);
 	}
@@ -1253,13 +1335,35 @@ static int vis_keyhandler_devsel(void)
 		if (mdsDefaultSel != -1)
 			cursorPos = mdsDefaultSel;
 		break;
+	case 'L':
+		if (cursorPos < 0 || cursorPos >= mapSelTypes.size())
+			break;
+		{
+			UINT8* forceModID = main_GetForcedModule();
+			
+			if (mdsForcedDevice != -1)
+				mvwattroff(mdsWin, 1 + mdsForcedDevice, 1, 1, A_UNDERLINE);
+			if (mdsForcedDevice == cursorPos)
+			{
+				*forceModID = 0xFF;
+				mdsForcedDevice = -1;
+			}
+			else
+			{
+				*forceModID = (UINT8)cursorPos;
+				mdsForcedDevice = cursorPos;
+				mvwattron(mdsWin, 1 + mdsForcedDevice, 1, 1, A_UNDERLINE);
+			}
+			wrefresh(mdsWin);
+		}
+		break;
 	}
 	if (cursorPos != mdsSelection)
 	{
 		int sizeX = getmaxx(mdsWin);
-		mvwchgat(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_NORMAL, 0, NULL);
+		mvwattroff(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE);
 		mdsSelection = cursorPos;
-		mvwchgat(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+		mvwattron(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE);
 		
 		wrefresh(mdsWin);
 	}
@@ -1276,11 +1380,14 @@ static void vis_show_map_selection(void)
 	size_t curMap;
 	UINT8 midMapType;
 	UINT8 songMapType;
+	UINT8 forceSrcType;
 	
 	songMapType = main_GetSongInsMap();
+	forceSrcType = *main_GetForcedInsMap();
 	midMapType = (midPlay != NULL) ? midPlay->GetOptions().srcType : 0x00;
 	mmsSelection = 0;
 	mmsDefaultSel = -1;
+	mmsForcedType = -1;
 	sizeX = 0;
 	for (curMap = 0; curMap < mapSelTypes.size(); curMap ++)
 	{
@@ -1292,6 +1399,8 @@ static void vis_show_map_selection(void)
 			mmsSelection = (int)curMap;
 		if (mapType == songMapType)
 			mmsDefaultSel = (int)curMap;
+		if (mapType == forceSrcType)
+			mmsForcedType = (int)curMap;
 	}
 	sizeX += 3;	// 3 for map ID number
 	if (sizeX < mtLen)
@@ -1309,7 +1418,7 @@ static void vis_show_map_selection(void)
 	mvwaddstr(mmsWin, 0, (sizeX - mtLen) / 2, menuTitle);
 	wattroff(mmsWin, A_BOLD | COLOR_PAIR(0));
 	
-	for (size_t curMap = 0; curMap < mapSelTypes.size(); curMap ++)
+	for (curMap = 0; curMap < mapSelTypes.size(); curMap ++)
 	{
 		UINT8 mapType = mapSelTypes[curMap];
 		const std::string& mapStr = midiModColl->GetLongModName(mapType);
@@ -1319,7 +1428,9 @@ static void vis_show_map_selection(void)
 	}
 	if (mmsDefaultSel != -1)
 		mvwaddch(mmsWin, 1 + mmsDefaultSel, 1, '*');
-	mvwchgat(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+	mvwattron(mmsWin, 1 + mmsSelection, 1, sizeX - 2, A_REVERSE);
+	if (mmsForcedType != -1)
+		mvwattron(mmsWin, 1 + mmsForcedType, 1, 1, A_UNDERLINE);
 	
 	update_panels();
 	refresh();
@@ -1338,6 +1449,7 @@ static void vis_show_device_selection(void)
 	int sizeX, sizeY;
 	int wsx, wsy;
 	size_t curMod;
+	UINT8 forcedDevice;
 	
 	if (midiModColl == NULL)
 		return;
@@ -1346,6 +1458,9 @@ static void vis_show_device_selection(void)
 	mdsDefaultSel = (int)main_GetSongOptDevice();
 	if (mdsDefaultSel < 0 || mdsDefaultSel >= midiModColl->GetModuleCount())
 		mdsDefaultSel = -1;
+	mdsForcedDevice = (int)*main_GetForcedModule();
+	if (mdsForcedDevice < 0 || mdsForcedDevice >= midiModColl->GetModuleCount())
+		mdsForcedDevice = -1;
 	sizeX = 0;
 	tempStr[0x7F] = '\0';
 	for (curMod = 0; curMod < midiModColl->GetModuleCount(); curMod ++)
@@ -1373,11 +1488,13 @@ static void vis_show_device_selection(void)
 	mvwaddstr(mdsWin, 0, (sizeX - mtLen) / 2, menuTitle);
 	wattroff(mdsWin, A_BOLD | COLOR_PAIR(0));
 	
-	for (size_t curMod = 0; curMod < modNames.size(); curMod ++)
+	for (curMod = 0; curMod < modNames.size(); curMod ++)
 		mvwaddstr(mdsWin, 1 + curMod, 2, modNames[curMod].c_str());
 	if (mdsDefaultSel != -1)
 		mvwaddch(mdsWin, 1 + mdsDefaultSel, 1, '*');
-	mvwchgat(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE, 0, NULL);
+	mvwattron(mdsWin, 1 + mdsSelection, 1, sizeX - 2, A_REVERSE);
+	if (mdsForcedDevice != -1)
+		mvwattron(mdsWin, 1 + mdsForcedDevice, 1, 1, A_UNDERLINE);
 	
 	update_panels();
 	refresh();
