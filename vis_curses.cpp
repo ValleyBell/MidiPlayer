@@ -1449,7 +1449,6 @@ static void vis_show_device_selection(void)
 	int sizeX, sizeY;
 	int wsx, wsy;
 	size_t curMod;
-	UINT8 forcedDevice;
 	
 	if (midiModColl == NULL)
 		return;

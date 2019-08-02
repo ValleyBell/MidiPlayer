@@ -506,7 +506,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					break;
 				}
 			}
-			if (cmdDurat > 0 && cmdP2 > 0)
+			if (cmdDurat > 0 && cmdP2 > 0 && midiDev != 0xFF)
 			{
 				trk->AppendEvent(curDly, 0x90 | midChn, cmdType, cmdP2);
 				curDly = 0;
@@ -523,6 +523,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			{
 			case 0x90: case 0x91: case 0x92: case 0x93:	// send User SysEx (defined via header)
 			case 0x94: case 0x95: case 0x96: case 0x97:
+				if (midiDev == 0xFF)
+					break;
 				{
 					std::vector<UINT8> syxBuf;
 					UINT8 syxID;
@@ -556,6 +558,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 						cmdType = fgetc(infile);
 					}
 					fseek(infile, -1, SEEK_CUR);
+					if (midiDev == 0xFF)
+						break;
 					
 					syxBuf = ProcessRcpSysEx(text, cmdP1, cmdP2, midChn);
 					trk->AppendSysEx(curDly, syxBuf.size(), &syxBuf[0]);
@@ -589,6 +593,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			case 0xD2:	// YAMAHA Address / Parameter
 				xgParams[4] = cmdP1;
 				xgParams[5] = cmdP2;
+				if (midiDev == 0xFF)
+					break;
 				
 				tempBufU[0] = 0x43;	// YAMAHA ID
 				memcpy(&tempBufU[1], &xgParams[0], 6);
@@ -599,6 +605,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			case 0xD3:	// YAMAHA XG Address / Parameter
 				xgParams[4] = cmdP1;
 				xgParams[5] = cmdP2;
+				if (midiDev == 0xFF)
+					break;
 				
 				tempBufU[0] = 0x43;	// YAMAHA ID
 				tempBufU[1] = 0x10;	// Parameter Change
@@ -616,6 +624,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			case 0xDE:	// Roland Parameter
 				gsParams[4] = cmdP1;
 				gsParams[5] = cmdP2;
+				if (midiDev == 0xFF)
+					break;
 				
 				tempBufU[0] = 0x41;	// Roland ID
 				tempBufU[1] = gsParams[0];
@@ -637,6 +647,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				gsParams[1] = cmdP2;
 				break;
 			case 0xE2:	// set GS instrument
+				if (midiDev == 0xFF)
+					break;
 				trk->AppendEvent(curDly, 0xB0 | midChn, 0x00, cmdP2);
 				trk->AppendEvent(0, 0xC0 | midChn, cmdP1, 0x00);
 				curDly = 0;
@@ -646,7 +658,12 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				break;
 			case 0xE6:	// MIDI channel
 				cmdP1 --;
-				if (cmdP1 != 0xFF)
+				if (cmdP1 == 0xFF)
+				{
+					midiDev = 0xFF;
+					midChn = 0x00;
+				}
+				else
 				{
 					midiDev = cmdP1 >> 4;	// port ID
 					midChn = cmdP1 & 0x0F;	// channel ID
@@ -666,14 +683,20 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				curDly = 0;
 				break;
 			case 0xEA:	// Channel Aftertouch
+				if (midiDev == 0xFF)
+					break;
 				trk->AppendEvent(curDly, 0xD0 | midChn, cmdP1, 0x00);
 				curDly = 0;
 				break;
 			case 0xEB:	// Control Change
+				if (midiDev == 0xFF)
+					break;
 				trk->AppendEvent(curDly, 0xB0 | midChn, cmdP1, cmdP2);
 				curDly = 0;
 				break;
 			case 0xEC:	// Instrument
+				if (midiDev == 0xFF)
+					break;
 				if (cmdP1 < 0x80)
 				{
 					trk->AppendEvent(curDly, 0xC0 | midChn, cmdP1, 0x00);
@@ -695,10 +718,14 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				}
 				break;
 			case 0xED:	// Note Aftertouch
+				if (midiDev == 0xFF)
+					break;
 				trk->AppendEvent(curDly, 0xA0 | midChn, cmdP1, cmdP2);
 				curDly = 0;
 				break;
 			case 0xEE:	// Pitch Bend
+				if (midiDev == 0xFF)
+					break;
 				trk->AppendEvent(curDly, 0xE0 | midChn, cmdP1, cmdP2);
 				curDly = 0;
 				break;
@@ -838,9 +865,9 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 						break;
 					}
 					cachedPos = measurePos[measureID] - trkBasePos;
-					if (cachedPos != repeatPos)
-						printf("Warning: Repeat Measure %u: offset mismatch (0x%04X != 0x%04X) at 0x%04X!\n",
-							measureID, repeatPos, cachedPos, prevPos);
+					//if (cachedPos != repeatPos)
+					//	printf("Warning: Repeat Measure %u: offset mismatch (0x%04X != 0x%04X) at 0x%04X!\n",
+					//		measureID, repeatPos, cachedPos, prevPos);
 					
 					if (! parentPos)	// this check was verified to be necessary for some files
 						parentPos = ftell(infile);
