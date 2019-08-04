@@ -2189,6 +2189,28 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		}
 		break;
 	case 0x100000:	// System Area
+		switch(addr & 0x00FFFF)
+		{
+		case 0x0000:	// Master Tune
+			// Note: default tuning is value 0x4A (442 Hz)
+			{
+				// formula from Munt MT-32 emulator
+				int tuneVal = syxData[0x07] - 0x40;
+				float tuneHz = (float)(440.0 * pow(2.0, tuneVal / 128.0 / 12.0));
+				vis_printf("SysEx MT-32: Master Tune = %.1f Hz", tuneHz);
+			}
+			break;
+		case 0x0016:	// Master Volume
+			// Note: Unlike GM/GS/XG, MT-32 volume is 0..100.
+			vis_printf("SysEx MT-32: Master Volume = %u", syxData[0x07]);
+			if (_options.dstType != MODULE_MT32)
+				break;
+			_mstVol = syxData[0x07] * 0x7F / 100;
+			if (_filteredVol & (1 << FILTVOL_GMSYX))
+				return true;	// don't send when fading
+			_noteVis.GetAttributes().volume = _mstVol;
+			break;
+		}
 		break;
 	case 0x200000:	// Display
 		if (addr < 0x200100)
@@ -2227,9 +2249,31 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		}
 		break;
 	case 0x520000:	// CM-32P System Area
+		switch(addr & 0x00FFFF)
+		{
+		case 0x0000:	// Master Tune
+			{
+				int tuneVal = syxData[0x07] - 0x40;
+				float tuneHz = (float)(440.0 * pow(2.0, tuneVal / 128.0 / 12.0));
+				vis_printf("SysEx MT-32: Master Tune = %.1f Hz", tuneHz);
+			}
+			break;
+		case 0x0010:	// Master Volume
+			// Note: Like MT-32/CM-32L, CM-32P volume is 0..100.
+			vis_printf("SysEx CM-32P: Master Volume = %u", syxData[0x07]);
+			if (_options.dstType != MODULE_MT32)
+				break;
+			_mstVol = syxData[0x07] * 0x7F / 100;
+			if (_filteredVol & (1 << FILTVOL_GMSYX))
+				return true;	// don't send when fading
+			_noteVis.GetAttributes().volume = _mstVol;
+			break;
+		}
 		break;
 	case 0x7F0000:	// All Parameters Reset (applies to MT-32/CM-32L *and* CM-32P)
 		vis_addstr("SysEx: MT-32 Reset\n");
+		if (_options.dstType != MODULE_MT32)
+			break;
 		_hardReset = true;
 		InitializeChannels();
 		break;
@@ -2248,10 +2292,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
-	if (MMASK_TYPE(_options.srcType) == MODULE_MT32)
+	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
 	{
 		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
-		if (! ((syxData[0x04] & 0x3F) == 0x00 && syxData[0x05] == 0x00))
+		if (! ((syxData[0x04] & 0x3F) == 0x00 && syxData[0x05] == 0x00))	// ignore system block
 		{
 			// fixes Steam-Heart's SH03_MMT.MID
 			vis_addstr("Ignoring stray GS SysEx message!");
@@ -2274,6 +2318,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + syxData[0x07]);
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			_hardReset = true;
 			InitializeChannels();	// it completely resets the device
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
@@ -2342,6 +2388,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x400000:	// Master Tune
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			{
 				INT16 tune;
 				// one nibble per byte, range is 0x0018 [-1 semitone] .. 0x0400 [center] .. 0x07E8 [+1 semitone]
@@ -2358,13 +2406,17 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x400004:	// Master Volume
+			vis_printf("SysEx GS: Master Volume = %u", syxData[0x07]);
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			_mstVol = syxData[0x07];
-			vis_printf("SysEx GS: Master Volume = %u", _mstVol);
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			break;
 		case 0x400005:	// Master Key-Shift
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			{
 				INT8 transp = (INT8)syxData[0x07] - 0x40;
 				if (transp < -24)
@@ -2375,6 +2427,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x400006:	// Master Pan
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			{
 				UINT8 panVal = syxData[0x07];
 				if (panVal == 0x00)
@@ -2384,6 +2438,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x40007F:	// GS reset
 			vis_addstr("SysEx: GS Reset\n");
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
 			InitializeChannels();
@@ -2570,6 +2626,15 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
+	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
+	{
+		if (syxData[0x03] == 0x00)	// ignore system block
+		{
+			vis_addstr("Ignoring stray XG SysEx message!");
+			return true;
+		}
+	}
+	
 	addr = ReadBE24(&syxData[0x03]);
 	switch(addr & 0xFF0000)	// Address High
 	{
@@ -2577,6 +2642,8 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x000000:	// Master Tune
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			{
 				INT16 tune;
 				// one nibble per byte, range is 0x0018 [-1 semitone] .. 0x0400 [center] .. 0x07E8 [+1 semitone]
@@ -2593,17 +2660,23 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x000004:	// Master Volume
+			vis_printf("SysEx XG: Master Volume = %u", syxData[0x06]);
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			_mstVol = syxData[0x06];
-			vis_printf("SysEx XG: Master Volume = %u", _mstVol);
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			break;
 		case 0x000005:	// Master Attenuator
 			vis_printf("SysEx XG: Master Attenuator = %u", syxData[0x06]);
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			_noteVis.GetAttributes().expression = 0x7F - syxData[0x06];
 			break;
 		case 0x000006:	// Master Transpose
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			{
 				INT8 transp = (INT8)syxData[0x06] - 0x40;
 				if (transp < -24)
@@ -2618,12 +2691,16 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x00007E:	// XG System On
 			vis_addstr("SysEx: XG Reset");
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
 				return true;	// prevent XG reset on other devices
 			InitializeChannels();
 			break;
 		case 0x00007F:	// All Parameters Reset
 			vis_addstr("SysEx XG: All Parameters Reset");
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			_defSrcInsMap = 0xFF;	// Yes, this one is reset with this SysEx message.
 			RefreshSrcDevSettings();
 			_hardReset = true;
