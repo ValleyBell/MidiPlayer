@@ -1,6 +1,7 @@
 #include <stdtype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>	// for pow()
 #include <vector>
 #include <list>
 #include <string>
@@ -1734,11 +1735,20 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		{
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
-				// only Bank LSB was patched and it was patched from 0 (default instrument map) to the "native" map
-				if (chnSt->ctrls[0x20] == 0x00 && didPatch == BNKMSK_LSB)
+				if (didPatch == BNKMSK_LSB)	// only Bank LSB was patched (instrument map)
 				{
-					didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
-					showOrgIns = true;
+					bool hasMultipleInsMaps = (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B);
+					if (hasMultipleInsMaps && chnSt->ctrls[0x20] == 0x00)
+					{
+						// SC-88+: Bank LSB was patched from 0 (default instrument map) to the "native" map
+						didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
+						showOrgIns = true;
+					}
+					else if (! hasMultipleInsMaps && chnSt->insSend.bank[1] == 0x00)
+					{
+						// SC-55/Yamaha GS: Bank LSB was set to 0 because it's ignored
+						didPatch = BNKMSK_NONE;
+					}
 				}
 			}
 			else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
@@ -2316,10 +2326,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		{
 		case 0x00007F:	// SC-88 System Mode Set
 			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + syxData[0x07]);
-			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
-				return true;	// prevent GS reset on other devices
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
+			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
+				return true;	// prevent GS reset on other devices
 			_hardReset = true;
 			InitializeChannels();	// it completely resets the device
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))

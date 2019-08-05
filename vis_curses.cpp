@@ -116,6 +116,7 @@ typedef int (*KEYHANDLER)(void);
 
 static int mvwattron(WINDOW* win, int y, int x, int n, attr_t attr);
 static int mvwattroff(WINDOW* win, int y, int x, int n, attr_t attr);
+static int mvwattrtoggle(WINDOW* win, int y, int x, int n, attr_t attr);
 //void vis_init(void);
 static void vis_clear_all_menus(void);
 //void vis_deinit(void);
@@ -237,6 +238,22 @@ static int mvwattroff(WINDOW* win, int y, int x, int n, attr_t attr)
 	{
 		chtype ch_attr = mvwinch(win, y, posX);
 		ch_attr &= ~attr;
+		ret = wchgat(win, 1, ch_attr, 0, NULL);
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
+
+static int mvwattrtoggle(WINDOW* win, int y, int x, int n, attr_t attr)
+{
+	int posX;
+	int ret;
+	
+	for (posX = x; posX < x + n; posX ++)
+	{
+		chtype ch_attr = mvwinch(win, y, posX);
+		ch_attr ^= attr;
 		ret = wchgat(win, 1, ch_attr, 0, NULL);
 		if (ret)
 			return ret;
