@@ -1372,7 +1372,9 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 				else
 				{
 					insInf->bank[0] = 0x7E;
-					insInf->ins = (_cm32pPatchTMedia[chnSt->curIns] << 7) | (_cm32pPatchTNum[chnSt->curIns] << 0);
+					// This doesn't work as "internal" IDs are different from the default instrument map.
+					//insInf->ins = (_cm32pPatchTMedia[chnSt->curIns] << 7) | (_cm32pPatchTNum[chnSt->curIns] << 0);
+					insInf->ins = chnSt->curIns;
 				}
 				if (insInf->ins >= 0x80)	// ignore for user instruments
 					insInf->ins = insIOld.ins;
@@ -1675,23 +1677,36 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	{
 		// On the MT-32, you can remap the patch set to other timbres.
 		InstrumentInfo insInf;
-		const INS_BANK* insBank;
 		UINT8 mapModType;
+		const INS_BANK* insBank = SelectInsMap(_options.dstType, &mapModType);
 		
-		insInf.bank[0] = (chnSt->midChn <= 0x09) ? 0x00 : 0x01;	// MT-32/CM-32L (0x00) vs. CM-32P (0x01)
-		insInf.bank[1] = 0x00;
-		if (insInf.bank[0] == 0x00)
+		if (chnSt->midChn <= 0x09)
+		{
+			insInf.bank[0] = 0x00;	// MT-32/CM-32L instrument list
+			insInf.bank[1] = 0x00;
 			insInf.ins = (_mt32PatchTGrp[chnSt->curIns] << 6) | (_mt32PatchTNum[chnSt->curIns] << 0);
+		}
 		else
-			insInf.ins = (_cm32pPatchTMedia[chnSt->curIns] << 7) | (_cm32pPatchTNum[chnSt->curIns] << 0);
+		{
+			insInf.bank[0] = 0x01;	// CM-32P instrument list
+			if (_cm32pPatchTNum[chnSt->curIns] == 0xFF || insBank == NULL || insBank->maxBankLSB == 0)
+			{
+				insInf.bank[1] = 0x00;
+				insInf.ins = chnSt->curIns;
+			}
+			else
+			{
+				insInf.bank[1] = 0x01;
+				insInf.ins = (_cm32pPatchTMedia[chnSt->curIns] << 7) | (_cm32pPatchTNum[chnSt->curIns] << 0);
+			}
+		}
 		if (insInf.ins < 0x80)
 		{
 			// MT-32/CM-32L: timbre group A/B
 			// CM-32P: internal group
-			if (insInf.ins != chnSt->curIns)
+			if (insInf.ins != chnSt->curIns || insInf.bank[1])
 			{
 				chnSt->userInsID = insInf.ins;
-				insBank = SelectInsMap(_options.dstType, &mapModType);
 				chnSt->insSend.bankPtr = GetExactInstrument(insBank, &insInf, mapModType);
 				chnSt->userInsName = chnSt->insSend.bankPtr->insName;
 			}
@@ -2237,6 +2252,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		}
 		break;
 	case 0x500000:	// CM-32P Patch Temporary Area
+		break;
 	case 0x510000:	// CM-32P Patch Memory
 		{
 			UINT32 dataLen = syxSize - 0x09;
@@ -3230,7 +3246,7 @@ void MidiPlayer::InitializeChannels(void)
 			_mt32PatchTGrp[curIns] = (curIns >> 6) & 0x03;
 			_mt32PatchTNum[curIns] = (curIns >> 0) & 0x3F;
 			_cm32pPatchTMedia[curIns] = 0x00;
-			_cm32pPatchTNum[curIns] = curIns;
+			_cm32pPatchTNum[curIns] = 0xFF;	// mark as "unset" for now (need a LUT for the defaults)
 		}
 		for (curIns = 0x00; curIns < 0x40; curIns ++)
 		{
