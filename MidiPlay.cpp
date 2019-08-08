@@ -66,6 +66,18 @@ static const UINT8 RESET_XG_PARAM[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7F,
 static const UINT8 XG_VOICE_MAP[] = {0xF0, 0x43, 0x10, 0x49, 0x00, 0x00, 0x12, 0xFF, 0xF7};
 static const UINT8 GM_MST_VOL[] = {0xF0, 0x7F, 0x7F, 0x04, 0x01, 0x00, 0x00, 0xF7};
 
+static const UINT8 CM32P_DEF_INS[0x40] =
+{
+	 0,  1,  2,  3,  4,  6,  8, 10,
+	12, 14, 15, 17, 18, 20, 21, 26,
+	27, 28, 29, 32, 33, 34, 35, 36,
+	37, 38, 39, 40, 42, 43, 44, 45,
+	46, 47, 48, 49, 50, 52, 54, 56,
+	58, 59, 60, 61, 62, 63, 64, 66,
+	67, 68, 69, 70, 71, 72, 73, 74,
+	75, 77, 78, 79, 80, 81, 82, 83,
+};
+
 extern UINT8 optShowInsChange;
 
 static inline UINT32 ReadBE24(const UINT8* data)
@@ -3245,11 +3257,13 @@ void MidiPlayer::InitializeChannels(void)
 		{
 			_mt32PatchTGrp[curIns] = (curIns >> 6) & 0x03;
 			_mt32PatchTNum[curIns] = (curIns >> 0) & 0x3F;
-			_cm32pPatchTMedia[curIns] = 0x00;
-			_cm32pPatchTNum[curIns] = 0xFF;	// mark as "unset" for now (need a LUT for the defaults)
 		}
 		for (curIns = 0x00; curIns < 0x40; curIns ++)
 		{
+			_cm32pPatchTMedia[0x00 | curIns] = 0x00;	// internal PCM sounds
+			_cm32pPatchTNum[0x00 | curIns] = CM32P_DEF_INS[curIns];	// set default instrument -> sound map
+			_cm32pPatchTMedia[0x40 | curIns] = 0x01;	// external PCM card
+			_cm32pPatchTNum[0x40 | curIns] = curIns;
 			_mt32TimbreNames[curIns] = std::string(0x0A, ' ');
 			_mt32TimbreNames[curIns][0] = '\0';
 		}
