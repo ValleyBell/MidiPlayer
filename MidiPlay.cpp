@@ -1926,6 +1926,16 @@ static void PrintPortChn(char* buffer, UINT8 port, UINT8 chn)
 	return;
 }
 
+static UINT8 CalcRolandChecksum(size_t dataLen, const UINT8* data)
+{
+	size_t curPos;
+	UINT8 sum = 0x00;
+	
+	for (curPos = 0x00; curPos < dataLen - 1; curPos ++)
+		sum += data[curPos];
+	return (0x100 - sum) & 0x7F;
+}
+
 static bool CheckRolandChecksum(size_t dataLen, const UINT8* data)
 {
 	if (dataLen <= 0x03)
@@ -1990,13 +2000,20 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		{
 			if (syxSize < 0x08)
 				break;	// We need enough bytes for a full address + checksum.
+			
+			bool retVal;
+			UINT8 goodSum = 0xFF;
 			if (! CheckRolandChecksum(syxSize - 0x05, &syxData[0x04]))	// check data from address until (not including) 0xF7 byte
-				vis_addstr("Warning: SysEx Roland checksum invalid!\n");
+			{
+				goodSum = CalcRolandChecksum(syxSize - 0x05, &syxData[0x04]);
+				vis_printf("Warning: SysEx Roland checksum invalid! (is %02X, should be %02X)\n",
+						syxData[syxSize - 2], goodSum);
+			}
 			
 			if (syxData[0x02] == 0x16)
-				return HandleSysEx_MT32(trkSt->portID, syxSize, syxData);
+				retVal = HandleSysEx_MT32(trkSt->portID, syxSize, syxData);
 			else if (syxData[0x02] == 0x42)
-				return HandleSysEx_GS(trkSt->portID, syxSize, syxData);
+				retVal = HandleSysEx_GS(trkSt->portID, syxSize, syxData);
 			else if (syxData[0x02] == 0x45)
 			{
 				UINT32 addr = ReadBE24(&syxData[0x04]);
@@ -2059,6 +2076,18 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 					}
 					break;
 				}
+			}
+			if (retVal)
+				return retVal;
+			if (goodSum != 0xFF && true)	// TODO: make this an option
+			{
+				// send SysEx message with fixed checksum
+				std::vector<UINT8> msgData(0x01 + syxSize);
+				msgData[0x00] = midiEvt->evtType;
+				memcpy(&msgData[0x01], syxData, syxSize);
+				msgData[msgData.size() - 0x02] = goodSum;
+				MidiOutPort_SendLongMsg(_outPorts[trkSt->portID], msgData.size(), &msgData[0x00]);
+				return true;
 			}
 		}
 		break;
