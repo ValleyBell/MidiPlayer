@@ -306,8 +306,14 @@ UINT8 MidiPlayer::Start(void)
 		size_t curPort;
 		if (_options.dstType == MODULE_MT32)
 		{
-			// MT-32 mode - nothing to do right now
-			//vis_printf("Sending Device Reset (%s) ...", "MT-32");
+			// MT-32 mode - soft reset all channels
+			vis_printf("Sending Device Reset (%s) ...", "MT-32");
+			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+			{
+				size_t curChn;
+				for (curChn = 0; curChn < 0x10; curChn ++)
+					MidiOutPort_SendShortMsg(_outPorts[curPort], 0xB0 | curChn, 0x79, 0x00);
+			}
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GM)
 		{
@@ -1698,10 +1704,13 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 			if (chnSt->midChn == 0x09 && ! (chnSt->flags & 0x80))
 			{
 #if 1
-				// for now enforce drum mode on channel 9
-				// TODO: XG allows ch 9 to be melody - what are the exact conditions??
-				chnSt->flags |= 0x80;
-				vis_addstr("Keeping drum mode on ch 9!");
+				if (MMASK_MOD(_options.srcType) == MTXG_MU50)
+				{
+					// for now enforce drum mode on channel 9
+					// TODO: Does S-YXG50 enforce drums on ch9? (Some MIDIs expect drums despite MSB 0.)
+					chnSt->flags |= 0x80;
+					vis_addstr("Keeping drum mode on ch 9!");
+				}
 #endif
 			}
 		}
@@ -2398,12 +2407,9 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
 	{
 		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
-		if (! ((syxData[0x04] & 0x3F) == 0x00 && syxData[0x05] == 0x00))	// ignore system block
-		{
-			// fixes Steam-Heart's SH03_MMT.MID
-			vis_addstr("Ignoring stray GS SysEx message!");
-			return true;
-		}
+		// (fixes MT-32/CM-64 MIDIs from Steam-Heart's)
+		vis_addstr("Ignoring stray GS SysEx message!");
+		return true;
 	}
 	
 	// Data[0x04]	Address High
@@ -2555,6 +2561,15 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			vis_printf("SysEx SC: ALL Display = \"%s\"", dispMsg.c_str());
 			vis_do_syx_text(FULL_CHN_ID(portID, 0x00), 0x42, dispMsg.length(), dispMsg.data());
 		}
+			break;
+		case 0x400110:	// Voice Reserve (SC-55 only)
+			if (syxSize < 0x07 + 0x10 + 0x01)
+				break;
+			vis_printf("SysEx SC-55: Voice Reserve = %u %u %u %u  %u %u %u %u  %u %u %u %u  %u %u %u %u",
+				syxData[0x08], syxData[0x09], syxData[0x0A], syxData[0x0B],
+				syxData[0x0C], syxData[0x0D], syxData[0x0E], syxData[0x0F],
+				syxData[0x10], syxData[0x07], syxData[0x11], syxData[0x12],
+				syxData[0x13], syxData[0x14], syxData[0x15], syxData[0x15]);
 			break;
 		case 0x401000:	// Tone Number
 			chnSt->ctrls[0x00] = syxData[0x07];
@@ -3419,6 +3434,7 @@ void MidiPlayer::InitializeChannels_Post(void)
 	
 	_initChnPost = false;
 	
+	_defDstInsMap = 0x00;
 	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 	{
 		if (MMASK_MOD(_options.dstType) < MT_UNKNOWN)
@@ -3430,11 +3446,16 @@ void MidiPlayer::InitializeChannels_Post(void)
 	}
 	else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 	{
-		_defDstInsMap = (MMASK_MOD(_options.dstType) >= MTXG_MU100) ? 0x01 : 0x00;
-	}
-	else
-	{
-		_defDstInsMap = 0x00;
+		// MU50/80/90 have only a single instrument map, which is called "MU basic".
+		// MU100 and later add an additional map.
+		if (MMASK_MOD(_options.dstType) >= MTXG_MU100)
+		{
+			// TODO: make configurable
+			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+				_defDstInsMap = 0x01;	// default to MU100 native map)
+			else
+				_defDstInsMap = 0x00;	// MU basic sounds better with GM
+		}
 	}
 	if (_options.dstType == MODULE_MT32)
 		defDstPbRange = 12;
