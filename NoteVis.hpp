@@ -30,7 +30,7 @@ public:
 		// --- settings via MIDI controllers ---
 		MidiModifiers _attr;	// attributes
 		// RPN parameter cache (required for setting attributes properly)
-		UINT8 _pbRange;
+		INT8 _pbRange;		// pitch bend range (-24 [SC-55] .. 0 .. +0x7F)
 		INT8 _transpose;	// RPN coarse tuning (-0x40 .. 0x00 .. +0x3F)
 		INT8 _detune;		// RPN fine tuning (-0x40 .. 0x00 .. +0x3F)
 		

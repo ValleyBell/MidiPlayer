@@ -561,7 +561,20 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			{
 				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(portChnID);
 				INT32 pbVal = (midiEvt->evtValB << 7) | (midiEvt->evtValA << 0);
-				pbVal = (pbVal - 0x2000) * nvChn->_pbRange;	// 0x2000 per semitone
+				pbVal -= 0x2000;	// centre: 0x2000 -> 0
+				if (chnSt->pbRangeUnscl != chnSt->pbRange)
+				{
+					UINT16 pbSend;
+					pbVal = pbVal * chnSt->pbRangeUnscl / chnSt->pbRange;
+					if (pbVal < -0x2000)
+						pbVal = -0x2000;
+					else if (pbVal > 0x1FFF)
+						pbVal = 0x1FFF;
+					pbSend = 0x2000 + (INT16)pbVal;
+					MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, (pbSend >> 0) & 0x7F, (pbSend >> 7) & 0x7F);
+					didEvt = true;
+				}
+				pbVal *= nvChn->_pbRange;
 				nvChn->_attr.detune[0] = (INT16)(pbVal / 0x20);	// make 8.8 fixed point
 			}
 			break;
@@ -901,8 +914,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	if (chnSt->ctrls[ctrlID] > 0x7F && (_options.flags & PLROPTS_STRICT))
 	{
 		vis_printf("Warning: Bad controller data (%02X %02X %02X)\n", midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
-		if (ctrlID == 0x07 || ctrlID == 0x0B)
-			chnSt->ctrls[ctrlID] = 0x7F;	// clip to maximum volume
+		if (chnSt->ctrls[ctrlID] == 0x80)
+			chnSt->ctrls[ctrlID] = 0x7F;	// clip to maximum (good for volume/pan)
 		else
 			chnSt->ctrls[ctrlID] &= 0x7F;	// just remove the invalid bit
 	}
@@ -962,9 +975,30 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			switch(chnSt->rpnCtrl[1])
 			{
 			case 0x00:	// Pitch Bend Range
-				chnSt->pbRange = chnSt->ctrls[ctrlID];
+				chnSt->pbRangeUnscl = chnSt->ctrls[ctrlID];
+				chnSt->pbRange = chnSt->pbRangeUnscl;
 				if (chnSt->pbRange > 24)
-					chnSt->pbRange = 24;
+				{
+					chnSt->pbRange = 24;	// enforce limit according to GM standard
+					if (_options.srcType == MODULE_TYPE_GM)
+					{
+						// allow this for MIDIs detected as GM
+						// Some MIDI drivers (like the SB32 AWE and MS GS Wavetable) allow
+						// going out-of-range and some MIDIs use it.
+						// e.g. Hawkeye_-_Title.mid on VGMusic.com
+						vis_printf("Warning: Chn %u using out-of-spec pitch bend range of %u!",
+								chnSt->midChn, chnSt->pbRangeUnscl);
+					}
+					else
+					{
+						// Roland and Yamaha MIDI devices clip to a range of 0..24 semitones.
+						// Some MIDIs on VGMusic.com (especially ones by Teck) rely on that
+						// behaviour and play incorrectly else.
+						vis_printf("Warning: Chn %u using out-of-spec pitch bend range of %u! Clipped to %u",
+								chnSt->midChn, chnSt->pbRangeUnscl, chnSt->pbRange);
+						chnSt->pbRangeUnscl = chnSt->pbRange;
+					}
+				}
 				nvChn->_pbRange = chnSt->pbRange;
 				break;
 			case 0x01:	// Fine Tuning
@@ -1060,6 +1094,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->ctrls[0x43] = 0x00;	// Soft Pedal
 		chnSt->rpnCtrl[0] = 0x7F;	// reset RPN state
 		chnSt->rpnCtrl[1] = 0x7F;
+		chnSt->pbRangeUnscl = _defPbRange;
 		chnSt->pbRange = _defPbRange;
 		nvChn->_attr.volume = chnSt->ctrls[0x07];
 		nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
@@ -2174,7 +2209,8 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 				//else
 				//	// timbre group R
 			}
-			chnSt->pbRange = dataPtr[0x04];
+			chnSt->pbRangeUnscl = dataPtr[0x04];
+			chnSt->pbRange = chnSt->pbRangeUnscl;
 			nvChn->_pbRange = chnSt->pbRange;
 			if (true)
 			{
@@ -2613,8 +2649,25 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			chnSt->ctrls[0x5E] = syxData[0x07];
 			break;
 		case 0x402010:	// Bend Pitch Control
-			chnSt->pbRange = (INT8)syxData[0x07] - 0x40;
-			if ((INT8)chnSt->pbRange < 0)
+			chnSt->pbRangeUnscl = (INT8)syxData[0x07] - 0x40;
+			if (_options.srcType == MODULE_SC55)
+			{
+				// Note: SC-55 allows a range of -24 .. 0 .. +24
+				if (chnSt->pbRangeUnscl < -24)
+					chnSt->pbRangeUnscl = -24;
+				else if (chnSt->pbRangeUnscl > 24)
+					chnSt->pbRangeUnscl = 24;
+			}
+			else
+			{
+				// SC-88 and later, as well as Yamaha's TG300B mode allow 0 .. +24.
+				if (chnSt->pbRangeUnscl < 0)
+					chnSt->pbRangeUnscl = 0;
+				else if (chnSt->pbRangeUnscl > 24)
+					chnSt->pbRangeUnscl = 24;
+			}
+			chnSt->pbRange = chnSt->pbRangeUnscl;
+			if (chnSt->pbRange < 0 && _options.dstType != MODULE_SC55)
 				chnSt->pbRange = 0;
 			else if (chnSt->pbRange > 24)
 				chnSt->pbRange = 24;
@@ -2879,11 +2932,12 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			chnSt->ctrls[0x5E] = syxData[0x06];
 			break;
 		case 0x080023:	// Pitch Bend Control
-			chnSt->pbRange = (INT8)syxData[0x06] - 0x40;
-			if ((INT8)chnSt->pbRange < 0)
-				chnSt->pbRange = 0;
-			else if (chnSt->pbRange > 24)
-				chnSt->pbRange = 24;
+			chnSt->pbRangeUnscl = (INT8)syxData[0x06] - 0x40;
+			if (chnSt->pbRangeUnscl < 0)
+				chnSt->pbRangeUnscl = 0;
+			else if (chnSt->pbRangeUnscl > 24)
+				chnSt->pbRangeUnscl = 24;
+			chnSt->pbRange = chnSt->pbRangeUnscl;
 			nvChn->_pbRange = chnSt->pbRange;
 			break;
 		case 0x080035:	// Receive Note Message
@@ -3295,7 +3349,8 @@ void MidiPlayer::InitializeChannels(void)
 		
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0x7F;
 		chnSt.hadDrumNRPN = false;
-		chnSt.pbRange = _defPbRange;
+		chnSt.pbRangeUnscl = _defPbRange;
+		chnSt.pbRange = chnSt.pbRangeUnscl;
 		chnSt.tuneCoarse = 0;
 		chnSt.tuneFine = 0;
 		

@@ -54,7 +54,8 @@ public:
 		
 		UINT8 rpnCtrl[2];	// [0] = MSB, [1] = LSB, 00..7F = RPN, 80..FF = NRPN
 		bool hadDrumNRPN;
-		UINT8 pbRange;
+		INT8 pbRange;
+		INT8 pbRangeUnscl;	// unscaled PB range set via RPN (used for MIDIs that expect non-standard PB ranges)
 		INT8 tuneCoarse;
 		INT16 tuneFine;		// stored as 8.8 fixed point
 		
