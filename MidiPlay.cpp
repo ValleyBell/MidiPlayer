@@ -1649,7 +1649,14 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	}
 	else //if (_options.flags & PLROPTS_STRICT)
 	{
-		if (devType == MODULE_SC55 || devType == MODULE_TG300B)
+		if (devType == MODULE_MT32)
+		{
+			// I use hardcoded bank settings (MSB 0 for MT-32/CM-32L and MSB 1 for CM-32P),
+			// so I need to reset those back to 0 as it should be.
+			insInf->bank[0] = 0x00;
+			insInf->bank[1] = 0x00;
+		}
+		else if (devType == MODULE_SC55 || devType == MODULE_TG300B)
 		{
 			// We had to use LSB 01 for instrument lookup, but we actually send LSB 00.
 			// All SC-55 models ignore LSB, but early XG devices in TG300B mode do not.
@@ -2156,16 +2163,15 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 		if (syxData[0x01] == 0x7F && syxData[0x02] == 0x09)
 		{
 			UINT8 gmMode = syxData[0x03];
+			UINT8 gmLvl = (gmMode & ~0x01) >> 1;
+			if (gmLvl == 0)
+				vis_printf("SysEx: GM %s\n", (gmMode & 0x01) ? "Reset" : "Off");
+			else
+				vis_printf("SysEx: GM%u %s\n", 1 + gmLvl, (gmMode & 0x01) ? "Reset" : "Off");
 			if (gmMode == 0x01)	// GM Level 1 On
-			{
 				InitializeChannels();
-				vis_addstr("SysEx: GM Reset\n");
-			}
 			else if (gmMode == 0x03)	// GM Level 2 On
-			{
 				InitializeChannels();
-				vis_addstr("SysEx: GM2 Reset\n");
-			}
 			
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GM)
 				return true;	// prevent GM reset on GS/XG devices
@@ -2425,10 +2431,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		{
 		case 0x00007F:	// SC-88 System Mode Set
 			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + syxData[0x07]);
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
-				break;
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			_hardReset = true;
 			InitializeChannels();	// it completely resets the device
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
@@ -2547,10 +2553,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x40007F:	// GS reset
 			vis_addstr("SysEx: GS Reset\n");
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
-				break;
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			InitializeChannels();
 			break;
 		case 0x400100:	// Patch Name
@@ -2588,17 +2594,19 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + syxData[0x07]);
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
-			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
+			if (! syxData[0x07])
+				vis_printf("SysEx GS Chn %s: Part Mode: %s", portChnStr, "Normal");
+			else
+				vis_printf("SysEx GS Chn %s: Part Mode: %s %u", portChnStr, "Drum", syxData[0x07]);
+			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
+				break;
+			
 			if (syxData[0x07])
 				chnSt->flags |= 0x80;	// drum mode on
 			else
 				chnSt->flags &= ~0x80;	// drum mode off
 			nvChn->_chnMode &= ~0x01;
 			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
-			if (! syxData[0x07])
-				vis_printf("SysEx GS Chn %s: Part Mode: %s", portChnStr, "Normal");
-			else
-				vis_printf("SysEx GS Chn %s: Part Mode: %s %u", portChnStr, "Drum", syxData[0x07]);
 			
 			if (chnSt->curIns == 0xFF)
 				break;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
@@ -2826,10 +2834,10 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x00007E:	// XG System On
 			vis_addstr("SysEx: XG Reset");
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
-				break;
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
 				return true;	// prevent XG reset on other devices
+			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+				break;
 			InitializeChannels();
 			break;
 		case 0x00007F:	// All Parameters Reset
@@ -2918,19 +2926,21 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x080007:	// Part Mode
-			// Part Order: 10 1 2 3 4 5 6 7 8 9 11 12 13 14 15 16
-			if (syxData[0x06])
-				chnSt->flags |= 0x80;	// drum mode on
-			else
-				chnSt->flags &= ~0x80;	// drum mode off
-			nvChn->_chnMode &= ~0x01;
-			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 			if (syxData[0x06] == 0x00)
 				vis_printf("SysEx XG Chn %s: Part Mode: %s", portChnStr, "Normal");
 			else if (syxData[0x06] == 0x01)
 				vis_printf("SysEx XG Chn %s: Part Mode: %s (%s)", portChnStr, "Drum", "Auto");
 			else
 				vis_printf("SysEx XG Chn %s: Part Mode: %s %u", portChnStr, "Drum", syxData[0x06] - 0x01);
+			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
+				break;
+			
+			if (syxData[0x06])
+				chnSt->flags |= 0x80;	// drum mode on
+			else
+				chnSt->flags &= ~0x80;	// drum mode off
+			nvChn->_chnMode &= ~0x01;
+			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 			break;
 		case 0x080008:	// Note Shift
 			{
