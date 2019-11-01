@@ -410,6 +410,30 @@ UINT8 MidiPlayer::Resume(void)
 	return 0x00;
 }
 
+UINT8 MidiPlayer::StopAllNotes(void)
+{
+	if (! _playing)
+		return 0xFF;
+	
+	size_t curChn;
+	
+	if (! _paused)
+		AllNotesStop();
+	
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+	{
+		ChannelState& chnSt = _chnStates[curChn];
+		UINT16 fullChnID = FULL_CHN_ID(chnSt.portID, chnSt.midChn);
+		NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(fullChnID);
+		
+		chnSt.notes.clear();
+		nvChn->ClearNotes();
+		vis_do_channel_event(fullChnID, 0x01, 0x00);
+	}
+	
+	return 0x00;
+}
+
 UINT8 MidiPlayer::FadeOutT(double fadeTime)
 {
 	if (! _playing)

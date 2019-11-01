@@ -1051,6 +1051,10 @@ static int vis_keyhandler_normal(void)
 		midPlay->Stop();
 		midPlay->Start();
 		break;
+	case 0x12:	// Ctrl+R
+		vis_addstr("Stopping all notes ...");
+		midPlay->StopAllNotes();
+		break;
 	case 'M':
 		restartSong = false;
 		vis_show_map_selection();

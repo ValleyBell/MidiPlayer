@@ -102,6 +102,7 @@ public:
 	UINT8 Stop(void);
 	UINT8 Pause(void);
 	UINT8 Resume(void);
+	UINT8 StopAllNotes(void);
 	UINT8 FadeOutT(double fadeTime);	// fade out over x seconds
 	UINT8 GetState(void) const;
 	double GetSongLength(void) const;	// returns length in seconds
