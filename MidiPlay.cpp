@@ -57,14 +57,17 @@
 static const UINT8 PART_ORDER[0x10] =
 {	0x9, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF};
 
+static const UINT8 RESET_MT[] = {0xF0, 0x41, 0x10, 0x16, 0x12, 0x7F, 0x00, 0x00, 0x01, 0xF7};
 static const UINT8 RESET_GM1[] = {0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7};
 static const UINT8 RESET_GM2[] = {0xF0, 0x7E, 0x7F, 0x09, 0x03, 0xF7};
 static const UINT8 RESET_GS[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7};
 static const UINT8 RESET_SC[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x00, 0x00, 0x7F, 0x00, 0x01, 0xF7};
 static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00, 0xF7};
-static const UINT8 RESET_XG_PARAM[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7F, 0x00, 0xF7};
+static const UINT8 RESET_XG_ALL[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7F, 0x00, 0xF7};
 static const UINT8 XG_VOICE_MAP[] = {0xF0, 0x43, 0x10, 0x49, 0x00, 0x00, 0x12, 0xFF, 0xF7};
-static const UINT8 GM_MST_VOL[] = {0xF0, 0x7F, 0x7F, 0x04, 0x01, 0x00, 0x00, 0xF7};
+static const UINT8 GM_MST_VOL[] = {0xF0, 0x7F, 0x7F, 0x04, 0x01, 0x00, 0x7F, 0xF7};
+static const UINT8 MT32_MST_VOL[] = {0xF0, 0x41, 0x10, 0x16, 0x12, 0x10, 0x00, 0x16, 0x64, 0x76, 0xF7};
+static const UINT8 CM32P_MST_VOL[] = {0xF0, 0x41, 0x10, 0x16, 0x12, 0x52, 0x00, 0x10, 0x64, 0x3A, 0xF7};
 
 static const UINT8 CM32P_DEF_INS[0x40] =
 {
@@ -310,10 +313,24 @@ UINT8 MidiPlayer::Start(void)
 			vis_printf("Sending Device Reset (%s) ...", "MT-32");
 			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 			{
+#if 0
+				// This resets all custom instruments as well.
+				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_MT), RESET_MT);
+				_hardReset = true;
+#else
 				size_t curChn;
+				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(MT32_MST_VOL), MT32_MST_VOL);
+				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(CM32P_MST_VOL), CM32P_MST_VOL);
 				for (curChn = 0; curChn < 0x10; curChn ++)
+				{
 					MidiOutPort_SendShortMsg(_outPorts[curPort], 0xB0 | curChn, 0x79, 0x00);
+					// volume/pan aren't set by "Reset All Controllers" on the MT-32
+					MidiOutPort_SendShortMsg(_outPorts[curPort], 0xB0 | curChn, 0x07, 100);
+					MidiOutPort_SendShortMsg(_outPorts[curPort], 0xB0 | curChn, 0x0A, 0x40);
+				}
+#endif
 			}
+			initDelay += 100;
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GM)
 		{
@@ -358,7 +375,7 @@ UINT8 MidiPlayer::Start(void)
 			{
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
 				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG), RESET_XG);
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_PARAM), RESET_XG_PARAM);
+				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_ALL), RESET_XG_ALL);
 			}
 			_hardReset = true;	// due to XG All Parameter Reset
 			initDelay += 400;	// XG modules take a bit to fully reset
@@ -2416,7 +2433,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		vis_addstr("SysEx: MT-32 Reset\n");
 		if (_options.dstType != MODULE_MT32)
 			break;
-		_hardReset = true;
+		_hardReset = true;	// reset custom instruments and assignments
 		InitializeChannels();
 		break;
 	}
