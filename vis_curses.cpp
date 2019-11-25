@@ -102,6 +102,7 @@ public:
 	std::vector<NoteDisplay> _noteSlots;
 	
 	void Initialize(UINT16 chnID, size_t screenWidth);
+	void Resize(size_t screenWidth);
 	void ShowInsName(const char* insName, bool grey = false);
 	void ShowPan(INT8 pan, bool grey = false);
 	static int CalcNoteSlot(UINT8 note, UINT8* inColPos, int ncols);
@@ -120,6 +121,7 @@ static int mvwattrtoggle(WINDOW* win, int y, int x, int n, attr_t attr);
 //void vis_init(void);
 static void vis_clear_all_menus(void);
 //void vis_deinit(void);
+static int vis_keyhandler_global(int key);
 //int vis_getch(void);
 //int vis_getch_wait(void);
 //void vis_addstr(const char* text);
@@ -130,6 +132,7 @@ static void vis_clear_all_menus(void);
 //void vis_set_midi_modules(MidiModuleCollection* mmc);
 //void vis_set_midi_file(const char* fileName, MidiFile* mFile);
 //void vis_set_midi_player(MidiPlayer* mPlay);
+static void vis_resize(void);
 //void vis_new_song(void);
 //void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data);
 //void vis_do_ins_change(UINT16 chn);
@@ -282,7 +285,7 @@ void vis_init(void)
 	init_pair(7, COLOR_WHITE, COLOR_BLACK);
 	attrset(A_NORMAL);
 	
-	posY = CHN_BASE_LINE;	sizeY = 16 + 1;
+	posY = CHN_BASE_LINE;	sizeY = 0x10 + 1;
 	nvWin = newwin(sizeY, COLS, posY, 0);
 	nvPan = new_panel(nvWin);
 	
@@ -353,6 +356,20 @@ void vis_deinit(void)
 	return;
 }
 
+static int vis_keyhandler_global(int key)
+{
+	switch(key)
+	{
+	case ERR:
+		return 0;
+	case KEY_RESIZE:
+		vis_resize();
+		return 0;
+	default:
+		return key;
+	}
+}
+
 int vis_getch(void)
 {
 	int key;
@@ -360,9 +377,7 @@ int vis_getch(void)
 	//if (! _kbhit())
 	//	return 0;
 	key = getch();
-	if (key == ERR)
-		key = 0;
-	return key;
+	return vis_keyhandler_global(key);
 }
 
 int vis_getch_wait(void)
@@ -372,9 +387,7 @@ int vis_getch_wait(void)
 	nodelay(stdscr, FALSE);
 	key = getch();
 	nodelay(stdscr, TRUE);
-	if (key == ERR)
-		key = 0;
-	return key;
+	return vis_keyhandler_global(key);
 }
 
 void vis_addstr(const char* text)
@@ -452,9 +465,70 @@ void vis_set_midi_player(MidiPlayer* mPlay)
 	midPlay = mPlay;
 }
 
+static void vis_resize(void)
+{
+	size_t curChn;
+	int posX, posY, sizeX, sizeY;
+	NoteVisualization* noteVis;
+	
+	// resize Note Visualization window
+	posY = CHN_BASE_LINE;
+	sizeY = (unsigned int)dispChns.size() + 1;
+	if (posY + sizeY + 1 >= LINES)
+		sizeY = 0x10 + 1;
+	wresize(nvWin, sizeY, COLS);
+	
+	// move/resize log window
+	posY += sizeY;	sizeY = LINES - posY;
+	wresize(logWin, sizeY, COLS);
+	move_panel(logPan, posY, posX);
+	
+	// move LCD Display window
+	lcdDisp.GetSize(&posX, &sizeY);
+	posX = COLS - posX;
+	if (posY + sizeY > LINES)
+		posY = LINES - sizeY;
+	move_panel(lcdPan, posY, posX);
+	
+	// redraw the main layout
+	noteVis = midPlay->GetNoteVis();
+	for (curChn = 0; curChn < dispChns.size(); curChn ++)
+	{
+		ChannelData& dispCh = dispChns[curChn];
+		dispCh.Resize(COLS);
+		if (noteVis != NULL)
+			dispCh.RefreshNotes(noteVis, noteVis->GetChannel(curChn));
+		else
+			dispCh.RefreshNotes(NULL, NULL);
+		dispCh.RedrawAll();
+	}
+	
+	if (lcdEnable)
+		lcdDisp.FullRedraw();
+	
+	// move menu windows
+	if (mmsPan != NULL)
+	{
+		getmaxyx(mmsWin, sizeY, sizeX);
+		posX = (COLS - sizeX) / 2;	posY = (LINES - sizeY) / 2;	// center of the screen
+		move_panel(mmsPan, posY, posX);
+	}
+	if (mdsPan != NULL)
+	{
+		getmaxyx(mdsWin, sizeY, sizeX);
+		posX = (COLS - sizeX) / 2;	posY = (LINES - sizeY) / 2;	// center of the screen
+		move_panel(mdsPan, posY, posX);
+	}
+	
+	// finally, redraw the screen
+	update_panels();
+	refresh();
+	
+	return;
+}
+
 void vis_new_song(void)
 {
-	unsigned int nTrks;
 	unsigned int chnCnt;
 	unsigned int curChn;
 	int titlePosX;
@@ -462,7 +536,6 @@ void vis_new_song(void)
 	const PlayerOpts* midOpts;
 	MidiModule* mMod;
 	int posX, posY, sizeY;
-	WINDOW* oldWin;
 	
 	vis_clear_all_menus();
 	clear();
@@ -470,27 +543,22 @@ void vis_new_song(void)
 	clearok(stdscr, TRUE);
 	refresh();
 	
-	nTrks = (midFile != NULL) ? midFile->GetTrackCount() : 0;
 	chnCnt = (midPlay != NULL) ? midPlay->GetChannelStates().size() : 0x10;
 	dispChns.clear();
 	dispChns.resize(chnCnt);
 	lcdDisp.SetMidiPlayer(midPlay);
 	lcdDisp.SetNoteVis((midPlay != NULL) ? midPlay->GetNoteVis() : NULL);
 	
-	oldWin = nvWin;
 	posY = CHN_BASE_LINE;
 	sizeY = chnCnt + 1;
 	if (posY + sizeY + 1 >= LINES)
 		sizeY = 0x10 + 1;
-	nvWin = newwin(sizeY, COLS, posY, 0);
-	replace_panel(nvPan, nvWin);
-	delwin(oldWin);
+	wresize(nvWin, sizeY, COLS);
 	
-	oldWin = logWin;
 	posY += sizeY;	sizeY = LINES - posY;
-	logWin = newwin(sizeY, COLS, posY, 0);
-	replace_panel(logPan, logWin);
-	delwin(oldWin);
+	wclear(logWin);
+	wresize(logWin, sizeY, COLS);
+	move_panel(logPan, posY, posX);
 	
 	lcdDisp.GetSize(&posX, &sizeY);
 	posX = COLS - posX;
@@ -1535,6 +1603,18 @@ void ChannelData::Initialize(UINT16 chnID, size_t screenWidth)
 	_pan = 0;
 	
 	_noteFlags = 0x00;
+	_noteSlots.resize((screenWidth - NOTE_BASE_COL) / NOTE_NAME_SPACE);
+	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
+	{
+		_noteSlots[curNote].note = 0xFF;
+		_noteSlots[curNote].vol = 0x00;
+	}
+	
+	return;
+}
+
+void ChannelData::Resize(size_t screenWidth)
+{
 	_noteSlots.resize((screenWidth - NOTE_BASE_COL) / NOTE_NAME_SPACE);
 	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
 	{

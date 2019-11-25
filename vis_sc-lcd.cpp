@@ -341,7 +341,8 @@ void LCDDisplay::FullRedraw(void)
 		DrawPage(_allPage);
 	else if (_pageMode == PAGEMODE_CHN)
 		DrawPage(_chnPage);
-	DrawTitleText();
+	if (_ttMode != TTMODE_NONE)
+		DrawTitleText();
 	
 	DrawDotMatrix(_dotMatrix);
 	if (_tbTimeout > 0)
