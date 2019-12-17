@@ -310,19 +310,19 @@ static UINT32 CountFilteredIns(UINT32 srcCount, const INS_DATA* srcData, UINT8 m
 	return insCount;
 }
 
-static UINT32 CopyFilteredInsList(UINT32 destAlloc, INS_DATA* destData, UINT32 srcCount, const INS_DATA* srcData, UINT8 moduleID)
+static UINT32 CopyFilteredInsList(UINT32 dstAlloc, INS_DATA* dstData, UINT32 srcCount, const INS_DATA* srcData, UINT8 moduleID)
 {
 	UINT32 curIns;
 	UINT32 insCount;
 	
 	if (moduleID == 0xFF)
 	{
-		if (destAlloc < srcCount)
-			srcCount = destAlloc;
+		if (dstAlloc < srcCount)
+			srcCount = dstAlloc;
 		for (curIns = 0; curIns < srcCount; curIns ++)
 		{
-			destData[curIns] = srcData[curIns];
-			destData[curIns].insName = strdup(srcData[curIns].insName);
+			dstData[curIns] = srcData[curIns];
+			dstData[curIns].insName = strdup(srcData[curIns].insName);
 		}
 		return curIns;
 	}
@@ -331,12 +331,12 @@ static UINT32 CopyFilteredInsList(UINT32 destAlloc, INS_DATA* destData, UINT32 s
 		insCount = 0;
 		for (curIns = 0; curIns < srcCount; curIns ++)
 		{
-			if (insCount >= destAlloc)
+			if (insCount >= dstAlloc)
 				break;
 			if (srcData[curIns].moduleID == moduleID)
 			{
-				destData[insCount] = srcData[curIns];
-				destData[insCount].insName = strdup(srcData[curIns].insName);
+				dstData[insCount] = srcData[curIns];
+				dstData[insCount].insName = strdup(srcData[curIns].insName);
 				insCount ++;
 			}
 		}
@@ -355,11 +355,64 @@ void CopyInstrumentBank(INS_BANK* dest, const INS_BANK* source, UINT8 moduleID)
 	for (curPrg = 0x00; curPrg < 0x100; curPrg ++)
 	{
 		const INS_PRG_LST* srcPrg = &source->prg[curPrg];
-		INS_PRG_LST* dstPrg = &dest->prg[curPrg]; 
+		INS_PRG_LST* dstPrg = &dest->prg[curPrg];
 		
 		dstPrg->alloc = CountFilteredIns(srcPrg->count, srcPrg->instruments, moduleID);
 		dstPrg->instruments = (INS_DATA*)malloc(dstPrg->alloc * sizeof(INS_DATA));
 		dstPrg->count = CopyFilteredInsList(dstPrg->alloc, dstPrg->instruments, srcPrg->count, srcPrg->instruments, moduleID);
+	}
+	
+	return;
+}
+
+static UINT32 MergeInsList(UINT32 dstAlloc, UINT32 dstCount, INS_DATA* dstData, UINT32 srcCount, const INS_DATA* srcData)
+{
+	UINT32 srcIns;
+	UINT32 dstIns;
+	const INS_DATA* siData;
+	INS_DATA* diData;
+	
+	for (srcIns = 0; srcIns < srcCount; srcIns ++)
+	{
+		if (dstCount >= dstAlloc)
+			break;
+		
+		siData = &srcData[srcIns];
+		for (dstIns = 0; dstIns < dstCount; dstIns ++)
+		{
+			diData = &dstData[dstIns];
+			if (siData->bankMSB == diData->bankMSB && siData->bankLSB == diData->bankLSB &&
+				siData->program == diData->program && siData->moduleID == diData->moduleID)
+				break;	// found duplicate instrument - skip
+		}
+		if (dstIns >= dstCount)
+		{
+			dstData[dstCount] = *siData;
+			dstData[dstCount].insName = strdup(siData->insName);
+			dstCount ++;
+		}
+	}
+	return dstCount;
+}
+
+void MergeInstrumentBanks(INS_BANK* dest, const INS_BANK* source)
+{
+	UINT16 curPrg;
+	
+	if (dest->maxBankMSB < source->maxBankMSB)
+		dest->maxBankMSB = source->maxBankMSB;
+	if (dest->maxBankLSB < source->maxBankLSB)
+		dest->maxBankLSB = source->maxBankLSB;
+	if (dest->maxDrumKit < source->maxDrumKit)
+		dest->maxDrumKit = source->maxDrumKit;
+	for (curPrg = 0x00; curPrg < 0x100; curPrg ++)
+	{
+		const INS_PRG_LST* srcPrg = &source->prg[curPrg];
+		INS_PRG_LST* dstPrg = &dest->prg[curPrg];
+		
+		dstPrg->alloc = dstPrg->count + srcPrg->count;
+		dstPrg->instruments = (INS_DATA*)realloc(dstPrg->instruments, dstPrg->alloc * sizeof(INS_DATA));
+		dstPrg->count = MergeInsList(dstPrg->alloc, dstPrg->count, dstPrg->instruments, srcPrg->count, srcPrg->instruments);
 	}
 	
 	return;

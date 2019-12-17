@@ -481,7 +481,7 @@ static void vis_resize(void)
 	// move/resize log window
 	posY += sizeY;	sizeY = LINES - posY;
 	wresize(logWin, sizeY, COLS);
-	move_panel(logPan, posY, posX);
+	move_panel(logPan, posY, 0);
 	
 	// move LCD Display window
 	lcdDisp.GetSize(&posX, &sizeY);
@@ -558,7 +558,7 @@ void vis_new_song(void)
 	posY += sizeY;	sizeY = LINES - posY;
 	wclear(logWin);
 	wresize(logWin, sizeY, COLS);
-	move_panel(logPan, posY, posX);
+	move_panel(logPan, posY, 0);
 	
 	lcdDisp.GetSize(&posX, &sizeY);
 	posX = COLS - posX;
@@ -749,6 +749,8 @@ void vis_do_ins_change(UINT16 chn)
 			insName[0] = ' ';	// GM instrument
 		else if (insInf->bankPtr != NULL && insInf->bankPtr->moduleID < 6)
 			insName[0] = MU_MAP_SYMBOLS[insInf->bankPtr->moduleID];
+		else if (insInf->bankPtr != NULL && (insInf->bankPtr->moduleID & 0x80))
+			insName[0] = '*';
 		if ((chnSt->flags & 0x80) || insInf->bank[0] >= 0x7E)
 			insName[1] = '#';	// drum bank
 		else if (insInf->bank[0] == 0x40)

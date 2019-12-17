@@ -91,6 +91,7 @@ void FreeInstrumentBank(INS_BANK* insBank);
 void PatchInstrumentBank(INS_BANK* insBank, UINT8 flags, UINT8 msb, UINT8 lsb);
 // moduleID: copy only instruments of a specific module (0xFF - copy everything)
 void CopyInstrumentBank(INS_BANK* dest, const INS_BANK* source, UINT8 moduleID);
+void MergeInstrumentBanks(INS_BANK* dest, const INS_BANK* source);
 
 
 #ifdef __cplusplus

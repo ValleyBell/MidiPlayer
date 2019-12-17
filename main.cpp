@@ -43,7 +43,7 @@
 struct InstrumentSetCfg
 {
 	UINT8 setType;
-	std::string pathName;
+	std::vector<std::string> pathNames;
 };
 
 
@@ -135,8 +135,10 @@ int main(int argc, char* argv[])
 		printf("           Bit 1 (0x02) - strict mode (enforce GS instrument map)\n");
 		printf("           Bit 2 (0x04) - enable Capital Tone Fallback (SC-55 style)\n");
 		printf("    -s n - enforce source type\n");
-		printf("           0x00 = GM, 0x10..0x13 = SC-55/88/88Pro/8850,\n");
-		printf("           0x20..24 = MU50/80/90/100/128/1000, 0x70 = MT-32\n");
+		printf("           0x%02X = GM, 0x%02X..0x%02X = SC-55/88/88Pro/8850,\n",
+			MODULE_GM_1, MODULE_SC55, MODULE_SC8850);
+		printf("           0x%02X..%02X = MU50/80/90/100/128/1000, 0x%02X = MT-32\n",
+			MODULE_MU50, MODULE_MU1000, MODULE_MT32);
 		printf("    -m n - enforce playback on module with ID n\n");
 		printf("    -x   - send .syx file to all ports before playing the MIDI\n");
 		printf("    -l n - play looping songs n times (default: 2) \n");
@@ -316,10 +318,28 @@ int main(int argc, char* argv[])
 	{
 		const InstrumentSetCfg* tmpInsSet = &insSetFiles[curInsBnk];
 		INS_BANK* insBank = &insBanks[curInsBnk];
+		size_t curFile;
 		
-		retVal = LoadInstrumentList(tmpInsSet->pathName.c_str(), insBank);
+		retVal = LoadInstrumentList(tmpInsSet->pathNames[0].c_str(), insBank);
 		if (retVal)
-			printf("InsSet %s Load: 0x%02X\n", tmpInsSet->pathName.c_str(), retVal);
+		{
+			printf("InsSet %s Load: 0x%02X\n", tmpInsSet->pathNames[0].c_str(), retVal);
+			continue;
+		}
+		
+		for (curFile = 1; curFile < tmpInsSet->pathNames.size(); curFile ++)
+		{
+			INS_BANK tmpBank;
+			
+			retVal = LoadInstrumentList(tmpInsSet->pathNames[curFile].c_str(), &tmpBank);
+			if (retVal)
+			{
+				printf("InsSet %s Load: 0x%02X\n", tmpInsSet->pathNames[curFile].c_str(), retVal);
+				continue;
+			}
+			MergeInstrumentBanks(insBank, &tmpBank);
+			FreeInstrumentBank(&tmpBank);
+		}
 		
 		SetBankScanInstruments(tmpInsSet->setType, insBank);
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
@@ -544,12 +564,15 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	std::vector<std::string>::const_iterator listIt;
 	MIDI_PORT_LIST mpList;
 	UINT8 retVal;
+	size_t insSetXG;
+	size_t insSetPLG;
 	
 	INSSET_NAME_MAP["GM"] = MODULE_GM_1;
 	INSSET_NAME_MAP["GM_L2"] = MODULE_GM_2;
 	INSSET_NAME_MAP["GS"] = MODULE_TYPE_GS;
 	INSSET_NAME_MAP["YGS"] = MODULE_TG300B;
 	INSSET_NAME_MAP["XG"] = MODULE_TYPE_XG;
+	INSSET_NAME_MAP["XG-PLG"] = MODULE_TYPE_XG | 0x08;
 	INSSET_NAME_MAP["MT-32"] = MODULE_MT32;
 	
 	INIReader iniFile;
@@ -575,6 +598,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	defCodepages[1] = iniFile.GetString("Display", "FallbackCodepage", "");
 	
 	insSetFiles.clear();
+	insSetXG = (size_t)-1;
+	insSetPLG = (size_t)-1;
 	insSetPath = iniFile.GetString("InstrumentSets", "DataPath", INS_SET_PATH);
 	insSetPath = CombinePaths(cfgBasePath, insSetPath);
 	for (nmIt = INSSET_NAME_MAP.begin(); nmIt != INSSET_NAME_MAP.end(); ++nmIt)
@@ -584,9 +609,18 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		{
 			InstrumentSetCfg isc;
 			isc.setType = nmIt->second;
-			isc.pathName = CombinePaths(insSetPath, fileName);
+			if (isc.setType == MODULE_TYPE_XG)
+				insSetXG = insSetFiles.size();
+			else if (isc.setType == (MODULE_TYPE_XG | 0x08))
+				insSetPLG = insSetFiles.size();
+			isc.pathNames.push_back(CombinePaths(insSetPath, fileName));
 			insSetFiles.push_back(isc);
 		}
+	}
+	if (insSetXG != (size_t)-1 && insSetPLG != (size_t)-1)
+	{
+		insSetFiles[insSetXG].pathNames.push_back(insSetFiles[insSetPLG].pathNames[0]);
+		insSetFiles.erase(insSetFiles.begin() + insSetPLG);
 	}
 	
 	midiPortAliases.ClearAliases();

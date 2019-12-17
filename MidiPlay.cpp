@@ -1178,7 +1178,7 @@ static const INS_DATA* GetInsMapData(const INS_PRG_LST* insPrg, UINT8 msb, UINT8
 		{
 			if (lsb == 0xFF || insData->bankLSB == lsb)
 			{
-				if (insData->moduleID == maxModuleID)
+				if (insData->moduleID == maxModuleID || (insData->moduleID & 0x80))
 					return insData;
 				else if (insData->moduleID < maxModuleID && idLowerMod == NULL)
 					idLowerMod = insData;
