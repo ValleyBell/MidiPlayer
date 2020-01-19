@@ -1372,6 +1372,7 @@ static int vis_keyhandler_devsel(void)
 				midPlay->Pause();
 			else
 				midPlay->Stop();
+			midPlay->FlushEvents();
 			main_CloseModule();
 			main_OpenModule(cursorPos);
 			mMod = midiModColl->GetModule(main_GetOpenedModule());

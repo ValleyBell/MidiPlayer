@@ -128,20 +128,32 @@ void MidiPlayer::SetOutputPort(MIDIOUT_PORT* outPort)
 {
 	std::vector<MIDIOUT_PORT*> outPorts;
 	outPorts.push_back(outPort);
-	SetOutputPorts(outPorts, std::vector<UINT32>());
+	SetOutputPorts(outPorts, std::vector<UINT32>(), std::vector<UINT16>());
 	return;
 }
 
-void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay)
+void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay, const std::vector<UINT16>& portChnMask)
 {
 	_outPorts = outPorts;
 	_outPortDelay = portDelay;
 	_outPortDelay.resize(_outPorts.size(), 0);	// resize + fill with value 0
 	_midiEvtQueue.resize(_outPorts.size());
+	_portChnMask = portChnMask;
 	
-	_chnStates.resize(_outPorts.size() * 0x10);
-	if (_noteVis.GetChnGroupCount() != _outPorts.size())
-		_noteVis.Initialize(_outPorts.size());
+	size_t portCnt = _outPorts.size();
+	if (! _portChnMask.empty())
+		portCnt = (portCnt + _portChnMask.size() - 1) / _portChnMask.size();
+	if (_noteVis.GetChnGroupCount() == portCnt)
+	{
+		InitChannelAssignment();	// recalculate channel assignments on device change
+	}
+	else
+	{
+		_chnStates.resize(portCnt * 0x10);
+		_noteVis.Initialize(portCnt);
+		InitializeChannels();	// reinitialize all channels to ensure all channel/port info is correct
+	}
+	
 	return;
 }
 
@@ -473,6 +485,16 @@ UINT8 MidiPlayer::Resume(void)
 	return 0x00;
 }
 
+UINT8 MidiPlayer::FlushEvents(void)
+{
+	if (! _playing)
+		return 0xFF;
+	
+	ProcessEventQueue(true);
+	
+	return 0x00;
+}
+
 UINT8 MidiPlayer::StopAllNotes(void)
 {
 	if (! _playing)
@@ -486,12 +508,11 @@ UINT8 MidiPlayer::StopAllNotes(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
-		UINT16 fullChnID = FULL_CHN_ID(chnSt.portID, chnSt.midChn);
-		NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(fullChnID);
+		NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt.fullChnID);
 		
 		chnSt.notes.clear();
 		nvChn->ClearNotes();
-		vis_do_channel_event(fullChnID, 0x01, 0x00);
+		vis_do_channel_event(chnSt.fullChnID, 0x01, 0x00);
 	}
 	
 	return 0x00;
@@ -634,7 +655,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	{
 		UINT8 evtType = midiEvt->evtType & 0xF0;
 		UINT8 evtChn = midiEvt->evtType & 0x0F;
-		UINT16 portChnID = FULL_CHN_ID(trkState->portID, evtChn);
+		UINT16 portChnID = FULL_CHN_ID(trkState->portID, evtChn) % _chnStates.size();
 		ChannelState* chnSt = &_chnStates[portChnID];
 		bool didEvt = false;
 		
@@ -652,7 +673,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			break;
 		case 0xE0:
 			{
-				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(portChnID);
+				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 				INT32 pbVal = (midiEvt->evtValB << 7) | (midiEvt->evtValA << 0);
 				pbVal -= 0x2000;	// centre: 0x2000 -> 0
 				if (chnSt->pbRangeUnscl != chnSt->pbRange)
@@ -664,7 +685,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 					else if (pbVal > 0x1FFF)
 						pbVal = 0x1FFF;
 					pbSend = 0x2000 + (INT16)pbVal;
-					SendMidiEventS(trkState->portID, midiEvt->evtType, (pbSend >> 0) & 0x7F, (pbSend >> 7) & 0x7F);
+					SendMidiEventS(chnSt->portID, midiEvt->evtType, (pbSend >> 0) & 0x7F, (pbSend >> 7) & 0x7F);
 					didEvt = true;
 				}
 				pbVal *= nvChn->_pbRange;
@@ -673,7 +694,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			break;
 		}
 		if (! didEvt)
-			SendMidiEventS(trkState->portID, midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
+			SendMidiEventS(chnSt->portID, midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
 		
 		if (evtType == 0xB0)
 			vis_do_ctrl_change(portChnID, midiEvt->evtValA);
@@ -826,7 +847,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 				if (_portMap.size() > 0)
 					trkState->portID = (trkState->portID < _portMap.size()) ? _portMap[trkState->portID] : 0;
 				// for invalid port IDs, default to the first one
-				if (trkState->portID >= _outPorts.size())
+				if (trkState->portID >= (_chnStates.size() / 0x10))
 					trkState->portID = 0;
 			}
 			break;
@@ -976,7 +997,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 {
 	UINT8 evtType = midiEvt->evtType & 0xF0;
 	UINT8 evtChn = midiEvt->evtType & 0x0F;
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 	
 	if ((evtType & 0xE0) != 0x80)
 		return false;	// must be Note On or Note Off
@@ -1021,7 +1042,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 
 bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 	UINT8 ctrlID = midiEvt->evtValA;
 	
 	if (ctrlID == chnSt->idCC[0])
@@ -1223,7 +1244,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	case 0x7B:	// All Notes Off
 		chnSt->notes.clear();
 		nvChn->ClearNotes();
-		vis_do_channel_event(FULL_CHN_ID(chnSt->portID, chnSt->midChn), 0x01, 0x00);
+		vis_do_channel_event(chnSt->fullChnID, 0x01, 0x00);
 		break;
 	}
 	
@@ -1783,7 +1804,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 
 bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact)
 {
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 	UINT8 oldMSB = chnSt->insState[0];
 	UINT8 oldLSB = chnSt->insState[1];
 	UINT8 oldIns = chnSt->insState[2];
@@ -2338,7 +2359,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (portChnID >= _chnStates.size())
 				return false;
 			chnSt = &_chnStates[portChnID];
-			nvChn = _noteVis.GetChannel(portChnID);
+			nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
 			chnSt->curIns = 0xFF;
 			chnSt->userInsID = newIns;
@@ -2610,7 +2631,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				return false;
 			PrintPortChn(portChnStr, evtPort, evtChn);
 			chnSt = &_chnStates[portChnID];
-			nvChn = _noteVis.GetChannel(portChnID);
+			nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 		}
 		switch(addr)
 		{
@@ -3007,7 +3028,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			return false;
 		PrintPortChn(portChnStr, evtPort, evtChn);
 		chnSt = &_chnStates[portChnID];
-		nvChn = _noteVis.GetChannel(portChnID);
+		nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 		switch(addr)
 		{
 		case 0x080001:	// Bank MSB
@@ -3458,6 +3479,47 @@ void MidiPlayer::RefreshSrcDevSettings(void)
 	return;
 }
 
+void MidiPlayer::InitChannelAssignment(void)
+{
+	size_t curChn;
+	size_t maskID;
+	
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+	{
+		ChannelState& chnSt = _chnStates[curChn];
+		chnSt.fullChnID = curChn;
+		// default setting: 16 channels for each port
+		chnSt.midChn = curChn & 0x0F;
+		chnSt.portID = curChn >> 4;
+		
+		if (_portChnMask.size() > 1)
+		{
+			// channel split: split "MIDI file port" across chnMask.size ports
+			UINT8 basePort = (UINT8)(chnSt.portID * _portChnMask.size());
+			if (basePort >= _outPorts.size())
+			{
+				size_t portMod = _outPorts.size() / _portChnMask.size() * _portChnMask.size();	// round to multiples of chnMask.size
+				basePort %= portMod;
+			}
+			
+			// find fitting port (channel mask bit set) or default to 1st port if channel bit not found
+			chnSt.portID = basePort;
+			for (maskID = 0; maskID < _portChnMask.size(); maskID ++)
+			{
+				if (_portChnMask[maskID] & (1 << chnSt.midChn))
+				{
+					chnSt.portID += maskID;
+					break;
+				}
+			}
+		}
+		if (chnSt.portID >= _outPorts.size() && ! _outPorts.empty())
+			chnSt.portID = (UINT8)(_outPorts.size() - 1);
+	}
+	
+	return;
+}
+
 void MidiPlayer::InitializeChannels(void)
 {
 	size_t curChn;
@@ -3490,12 +3552,10 @@ void MidiPlayer::InitializeChannels(void)
 	
 	_mstVol = 0x7F;
 	_mstVolFade = (_mstVol * _fadeVol + 0x80) / 0x100;
+	InitChannelAssignment();
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
-		chnSt.midChn = curChn & 0x0F;
-		chnSt.portID = curChn >> 4;
-		chnSt.flags = 0x00;
 		chnSt.defInsMap = 0xFF;
 		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
 		chnSt.insOrg.bankPtr = NULL;

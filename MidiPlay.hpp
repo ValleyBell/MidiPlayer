@@ -48,6 +48,7 @@ public:
 	};
 	struct ChannelState
 	{
+		UINT16 fullChnID;
 		UINT8 midChn;
 		UINT8 portID;
 		UINT8 flags;		// Bit 7 (80) - is drum channel
@@ -97,7 +98,7 @@ public:
 	
 	void SetMidiFile(MidiFile* midiFile);
 	void SetOutputPort(MIDIOUT_PORT* outPort);
-	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay);
+	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay, const std::vector<UINT16>& portChnMask);
 	void SetOutPortMapping(size_t numPorts, const size_t* outPorts);
 	void SetOptions(const PlayerOpts& plrOpts);
 	const PlayerOpts& GetOptions(void) const;
@@ -110,6 +111,7 @@ public:
 	UINT8 Stop(void);
 	UINT8 Pause(void);
 	UINT8 Resume(void);
+	UINT8 FlushEvents(void);
 	UINT8 StopAllNotes(void);
 	UINT8 FadeOutT(double fadeTime);	// fade out over x seconds
 	UINT8 GetState(void) const;
@@ -128,6 +130,7 @@ private:
 	static bool tempo_compare(const TempoChg& first, const TempoChg& second);
 	void PrepareMidi(void);
 	void RefreshSrcDevSettings(void);
+	void InitChannelAssignment(void);
 	void InitializeChannels(void);
 	void InitializeChannels_Post(void);
 	void RefreshTickTime(void);
@@ -170,6 +173,7 @@ private:
 	std::vector<size_t> _portMap;	// MIDI track port -> ID of MIDIOUT_PORT object
 	std::vector<MIDIOUT_PORT*> _outPorts;
 	std::vector<UINT32> _outPortDelay;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
+	std::vector<UINT16> _portChnMask;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
 	std::vector< std::queue<MidiQueueEvt> > _midiEvtQueue;
 	OS_TIMER* _osTimer;
 	UINT64 _tmrFreq;	// number of virtual timer ticks for 1 second

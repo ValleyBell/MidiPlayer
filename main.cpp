@@ -52,6 +52,9 @@ static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
 static size_t GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList);
+static void Vector_Str2UInt32(const std::vector<std::string>& strList, std::vector<UINT32>& intList);
+static UINT16 ParseChnMask(const std::string& maskStr);
+static void ParseChnMaskList(const std::vector<std::string>& maskStrList, std::vector<UINT16>& maskList);
 static UINT8 LoadConfig(const std::string& cfgFile);
 static const char* GetStr1or2(const char* str1, const char* str2);
 static const char* GetModuleTypeNameS(UINT8 modType);
@@ -565,9 +568,68 @@ static void Vector_Str2UInt32(const std::vector<std::string>& strList, std::vect
 	intList.clear();
 	for (slIt = strList.begin(); slIt != strList.end(); ++slIt)
 	{
-		unsigned long pVal = strtoul(slIt->c_str(), &endStr, 0);
-		intList.push_back((UINT32)pVal);
+		unsigned long val = strtoul(slIt->c_str(), &endStr, 0);
+		intList.push_back((UINT32)val);
 	}
+	
+	return;
+}
+
+static UINT16 ParseChnMask(const std::string& maskStr)
+{
+	if (maskStr.empty())
+		return 0xFFFF;	// empty - default to "all channels"
+	std::string prefix = maskStr.substr(0, 2);
+	if (prefix.length() >= 2)
+		prefix[1] = (char)tolower((UINT8)prefix[1]);
+	if (prefix == "0x")
+	{
+		unsigned long val = strtoul(maskStr.c_str(), NULL, 0);
+		return (UINT16)val;
+	}
+	else if (isdigit((unsigned char)maskStr[0]))
+	{
+		// 1-base channel range
+		char* endStr;
+		unsigned long chn1 = strtoul(maskStr.c_str(), &endStr, 0);
+		UINT16 mask = 0x0000;
+		if (*endStr != '-')
+		{
+			// single channel ID
+			mask = 1 << (chn1 - 1);
+		}
+		else
+		{
+			// range: 1-16
+			unsigned long chn2 = strtoul(&endStr[1], NULL, 0);
+			if (chn1 <= chn2)
+			{
+				mask = (1 << (chn2 - chn1 + 1)) - 1;
+				mask <<= (chn1 - 1);
+			}
+			else
+			{
+				// range overflow: 15-3, results in 15,16,1,2,3
+				UINT16 mask1 = ~((1 << (chn1 - 1)) - 1);	// mask for chn1..15
+				UINT16 mask2 = (1 << chn2) - 1;	// mask for 1..chn2
+				mask = mask1 | mask2;
+			}
+		}
+		return mask;
+	}
+	else
+	{
+		return 0x0000;	// invalid
+	}
+}
+
+static void ParseChnMaskList(const std::vector<std::string>& maskStrList, std::vector<UINT16>& maskList)
+{
+	std::vector<std::string>::const_iterator cmlIt;
+	
+	maskList.clear();
+	for (cmlIt = maskStrList.begin(); cmlIt != maskStrList.end(); ++cmlIt)
+		maskList.push_back(ParseChnMask(*cmlIt));
 	
 	return;
 }
@@ -669,6 +731,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		validPorts = GetMidiPortList(list, mMod.ports);
 		CfgString2Vector(iniFile.GetString(mMod.name, "PortDelay", ""), list);
 		Vector_Str2UInt32(list, mMod.delayTime);
+		CfgString2Vector(iniFile.GetString(mMod.name, "ChnMask", ""), list);
+		ParseChnMaskList(list, mMod.chnMask);
 		CfgString2Vector(iniFile.GetString(mMod.name, "PlayTypes", ""), list);
 		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
 		
@@ -744,6 +808,8 @@ UINT8 main_OpenModule(size_t modID)
 	
 	portCnt = scanRes.numPorts;
 	mMod = midiModColl.GetModule(modID);
+	if (mMod != NULL && ! mMod->chnMask.empty())
+		portCnt *= mMod->chnMask.size();
 	retVal = midiModColl.OpenModulePorts(modID, portCnt, &mopList);
 	if (retVal && (mopList == NULL || mopList->mOuts.empty()))
 	{
@@ -752,7 +818,7 @@ UINT8 main_OpenModule(size_t modID)
 	}
 	modIDOpen = modID;
 	midPlay.SetDstModuleType(mMod->modType, false);
-	midPlay.SetOutputPorts(mopList->mOuts, mMod->delayTime);
+	midPlay.SetOutputPorts(mopList->mOuts, mMod->delayTime, mMod->chnMask);
 	
 	if ((retVal & 0xF0) == 0x10)
 		vis_addstr("Warning: The module doesn't have enough ports defined for proper playback!");
@@ -954,6 +1020,7 @@ void PlayMidi(void)
 	vis_addstr("Done.");
 	vis_update();
 	
+	midPlay.FlushEvents();
 	main_CloseModule();
 	Sleep(100);
 	
