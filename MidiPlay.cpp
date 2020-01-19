@@ -4,6 +4,7 @@
 #include <math.h>	// for pow()
 #include <vector>
 #include <list>
+#include <queue>
 #include <string>
 #include <algorithm>
 
@@ -125,17 +126,19 @@ void MidiPlayer::SetMidiFile(MidiFile* midiFile)
 
 void MidiPlayer::SetOutputPort(MIDIOUT_PORT* outPort)
 {
-	_outPorts.clear();
-	_outPorts.push_back(outPort);
-	_chnStates.resize(_outPorts.size() * 0x10);
-	if (_noteVis.GetChnGroupCount() != _outPorts.size())
-		_noteVis.Initialize(_outPorts.size());
+	std::vector<MIDIOUT_PORT*> outPorts;
+	outPorts.push_back(outPort);
+	SetOutputPorts(outPorts, std::vector<UINT32>());
 	return;
 }
 
-void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts)
+void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay)
 {
 	_outPorts = outPorts;
+	_outPortDelay = portDelay;
+	_outPortDelay.resize(_outPorts.size(), 0);	// resize + fill with value 0
+	_midiEvtQueue.resize(_outPorts.size());
+	
 	_chnStates.resize(_outPorts.size() * 0x10);
 	if (_noteVis.GetChnGroupCount() != _outPorts.size())
 		_noteVis.Initialize(_outPorts.size());
@@ -144,7 +147,7 @@ void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts)
 
 void MidiPlayer::SetOutPortMapping(size_t numPorts, const size_t* outPorts)
 {
-	_portMap = std::vector<size_t>(outPorts, outPorts + numPorts);
+	_portMap.assign(outPorts, outPorts + numPorts);
 }
 
 void MidiPlayer::SetOptions(const PlayerOpts& plrOpts)
@@ -219,6 +222,43 @@ void MidiPlayer::SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank)
 	return;
 }
 
+void MidiPlayer::SendMidiEventS(size_t portID, UINT8 event, UINT8 data1, UINT8 data2)
+{
+	if (portID >= _outPorts.size())
+		return;
+	if (_outPortDelay[portID] == 0)
+	{
+		MidiOutPort_SendShortMsg(_outPorts[portID], event, data1, data2);
+		return;
+	}
+	MidiQueueEvt evt;
+	evt.time = _tmrStep + _outPortDelay[portID] * _tmrFreq / 1000;
+	evt.flag = 0x00;
+	evt.data.resize(3);
+	evt.data[0] = event;
+	evt.data[1] = data1;
+	evt.data[2] = data2;
+	_midiEvtQueue[portID].emplace(evt);
+	return;
+}
+
+void MidiPlayer::SendMidiEventL(size_t portID, size_t dataLen, const void* data)
+{
+	if (portID >= _outPorts.size())
+		return;
+	if (_outPortDelay[portID] == 0)
+	{
+		MidiOutPort_SendLongMsg(_outPorts[portID], dataLen, data);
+		return;
+	}
+	MidiQueueEvt evt;
+	evt.time = _tmrStep + _outPortDelay[portID] * _tmrFreq / 1000;
+	evt.flag = 0x00;
+	evt.data.assign((const UINT8*)data, (const UINT8*)data + dataLen);
+	_midiEvtQueue[portID].emplace(evt);
+	return;
+}
+
 const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule)
 {
 	if (insMapModule != NULL)
@@ -288,6 +328,10 @@ UINT8 MidiPlayer::Start(void)
 		_trkStates.push_back(mTS);
 	}
 	
+	// clear event queues
+	for (curTrk = 0; curTrk < _midiEvtQueue.size(); curTrk ++)
+		_midiEvtQueue[curTrk] = std::queue<MidiQueueEvt>();
+	
 	_midiTempo = 500000;	// default tempo
 	RefreshTickTime();
 	
@@ -315,18 +359,18 @@ UINT8 MidiPlayer::Start(void)
 			{
 #if 0
 				// This resets all custom instruments as well.
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_MT), RESET_MT);
+				SendMidiEventL(curPort, sizeof(RESET_MT), RESET_MT);
 				_hardReset = true;
 #else
 				size_t curChn;
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(MT32_MST_VOL), MT32_MST_VOL);
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(CM32P_MST_VOL), CM32P_MST_VOL);
+				SendMidiEventL(curPort, sizeof(MT32_MST_VOL), MT32_MST_VOL);
+				SendMidiEventL(curPort, sizeof(CM32P_MST_VOL), CM32P_MST_VOL);
 				for (curChn = 0; curChn < 0x10; curChn ++)
 				{
-					MidiOutPort_SendShortMsg(_outPorts[curPort], 0xB0 | curChn, 0x79, 0x00);
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x79, 0x00);
 					// volume/pan aren't set by "Reset All Controllers" on the MT-32
-					MidiOutPort_SendShortMsg(_outPorts[curPort], 0xB0 | curChn, 0x07, 100);
-					MidiOutPort_SendShortMsg(_outPorts[curPort], 0xB0 | curChn, 0x0A, 0x40);
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x07, 100);
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x0A, 0x40);
 				}
 #endif
 			}
@@ -339,13 +383,13 @@ UINT8 MidiPlayer::Start(void)
 			{
 				vis_printf("Sending Device Reset (%s) ...", "GM Level 2");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM2), RESET_GM2);
+					SendMidiEventL(curPort, sizeof(RESET_GM2), RESET_GM2);
 			}
 			else //if (MMASK_MOD(_options.dstType) == MTGM_LVL1)
 			{
 				vis_printf("Sending Device Reset (%s) ...", "GM");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
+					SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
 			}
 			initDelay += 200;
 		}
@@ -356,13 +400,13 @@ UINT8 MidiPlayer::Start(void)
 			{
 				vis_printf("Sending Device Reset (%s) ...", "SC");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_SC), RESET_SC);
+					SendMidiEventL(curPort, sizeof(RESET_SC), RESET_SC);
 			}
 			else
 			{
 				vis_printf("Sending Device Reset (%s) ...", "GS");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-					MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GS), RESET_GS);
+					SendMidiEventL(curPort, sizeof(RESET_GS), RESET_GS);
 				_hardReset = true;
 			}
 			initDelay += 200;
@@ -373,9 +417,9 @@ UINT8 MidiPlayer::Start(void)
 			vis_printf("Sending Device Reset (%s) ...", "XG");
 			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 			{
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_GM1), RESET_GM1);
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG), RESET_XG);
-				MidiOutPort_SendLongMsg(_outPorts[curPort], sizeof(RESET_XG_ALL), RESET_XG_ALL);
+				SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
+				SendMidiEventL(curPort, sizeof(RESET_XG), RESET_XG);
+				SendMidiEventL(curPort, sizeof(RESET_XG_ALL), RESET_XG_ALL);
 			}
 			_hardReset = true;	// due to XG All Parameter Reset
 			initDelay += 400;	// XG modules take a bit to fully reset
@@ -383,6 +427,7 @@ UINT8 MidiPlayer::Start(void)
 	}
 	InitializeChannels();
 	InitializeChannels_Post();
+	ProcessEventQueue(true);
 	
 	_tmrMinStart += initDelay * _tmrFreq / 1000;
 	_playing = true;
@@ -394,6 +439,7 @@ UINT8 MidiPlayer::Start(void)
 UINT8 MidiPlayer::Stop(void)
 {
 	AllNotesStop();
+	ProcessEventQueue(true);
 	
 	_playing = false;
 	_paused = false;
@@ -575,15 +621,15 @@ void MidiPlayer::HandleRawEvent(size_t dataLen, const UINT8* data)
 	{
 		return;
 	}
+	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
 	DoEvent(&_trkStates[0], &midiEvt);
+	ProcessEventQueue();
 	
 	return;
 }
 
 void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 {
-	MIDIOUT_PORT* outPort = _outPorts[trkState->portID];
-	
 	if (midiEvt->evtType < 0xF0)
 	{
 		UINT8 evtType = midiEvt->evtType & 0xF0;
@@ -618,7 +664,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 					else if (pbVal > 0x1FFF)
 						pbVal = 0x1FFF;
 					pbSend = 0x2000 + (INT16)pbVal;
-					MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, (pbSend >> 0) & 0x7F, (pbSend >> 7) & 0x7F);
+					SendMidiEventS(trkState->portID, midiEvt->evtType, (pbSend >> 0) & 0x7F, (pbSend >> 7) & 0x7F);
 					didEvt = true;
 				}
 				pbVal *= nvChn->_pbRange;
@@ -627,7 +673,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			break;
 		}
 		if (! didEvt)
-			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
+			SendMidiEventS(trkState->portID, midiEvt->evtType, midiEvt->evtValA, midiEvt->evtValB);
 		
 		if (evtType == 0xB0)
 			vis_do_ctrl_change(portChnID, midiEvt->evtValA);
@@ -648,7 +694,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			std::vector<UINT8> msgData(0x01 + midiEvt->evtData.size());
 			msgData[0x00] = midiEvt->evtType;
 			memcpy(&msgData[0x01], &midiEvt->evtData[0x00], midiEvt->evtData.size());
-			MidiOutPort_SendLongMsg(outPort, msgData.size(), &msgData[0x00]);
+			SendMidiEventL(trkState->portID, msgData.size(), &msgData[0x00]);
 		}
 		if (_initChnPost)
 			InitializeChannels_Post();
@@ -658,7 +704,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			std::vector<UINT8> msgData(0x01 + midiEvt->evtData.size());
 			msgData[0x00] = midiEvt->evtType;
 			memcpy(&msgData[0x01], &midiEvt->evtData[0x00], midiEvt->evtData.size());
-			MidiOutPort_SendLongMsg(outPort, msgData.size(), &msgData[0x00]);
+			SendMidiEventL(trkState->portID, msgData.size(), &msgData[0x00]);
 		}
 		break;
 	case 0xFF:	// Meta Event
@@ -806,8 +852,34 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 	return;
 }
 
+void MidiPlayer::ProcessEventQueue(bool flush)
+{
+	size_t curPort;
+	UINT64 curTime;
+	
+	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	for (curPort = 0; curPort < _midiEvtQueue.size(); curPort ++)
+	{
+		std::queue<MidiQueueEvt>& meq = _midiEvtQueue[curPort];
+		while(! meq.empty())
+		{
+			MidiQueueEvt& evt = meq.front();
+			if (! flush && evt.time > curTime)
+				break;
+			if (evt.data[0] < 0xF0)
+				MidiOutPort_SendShortMsg(_outPorts[curPort], evt.data[0], evt.data[1], evt.data[2]);
+			else
+				MidiOutPort_SendLongMsg(_outPorts[curPort], evt.data.size(), &evt.data[0]);
+			meq.pop();
+		}
+	}
+	
+	return;
+}
+
 void MidiPlayer::DoPlaybackStep(void)
 {
+	ProcessEventQueue();
 	if (_paused)
 		return;
 	
@@ -895,6 +967,7 @@ void MidiPlayer::DoPlaybackStep(void)
 				break;
 		}
 	}
+	ProcessEventQueue();	// process events that were just added
 	
 	return;
 }
@@ -948,7 +1021,6 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 
 bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
-	MIDIOUT_PORT* outPort = _outPorts[chnSt->portID];
 	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
 	UINT8 ctrlID = midiEvt->evtValA;
 	
@@ -978,9 +1050,9 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	case 0x07:	// Main Volume
 		if (_filteredVol & (1 << FILTVOL_CCVOL))
 		{
-			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] *  _fadeVol + 0x80) / 0x100);
+			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
 			nvChn->_attr.volume = val;
-			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, val);
+			SendMidiEventS(chnSt->portID, midiEvt->evtType, ctrlID, val);
 			return true;
 		}
 		nvChn->_attr.volume = chnSt->ctrls[ctrlID];
@@ -1001,7 +1073,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			if (didPatch && MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
 			{
 				// MT-32 on GS: send GM-compatible Pan value
-				MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, panVal);
+				SendMidiEventS(chnSt->portID, midiEvt->evtType, ctrlID, panVal);
 				return true;
 			}
 		}
@@ -1009,9 +1081,9 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	case 0x0B:	// Expression
 		if (_filteredVol & (1 << FILTVOL_CCEXPR))
 		{
-			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] *  _fadeVol + 0x80) / 0x100);
+			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
 			nvChn->_attr.expression = val;
-			MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, val);
+			SendMidiEventS(chnSt->portID, midiEvt->evtType, ctrlID, val);
 			return true;
 		}
 		nvChn->_attr.expression = chnSt->ctrls[ctrlID];
@@ -1157,7 +1229,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	
 	if (ctrlID != midiEvt->evtValA || chnSt->ctrls[ctrlID] != midiEvt->evtValB)
 	{
-		MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, ctrlID, chnSt->ctrls[ctrlID]);
+		SendMidiEventS(chnSt->portID, midiEvt->evtType, ctrlID, chnSt->ctrls[ctrlID]);
 		return true;
 	}
 	
@@ -1711,7 +1783,6 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 
 bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact)
 {
-	MIDIOUT_PORT* outPort = _outPorts[chnSt->portID];
 	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(FULL_CHN_ID(chnSt->portID, chnSt->midChn));
 	UINT8 oldMSB = chnSt->insState[0];
 	UINT8 oldLSB = chnSt->insState[1];
@@ -1921,11 +1992,11 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	{
 		UINT8 evtType = 0xB0 | chnSt->midChn;
 		if (oldMSB != chnSt->insState[0])
-			MidiOutPort_SendShortMsg(outPort, evtType, 0x00, chnSt->insState[0]);
+			SendMidiEventS(chnSt->portID, evtType, 0x00, chnSt->insState[0]);
 		if (oldLSB != chnSt->insState[1])
-			MidiOutPort_SendShortMsg(outPort, evtType, 0x20, chnSt->insState[1]);
+			SendMidiEventS(chnSt->portID, evtType, 0x20, chnSt->insState[1]);
 	}
-	MidiOutPort_SendShortMsg(outPort, midiEvt->evtType, chnSt->insState[2], 0x00);
+	SendMidiEventS(chnSt->portID, midiEvt->evtType, chnSt->insState[2], 0x00);
 	chnSt->hadDrumNRPN = false;	// setting the drum kit resets any drum NRPN modifications
 	return true;
 }
@@ -2143,7 +2214,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				msgData[0x00] = midiEvt->evtType;
 				memcpy(&msgData[0x01], syxData, syxSize);
 				msgData[msgData.size() - 0x02] = goodSum;
-				MidiOutPort_SendLongMsg(_outPorts[trkSt->portID], msgData.size(), &msgData[0x00]);
+				SendMidiEventL(trkSt->portID, msgData.size(), &msgData[0x00]);
 				return true;
 			}
 		}
@@ -2481,7 +2552,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (! (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B))
 			{
 				// for devices that don't understand the message, send GS reset instead
-				MidiOutPort_SendLongMsg(_outPorts[portID], sizeof(RESET_GS), RESET_GS);
+				SendMidiEventL(portID, sizeof(RESET_GS), RESET_GS);
 				return true;
 			}
 			break;
@@ -3066,18 +3137,18 @@ void MidiPlayer::AllNotesStop(void)
 	size_t curChn;
 	std::list<NoteInfo>::iterator ntIt;
 	
+	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;	// properly time the following events
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
-		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 		
 		for (ntIt = chnSt.notes.begin(); ntIt != chnSt.notes.end(); ++ntIt)
-			MidiOutPort_SendShortMsg(outPort, 0x90 | ntIt->chn, ntIt->note, 0x00);
+			SendMidiEventS(chnSt.portID, 0x90 | ntIt->chn, ntIt->note, 0x00);
 		
 		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain off
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x40, 0x00);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x40, 0x00);
 		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto off
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x42, 0x00);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x42, 0x00);
 	}
 	
 	return;
@@ -3088,21 +3159,21 @@ void MidiPlayer::AllNotesRestart(void)
 	size_t curChn;
 	std::list<NoteInfo>::iterator ntIt;
 	
+	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;	// properly time the following events
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
-		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 		
 		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain on
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x40, chnSt.ctrls[0x40]);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x40, chnSt.ctrls[0x40]);
 		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto on
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x42, chnSt.ctrls[0x42]);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x42, chnSt.ctrls[0x42]);
 		
 		if (chnSt.flags & 0x80)
 			continue;	// skip restarting notes on drum channels
 		
 		for (ntIt = chnSt.notes.begin(); ntIt != chnSt.notes.end(); ++ntIt)
-			MidiOutPort_SendShortMsg(outPort, 0x90 | ntIt->chn, ntIt->note, ntIt->vel);
+			SendMidiEventS(chnSt.portID, 0x90 | ntIt->chn, ntIt->note, ntIt->vel);
 	}
 	
 	return;
@@ -3149,7 +3220,7 @@ void MidiPlayer::FadeVolRefresh(void)
 		syxData[0x05] = 0x00;			// master volume LSB
 		syxData[0x06] = _mstVolFade;	// master volume MSB
 		for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-			MidiOutPort_SendLongMsg(_outPorts[curPort], syxData.size(), &syxData[0]);
+			SendMidiEventL(curPort, syxData.size(), &syxData[0]);
 		
 		_noteVis.GetAttributes().volume = _mstVolFade;
 		//vis_printf("Master Volume (fade): %u", _mstVolFade);
@@ -3167,11 +3238,10 @@ void MidiPlayer::FadeVolRefresh(void)
 		for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 		{
 			ChannelState& chnSt = _chnStates[curChn];
-			MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 			NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
 			
 			val = (UINT8)((chnSt.ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, ctrlID, val);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, ctrlID, val);
 			
 			if (_fadeVolMode == FDVMODE_CCVOL)
 				nvChn->_attr.volume = val;
@@ -3191,6 +3261,7 @@ void MidiPlayer::AllChannelRefresh(void)
 	std::list<NoteInfo>::iterator ntIt;
 	UINT8 defDstPbRange;
 	
+	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;	// properly time the following events
 	if (_options.dstType == MODULE_MT32)
 		defDstPbRange = 12;
 	else
@@ -3199,7 +3270,6 @@ void MidiPlayer::AllChannelRefresh(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
-		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 		MidiEvent tempEvt;
 		
 		if (chnSt.curIns != 0xFF)
@@ -3212,13 +3282,13 @@ void MidiPlayer::AllChannelRefresh(void)
 		// Main Volume (7) and Pan (10) may be patched
 		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x07, chnSt.ctrls[0x07]);
 		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
-			MidiOutPort_SendShortMsg(outPort, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
+			SendMidiEventS(chnSt.portID, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
 		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0A, chnSt.ctrls[0x0A]);
 		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
-			MidiOutPort_SendShortMsg(outPort, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
+			SendMidiEventS(chnSt.portID, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
 		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0B, chnSt.ctrls[0x0B]);
 		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
-			MidiOutPort_SendShortMsg(outPort, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
+			SendMidiEventS(chnSt.portID, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
 		
 		// We're sending MSB + LSB here. (A few controllers that are handled separately are skipped.)
 		for (curCtrl = 0x01; curCtrl < 0x20; curCtrl ++)
@@ -3227,14 +3297,14 @@ void MidiPlayer::AllChannelRefresh(void)
 				continue;
 			// TODO: use 0xFF as default value - 0x00 is unsafe
 			if (chnSt.ctrls[0x00 | curCtrl] != 0x00)
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x00 | curCtrl, chnSt.ctrls[0x00 | curCtrl]);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x00 | curCtrl, chnSt.ctrls[0x00 | curCtrl]);
 			if (chnSt.ctrls[0x20 | curCtrl] != 0x00)
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x20 | curCtrl, chnSt.ctrls[0x20 | curCtrl]);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x20 | curCtrl, chnSt.ctrls[0x20 | curCtrl]);
 		}
 		for (curCtrl = 0x40; curCtrl < 0x60; curCtrl ++)
 		{
 			if (chnSt.ctrls[curCtrl] != 0x00)
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, curCtrl, chnSt.ctrls[curCtrl]);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, curCtrl, chnSt.ctrls[curCtrl]);
 		}
 		// Channel Mode messages are left out
 		
@@ -3242,16 +3312,16 @@ void MidiPlayer::AllChannelRefresh(void)
 		if (chnSt.pbRange != defDstPbRange)
 		{
 			// set Pitch Bend Range
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x00);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, 0x00);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x00);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
 		}
 		if (chnSt.tuneCoarse != 0)
 		{
 			// set Coarse Tuning
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x02);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, 0x40 + chnSt.tuneCoarse);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, 0x00);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x02);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x06, 0x40 + chnSt.tuneCoarse);
 		}
 		if (chnSt.tuneFine != 0)
 		{
@@ -3260,20 +3330,20 @@ void MidiPlayer::AllChannelRefresh(void)
 			
 			valM = 0x40 + (chnSt.tuneFine >> 8);
 			valL = (chnSt.tuneFine >> 1) & 0x7F;
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x01);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, valM);
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x26, valL);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, 0x00);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x01);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x06, valM);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x26, valL);
 		}
 		// restore RPN state
 		if (chnSt.rpnCtrl[0x00] & 0x80)
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x63, chnSt.rpnCtrl[0x00] & 0x7F);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x63, chnSt.rpnCtrl[0x00] & 0x7F);
 		else
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, chnSt.rpnCtrl[0x00]);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, chnSt.rpnCtrl[0x00]);
 		if (chnSt.rpnCtrl[0x01] & 0x80)
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, chnSt.rpnCtrl[0x01] & 0x7F);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, chnSt.rpnCtrl[0x01] & 0x7F);
 		else
-			MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x62, chnSt.rpnCtrl[0x01]);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x62, chnSt.rpnCtrl[0x01]);
 		
 		// TODO: restore Pitch Bend and NRPNs
 	}
@@ -3516,7 +3586,6 @@ void MidiPlayer::InitializeChannels_Post(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn += 0x10)
 	{
 		ChannelState& drumChn = _chnStates[curChn | 0x09];
-		MIDIOUT_PORT* outPort = _outPorts[drumChn.portID];
 		
 		if (_options.flags & PLROPTS_STRICT)
 		{
@@ -3550,9 +3619,9 @@ void MidiPlayer::InitializeChannels_Post(void)
 					drumChn.insState[1] = 0x00;
 				else if (drumChn.insState[1] == 0x00)
 					drumChn.insState[1] = 0x01 + _defDstInsMap;
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x00, drumChn.insState[0]);
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | drumChn.midChn, 0x20, drumChn.insState[1]);
-				MidiOutPort_SendShortMsg(outPort, 0xC0 | drumChn.midChn, drumChn.insState[2], 0x00);
+				SendMidiEventS(drumChn.portID, 0xB0 | drumChn.midChn, 0x00, drumChn.insState[0]);
+				SendMidiEventS(drumChn.portID, 0xB0 | drumChn.midChn, 0x20, drumChn.insState[1]);
+				SendMidiEventS(drumChn.portID, 0xC0 | drumChn.midChn, drumChn.insState[2], 0x00);
 			}
 		}
 	}
@@ -3560,19 +3629,18 @@ void MidiPlayer::InitializeChannels_Post(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
-		MIDIOUT_PORT* outPort = _outPorts[chnSt.portID];
 		
 		if (_options.flags & PLROPTS_STRICT)
 		{
 			if (chnSt.pbRange != defDstPbRange)
 			{
 				// set initial Pitch Bend Range
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x00);
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x00);
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, 0x00);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x00);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
 				// reset RPN selection
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x65, 0x7F);
-				MidiOutPort_SendShortMsg(outPort, 0xB0 | chnSt.midChn, 0x64, 0x7F);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, 0x7F);
+				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x7F);
 			}
 		}
 	}

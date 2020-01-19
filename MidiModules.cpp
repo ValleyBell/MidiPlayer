@@ -331,6 +331,8 @@ UINT8 MidiModuleCollection::OpenModulePorts(size_t moduleID, size_t requiredPort
 		UINT32 portID;
 		
 		portID = mMod.ports[curPort];
+		if (portID == (UINT32)-1)
+			continue;
 		if (portID >= _ports.size())
 			_ports.resize(portID + 1);
 		PortState& pState = _ports[portID];

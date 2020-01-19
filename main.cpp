@@ -51,7 +51,7 @@ struct InstrumentSetCfg
 static char* GetAppFilePath(void);
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
-static void GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList);
+static size_t GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList);
 static UINT8 LoadConfig(const std::string& cfgFile);
 static const char* GetStr1or2(const char* str1, const char* str2);
 static const char* GetModuleTypeNameS(UINT8 modType);
@@ -518,15 +518,17 @@ static void CfgString2Vector(const std::string& valueStr, std::vector<std::strin
 	return;
 }
 
-static void GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList)
+static size_t GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList)
 {
 	std::vector<std::string>::const_iterator portIt;
 	std::map<std::string, UINT32>::const_iterator paIt;
 	UINT32 port;
 	char* endStr;
 	const std::map<std::string, UINT32>& portAliases = midiPortAliases.GetAliases();
+	size_t validPorts;
 	
 	portList.clear();
+	validPorts = 0;
 	for (portIt = portStrList.begin(); portIt != portStrList.end(); ++portIt)
 	{
 		port = (UINT32)-1;
@@ -546,9 +548,25 @@ static void GetMidiPortList(const std::vector<std::string>& portStrList, std::ve
 		}
 		
 		if (port != (UINT32)-1)
-			portList.push_back(port);
+			validPorts ++;
 		else
 			printf("Unknown MIDI port: %s\n", portIt->c_str());
+		portList.push_back(port);
+	}
+	
+	return validPorts;
+}
+
+static void Vector_Str2UInt32(const std::vector<std::string>& strList, std::vector<UINT32>& intList)
+{
+	std::vector<std::string>::const_iterator slIt;
+	char* endStr;
+	
+	intList.clear();
+	for (slIt = strList.begin(); slIt != strList.end(); ++slIt)
+	{
+		unsigned long pVal = strtoul(slIt->c_str(), &endStr, 0);
+		intList.push_back((UINT32)pVal);
 	}
 	
 	return;
@@ -641,19 +659,27 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	{
 		MidiModule mMod;
 		std::vector<std::string> list;
+		size_t validPorts;
 		
 		mMod.name = *listIt;
 		if (! MidiModule::GetIDFromNameOrNumber(iniFile.GetString(*listIt, "ModType", ""), midiModColl.GetShortModNameLUT(), mMod.modType))
 			continue;
 		
 		CfgString2Vector(iniFile.GetString(mMod.name, "Ports", ""), list);
-		GetMidiPortList(list, mMod.ports);
+		validPorts = GetMidiPortList(list, mMod.ports);
+		CfgString2Vector(iniFile.GetString(mMod.name, "PortDelay", ""), list);
+		Vector_Str2UInt32(list, mMod.delayTime);
 		CfgString2Vector(iniFile.GetString(mMod.name, "PlayTypes", ""), list);
 		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
 		
 		if (mMod.ports.empty())
 		{
 			printf("Module %s: No ports defined!\n", mMod.name.c_str());
+			continue;
+		}
+		if (! validPorts)
+		{
+			printf("Module %s: None of the ports is available!\n", mMod.name.c_str());
 			continue;
 		}
 		if (mMod.playType.empty())
@@ -713,15 +739,20 @@ UINT8 main_OpenModule(size_t modID)
 		return 0xC0;	// already open
 	
 	UINT8 retVal;
+	size_t portCnt;
+	MidiModule* mMod;
 	
-	retVal = midiModColl.OpenModulePorts(modID, scanRes.numPorts, &mopList);
+	portCnt = scanRes.numPorts;
+	mMod = midiModColl.GetModule(modID);
+	retVal = midiModColl.OpenModulePorts(modID, portCnt, &mopList);
 	if (retVal && (mopList == NULL || mopList->mOuts.empty()))
 	{
 		vis_addstr("Error opening MIDI ports!");
 		return retVal;
 	}
 	modIDOpen = modID;
-	midPlay.SetOutputPorts(mopList->mOuts);
+	midPlay.SetDstModuleType(mMod->modType, false);
+	midPlay.SetOutputPorts(mopList->mOuts, mMod->delayTime);
 	
 	if ((retVal & 0xF0) == 0x10)
 		vis_addstr("Warning: The module doesn't have enough ports defined for proper playback!");
@@ -933,15 +964,17 @@ static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_
 {
 	std::vector<MIDIOUT_PORT*>::const_iterator portIt;
 	
-	for (portIt = outPorts.begin(); portIt != outPorts.end(); ++portIt)
+	midPlay.HandleRawEvent(dataLen, data);
+	portIt = outPorts.begin();
+	if (portIt != outPorts.end())	// HandleRawEvent already sends it to the first port
 	{
-		MidiOutPort_SendLongMsg(*portIt, dataLen, data);
-		midPlay.HandleRawEvent(dataLen, data);
+		for (++portIt; portIt != outPorts.end(); ++portIt)
+			MidiOutPort_SendLongMsg(*portIt, dataLen, data);
 	}
 	
-	// wait for data to be transferred
-	// (transfer speed = 31250 bits per second)
-	Sleep(dataLen * 1000 * 8 / 31250);
+	// wait for data to be transferred (3125 bytes per second)
+	// (31250 bits per second transfer rate, 1 byte of payload = 10 bits: 1 start bit, 8 data bits, 1 stop bit)
+	Sleep(dataLen * 1000 / 3125);
 	
 	return;
 }

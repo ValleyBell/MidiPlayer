@@ -14,6 +14,7 @@ struct MidiModule
 	std::string name;
 	UINT8 modType;	// module type
 	std::vector<UINT32> ports;
+	std::vector<UINT32> delayTime;	// delay all events by N milliseconds
 	std::vector<UINT8> playType;	// supported types for playing
 	
 	static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);

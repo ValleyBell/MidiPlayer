@@ -4,6 +4,7 @@
 #include <stdtype.h>
 #include <vector>
 #include <list>
+#include <queue>
 
 #include "MidiLib.hpp"
 #include "NoteVis.hpp"
@@ -19,6 +20,13 @@ struct PlayerOpts
 	UINT8 srcType;
 	UINT8 dstType;
 	UINT8 flags;	// see PLROPTS_ defines
+};
+
+struct MidiQueueEvt
+{
+	UINT64 time;
+	UINT8 flag;
+	std::vector<UINT8> data;
 };
 
 class MidiPlayer
@@ -89,7 +97,7 @@ public:
 	
 	void SetMidiFile(MidiFile* midiFile);
 	void SetOutputPort(MIDIOUT_PORT* outPort);
-	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts);
+	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay);
 	void SetOutPortMapping(size_t numPorts, const size_t* outPorts);
 	void SetOptions(const PlayerOpts& plrOpts);
 	const PlayerOpts& GetOptions(void) const;
@@ -113,6 +121,9 @@ public:
 	
 	void DoPlaybackStep(void);
 private:
+	void SendMidiEventS(size_t portID, UINT8 event, UINT8 data1, UINT8 data2);	// short MIDI event
+	void SendMidiEventL(size_t portID, size_t dataLen, const void* data);	// long MIDI event
+	
 	const INS_BANK* SelectInsMap(UINT8 moduleType, UINT8* insMapModule);
 	static bool tempo_compare(const TempoChg& first, const TempoChg& second);
 	void PrepareMidi(void);
@@ -121,6 +132,7 @@ private:
 	void InitializeChannels_Post(void);
 	void RefreshTickTime(void);
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
+	void ProcessEventQueue(bool flush = false);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank);
@@ -157,6 +169,8 @@ private:
 	
 	std::vector<size_t> _portMap;	// MIDI track port -> ID of MIDIOUT_PORT object
 	std::vector<MIDIOUT_PORT*> _outPorts;
+	std::vector<UINT32> _outPortDelay;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
+	std::vector< std::queue<MidiQueueEvt> > _midiEvtQueue;
 	OS_TIMER* _osTimer;
 	UINT64 _tmrFreq;	// number of virtual timer ticks for 1 second
 	UINT64 _tmrStep;
