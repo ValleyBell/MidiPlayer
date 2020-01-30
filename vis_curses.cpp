@@ -82,6 +82,10 @@ static const char MU_MAP_SYMBOLS[6] =
 };
 
 
+#define CHNFLAG_DEF_INST	0x01
+#define CHNFLAG_DEF_PAN		0x02
+#define CHNFLAG_DEF_INSMAP	0x04
+
 class ChannelData
 {
 public:
@@ -103,8 +107,10 @@ public:
 	
 	void Initialize(UINT16 chnID, size_t screenWidth);
 	void Resize(size_t screenWidth);
-	void ShowInsName(const char* insName, bool grey = false);
-	void ShowPan(INT8 pan, bool grey = false);
+	void SetInsName(const char* insName, bool greyAll = false, bool grey1ch = false);
+	void ShowInsName(void);
+	void SetPan(INT8 pan, bool grey = false);
+	void ShowPan(void);
 	static int CalcNoteSlot(UINT8 note, UINT8* inColPos, int ncols);
 	void RefreshNotes(const NoteVisualization* noteVis, const NoteVisualization::ChnInfo* chnInfo);
 	static void PadString(char* str, size_t padlen, char padchar, UINT8 padleft);
@@ -678,8 +684,8 @@ void vis_do_channel_event(UINT16 chn, UINT8 action, UINT8 data)
 			else
 				sprintf(chnNameStr, "Channel %c%2u", 'A' + (chn >> 4), 1 + (chn & 0x0F));
 			dispCh.Initialize(chn, COLS);
-			dispCh.ShowInsName(chnNameStr, true);
-			dispCh.ShowPan(0, true);
+			dispCh.SetInsName(chnNameStr, true);
+			dispCh.SetPan(0, true);
 			dispCh.RefreshNotes(NULL, NULL);
 			for (size_t curNote = 0; curNote < dispCh._noteSlots.size(); curNote ++)
 				dispCh.DrawNoteName(curNote);
@@ -700,6 +706,7 @@ void vis_do_ins_change(UINT16 chn)
 	int color = (chn % 6) + 1;
 	std::string insName;
 	char userInsName[20];
+	bool isDefMap = false; // based on actual controller value, so that it works in strict mode as well
 	
 	if (chnSt->userInsName != NULL)
 	{
@@ -729,6 +736,7 @@ void vis_do_ins_change(UINT16 chn)
 			insName[0] = SC_MAP_SYMBOLS[insInf->bank[1] - 0x01];
 		else
 			insName[0] = ' ';
+		isDefMap = (chnSt->ctrls[0x20] == 0x00);
 		if (chnSt->flags & 0x80)
 			insName[1] = '*';	// drum channel
 		else if (insInf->bank[0] >= 0x7E)
@@ -738,7 +746,10 @@ void vis_do_ins_change(UINT16 chn)
 		else
 			insName[1] = ' ';	// capital sound
 		if (midPlay->GetModuleType() == MODULE_TG300B)
+		{
 			insName = insName.substr(1);	// TG300B mode has only 1 map
+			isDefMap = false;	// set false, because we removed the "map" indicator
+		}
 	}
 	else if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_XG)
 	{
@@ -757,6 +768,10 @@ void vis_do_ins_change(UINT16 chn)
 			insName[1] = '+';	// SFX bank
 		else
 			insName[1] = ' ';
+		if (chnSt->flags & 0x80)
+			isDefMap = (chnSt->curIns == 0x00);
+		else
+			isDefMap = (chnSt->ctrls[0x00] == 0x00 && chnSt->ctrls[0x20] == 0x00);
 		
 		if (insName[1] == ' ')	// make [bank] optional, as XG names can be pretty long
 			insName = insName[0] + insName.substr(2);
@@ -781,7 +796,7 @@ void vis_do_ins_change(UINT16 chn)
 				insName[0] = '+';	// tone media: card
 		}
 	}
-	dispChns[chn].ShowInsName(insName.c_str());
+	dispChns[chn].SetInsName(insName.c_str(), false, isDefMap);
 	
 	return;
 }
@@ -795,13 +810,13 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl)
 	{
 	case 0x0A:	// Pan
 		if (nvChn->_attr.pan == -0x40)
-			dispChns[chn].ShowPan(9);	// random
+			dispChns[chn].SetPan(9);	// random
 		else if (nvChn->_attr.pan < -0x15)
-			dispChns[chn].ShowPan(-1);
+			dispChns[chn].SetPan(-1);
 		else if (nvChn->_attr.pan > 0x15)
-			dispChns[chn].ShowPan(+1);
+			dispChns[chn].SetPan(+1);
 		else
-			dispChns[chn].ShowPan(0);
+			dispChns[chn].SetPan(0);
 		break;
 	}
 	
@@ -1628,31 +1643,62 @@ void ChannelData::Resize(size_t screenWidth)
 	return;
 }
 
-void ChannelData::ShowInsName(const char* insName, bool grey)
+void ChannelData::SetInsName(const char* insName, bool greyAll, bool grey1ch)
 {
 	sprintf(&_insName[0], "%-*.*s", (int)_insName.size(), (int)_insName.size(), insName);
 	
-	if (grey)
+	_flags &= ~(CHNFLAG_DEF_INST | CHNFLAG_DEF_INSMAP);
+	if (greyAll)
+		_flags |= CHNFLAG_DEF_INST;
+	else if (grey1ch)
+		_flags |= CHNFLAG_DEF_INSMAP;
+	
+	ShowInsName();
+	
+	return;
+}
+
+void ChannelData::ShowInsName(void)
+{
+	wmove(nvWin, _posY, 0);
+	if (_flags & CHNFLAG_DEF_INST)
 	{
-		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
-		_flags |= 0x01;
+		waddstr(nvWin, _insName.c_str());
+	}
+	else if (_flags & CHNFLAG_DEF_INSMAP)
+	{
+		wattron(nvWin, COLOR_PAIR(_color));
+		waddch(nvWin, _insName[0]);	// draw first character with darker colour
+		wattron(nvWin, A_BOLD);
+		waddstr(nvWin, _insName.c_str() + 1);
+		wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
 	}
 	else
 	{
-		_flags &= ~0x01;
 		wattron(nvWin, A_BOLD | COLOR_PAIR(_color));
-		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
+		waddstr(nvWin, _insName.c_str());
 		wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
 	}
 	
 	return;
 }
 
-void ChannelData::ShowPan(INT8 pan, bool grey)
+void ChannelData::SetPan(INT8 pan, bool grey)
+{
+	_pan = pan;
+	if (grey)
+		_flags |= CHNFLAG_DEF_PAN;
+	else
+		_flags &= ~CHNFLAG_DEF_PAN;
+	
+	ShowPan();
+	
+	return;
+}
+
+void ChannelData::ShowPan(void)
 {
 	chtype pChar;
-	
-	_pan = pan;
 	
 	if (_pan == 9)
 		pChar = '*';	// random
@@ -1662,16 +1708,16 @@ void ChannelData::ShowPan(INT8 pan, bool grey)
 		pChar = '>';
 	else
 		pChar = ACS_BULLET;	// ' '
-	if (grey)
+	
+	wmove(nvWin, _posY, NOTE_BASE_COL - 2);
+	if (_flags & CHNFLAG_DEF_PAN)
 	{
-		mvwaddch(nvWin, _posY, NOTE_BASE_COL - 2, pChar);
-		_flags |= 0x02;
+		waddch(nvWin, pChar);
 	}
 	else
 	{
-		_flags &= ~0x02;
 		wattron(nvWin, A_BOLD | COLOR_PAIR(_color));
-		mvwaddch(nvWin, _posY, NOTE_BASE_COL - 2, pChar);
+		waddch(nvWin, pChar);
 		wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
 	}
 	
@@ -1836,17 +1882,8 @@ void ChannelData::RedrawAll(void)
 {
 	//wmove(nvWin, _posY, 0);	wclrtoeol(nvWin);
 	
-	if (_flags & 0x01)
-	{
-		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
-	}
-	else
-	{
-		wattron(nvWin, A_BOLD | COLOR_PAIR(_color));
-		mvwaddstr(nvWin, _posY, 0, _insName.c_str());
-		wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
-	}
-	ShowPan(_pan, (_flags & 0x02) ? true : false);
+	ShowInsName();
+	ShowPan();
 	mvwaddch(nvWin, _posY, NOTE_BASE_COL - 1, ACS_VLINE);
 	for (size_t curNote = 0; curNote < _noteSlots.size(); curNote ++)
 		DrawNoteName(curNote);

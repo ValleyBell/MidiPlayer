@@ -3556,6 +3556,7 @@ void MidiPlayer::InitializeChannels(void)
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
+		chnSt.flags = 0x00;
 		chnSt.defInsMap = 0xFF;
 		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
 		chnSt.insOrg.bankPtr = NULL;
