@@ -415,9 +415,14 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	
 	trkBasePos = ftell(infile);
 	if (rcpInf->fileVer == 2)
+	{
 		trkLen = ReadLE16(infile);
+		trkLen = (trkLen & ~0x03) | ((trkLen & 0x03) << 16);
+	}
 	else if (rcpInf->fileVer == 3)
+	{
 		trkLen = ReadLE32(infile);
+	}
 	if (feof(infile))
 		return 0x01;
 	trkEndPos = trkBasePos + trkLen;
@@ -794,7 +799,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					takeLoop = false;
 					loopIdx --;
 					loopCnt[loopIdx] ++;
-					if (cmdP0Delay == 0)
+					if (cmdP0Delay == 0 || cmdP0Delay > 250)
 					{
 						// infinite loop
 						//trk->AppendEvent(curDly, 0xB0 | midChn, 0x6F, (UINT8)loopCnt);

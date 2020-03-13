@@ -274,7 +274,7 @@ void MidiPlayer::SendMidiEventL(size_t portID, size_t dataLen, const void* data)
 	return;
 }
 
-const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule)
+const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule) const
 {
 	if (insMapModule != NULL)
 		*insMapModule = MMASK_MOD(moduleType);
@@ -386,10 +386,13 @@ UINT8 MidiPlayer::Start(void)
 					// volume/pan aren't set by "Reset All Controllers" on the MT-32
 					SendMidiEventS(curPort, 0xB0 | curChn, 0x07, 100);
 					SendMidiEventS(curPort, 0xB0 | curChn, 0x0A, 0x40);
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x65, 0x00);
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x64, 0x00);
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x06, 12);	// reset pitch bend range
 				}
 #endif
 			}
-			initDelay += 100;
+			initDelay += 200;
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GM)
 		{
@@ -2327,8 +2330,13 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			else if (gmMode == 0x03)	// GM Level 2 On
 				InitializeChannels();
 			
-			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GM)
-				return true;	// prevent GM reset on GS/XG devices
+			if (_options.flags & PLROPTS_RESET)
+			{
+				if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_GM)
+					return true;	// prevent GM reset on GS/XG devices
+				else if (gmLvl < MMASK_MOD(_options.dstType))
+					return true;	// prevent GM Level 1 reset in GM Level 2 mode
+			}
 		}
 		break;
 	case 0x7F:	// Universal Realtime Message

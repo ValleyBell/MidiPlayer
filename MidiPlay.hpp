@@ -128,7 +128,7 @@ private:
 	void SendMidiEventS(size_t portID, UINT8 event, UINT8 data1, UINT8 data2);	// short MIDI event
 	void SendMidiEventL(size_t portID, size_t dataLen, const void* data);	// long MIDI event
 	
-	const INS_BANK* SelectInsMap(UINT8 moduleType, UINT8* insMapModule);
+	const INS_BANK* SelectInsMap(UINT8 moduleType, UINT8* insMapModule) const;
 	static bool tempo_compare(const TempoChg& first, const TempoChg& second);
 	void PrepareMidi(void);
 	void RefreshSrcDevSettings(void);
