@@ -14,6 +14,7 @@
 #include "MidiPlay.hpp"
 #include "MidiBankScan.hpp"
 #include "MidiInsReader.h"	// for MODTYPE_ defines
+#include "MidiModules.hpp"
 #include "vis.hpp"
 #include "utils.hpp"
 
@@ -128,17 +129,19 @@ void MidiPlayer::SetOutputPort(MIDIOUT_PORT* outPort)
 {
 	std::vector<MIDIOUT_PORT*> outPorts;
 	outPorts.push_back(outPort);
-	SetOutputPorts(outPorts, std::vector<UINT32>(), std::vector<UINT16>());
+	SetOutputPorts(outPorts, NULL);
 	return;
 }
 
-void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay, const std::vector<UINT16>& portChnMask)
+void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const MidiModule* midiMod)
 {
+	_outPortDelay = (midiMod != NULL) ? midiMod->delayTime : std::vector<UINT32>();
+	_portChnMask = (midiMod != NULL) ? midiMod->chnMask : std::vector<UINT16>();
+	_portOpts = (midiMod != NULL) ? midiMod->options : 0x00;
+	
 	_outPorts = outPorts;
-	_outPortDelay = portDelay;
 	_outPortDelay.resize(_outPorts.size(), 0);	// resize + fill with value 0
 	_midiEvtQueue.resize(_outPorts.size());
-	_portChnMask = portChnMask;
 	
 	size_t portCnt = _outPorts.size();
 	if (! _portChnMask.empty())
@@ -480,7 +483,13 @@ UINT8 MidiPlayer::Resume(void)
 	
 	AllNotesRestart();
 	
+	// reset/recalculate all timings
 	_tmrStep = 0;
+	if (_tmrFadeLen)
+	{
+		_tmrFadeNext = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+		_tmrFadeStart = _tmrFadeNext - (0x100 - _fadeVol) * _tmrFadeLen / 0x100;
+	}
 	_paused = false;
 	return 0x00;
 }
@@ -1077,6 +1086,12 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			return true;
 		}
 		nvChn->_attr.volume = chnSt->ctrls[ctrlID];
+		if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+		{
+			UINT8 val = CalcSimpleChnMainVol(chnSt);
+			SendMidiEventS(chnSt->portID, midiEvt->evtType, 0x07, val);
+			return true;
+		}
 		break;
 	case 0x0A:	// Pan
 		{
@@ -1108,6 +1123,12 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			return true;
 		}
 		nvChn->_attr.expression = chnSt->ctrls[ctrlID];
+		if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+		{
+			UINT8 val = CalcSimpleChnMainVol(chnSt);
+			SendMidiEventS(chnSt->portID, midiEvt->evtType, 0x07, val);
+			return true;
+		}
 		break;
 	case 0x06:	// Data Entry MSB
 		if (chnSt->rpnCtrl[0] == 0x00)
@@ -3225,6 +3246,14 @@ void MidiPlayer::AllInsRefresh(void)
 	return;
 }
 
+UINT8 MidiPlayer::CalcSimpleChnMainVol(const ChannelState* chnSt) const
+{
+	UINT32 vol = _mstVol * chnSt->ctrls[0x07] * chnSt->ctrls[0x0B];
+	if (_tmrFadeLen)
+		vol = (vol * _fadeVol + 0x80) / 0x100;
+	return (vol + 0x1F80) / 0x3F01;
+}
+
 void MidiPlayer::FadeVolRefresh(void)
 {
 	if (_fadeVolMode == FDVMODE_GMSYX)
@@ -3262,12 +3291,14 @@ void MidiPlayer::FadeVolRefresh(void)
 			NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
 			
 			val = (UINT8)((chnSt.ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
-			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, ctrlID, val);
-			
 			if (_fadeVolMode == FDVMODE_CCVOL)
 				nvChn->_attr.volume = val;
 			else if (_fadeVolMode == FDVMODE_CCEXPR)
 				nvChn->_attr.expression = val;
+			
+			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+				val = CalcSimpleChnMainVol(&chnSt);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, ctrlID, val);
 			vis_do_ctrl_change(curChn, ctrlID);
 		}
 	}

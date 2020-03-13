@@ -11,6 +11,8 @@
 #include "MidiOut.h"
 #include "OSTimer.h"
 #include "MidiInsReader.h"
+struct MidiModule;	// from MidiModules.hpp
+
 
 #define PLROPTS_RESET		0x01	// needs GM/GS/XG reset
 #define PLROPTS_STRICT		0x02	// strict mode (GS Mode: enforces instrument map if Bank LSB == 0)
@@ -98,7 +100,7 @@ public:
 	
 	void SetMidiFile(MidiFile* midiFile);
 	void SetOutputPort(MIDIOUT_PORT* outPort);
-	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const std::vector<UINT32>& portDelay, const std::vector<UINT16>& portChnMask);
+	void SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, const MidiModule* midiMod);
 	void SetOutPortMapping(size_t numPorts, const size_t* outPorts);
 	void SetOptions(const PlayerOpts& plrOpts);
 	const PlayerOpts& GetOptions(void) const;
@@ -150,6 +152,7 @@ private:
 	void AllNotesStop(void);
 	void AllNotesRestart(void);
 	void AllInsRefresh(void);
+	UINT8 CalcSimpleChnMainVol(const ChannelState* chnSt) const;
 	void FadeVolRefresh(void);
 	void AllChannelRefresh(void);
 	void SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk = NULL);
@@ -174,6 +177,7 @@ private:
 	std::vector<MIDIOUT_PORT*> _outPorts;
 	std::vector<UINT32> _outPortDelay;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
 	std::vector<UINT16> _portChnMask;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
+	UINT8 _portOpts;
 	std::vector< std::queue<MidiQueueEvt> > _midiEvtQueue;
 	OS_TIMER* _osTimer;
 	UINT64 _tmrFreq;	// number of virtual timer ticks for 1 second

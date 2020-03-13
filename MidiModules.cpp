@@ -76,12 +76,6 @@ ModuleNames::ModuleNames()
 		return 2;	// partly read
 }
 
-void MidiModule::SetPortList(const std::vector<UINT32>& portList)
-{
-	this->ports = portList;
-	return;
-}
-
 void MidiModule::SetPlayTypes(const std::vector<std::string>& playTypeStrs, const std::map<std::string, UINT8>& playTypeLUT)
 {
 	std::vector<std::string>::const_iterator typeIt;

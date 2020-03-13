@@ -9,17 +9,19 @@
 
 #include "MidiOut.h"
 
+#define MMOD_OPT_SIMPLE_VOL	0x01
+
 struct MidiModule
 {
 	std::string name;
 	UINT8 modType;	// module type
+	UINT8 options;
 	std::vector<UINT32> ports;
 	std::vector<UINT32> delayTime;	// delay all events by N milliseconds on the respective port
 	std::vector<UINT16> chnMask;	// channels to be received by the respective port
 	std::vector<UINT8> playType;	// supported types for playing
 	
 	static UINT8 GetIDFromNameOrNumber(const std::string& valStr, const std::map<std::string, UINT8>& nameLUT, UINT8& retValue);
-	void SetPortList(const std::vector<UINT32>& portList);
 	void SetPlayTypes(const std::vector<std::string>& playTypeStrs, const std::map<std::string, UINT8>& playTypeLUT);
 };
 

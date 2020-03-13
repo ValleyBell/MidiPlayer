@@ -736,6 +736,10 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		CfgString2Vector(iniFile.GetString(mMod.name, "PlayTypes", ""), list);
 		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
 		
+		mMod.options = 0x00;
+		if (iniFile.GetBoolean(mMod.name, "SimpleVolCtrl", false))
+			mMod.options |= MMOD_OPT_SIMPLE_VOL;
+		
 		if (mMod.ports.empty())
 		{
 			printf("Module %s: No ports defined!\n", mMod.name.c_str());
@@ -818,7 +822,7 @@ UINT8 main_OpenModule(size_t modID)
 	}
 	modIDOpen = modID;
 	midPlay.SetDstModuleType(mMod->modType, false);
-	midPlay.SetOutputPorts(mopList->mOuts, mMod->delayTime, mMod->chnMask);
+	midPlay.SetOutputPorts(mopList->mOuts, mMod);
 	
 	if ((retVal & 0xF0) == 0x10)
 		vis_addstr("Warning: The module doesn't have enough ports defined for proper playback!");
