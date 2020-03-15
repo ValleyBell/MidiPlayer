@@ -138,6 +138,8 @@ private:
 	void RefreshTickTime(void);
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	void ProcessEventQueue(bool flush = false);
+	void EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 dtMove);
+	void EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank);
@@ -179,6 +181,7 @@ private:
 	std::vector<UINT16> _portChnMask;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
 	UINT8 _portOpts;
 	std::vector< std::queue<MidiQueueEvt> > _midiEvtQueue;
+	
 	OS_TIMER* _osTimer;
 	UINT64 _tmrFreq;	// number of virtual timer ticks for 1 second
 	UINT64 _tmrStep;
@@ -218,6 +221,7 @@ private:
 	bool _breakMidiProc;
 	bool _hardReset;		// enforce "hard" reset (resets custom instrument maps)
 	bool _initChnPost;
+	bool _meqDoSort;		// MIDI Event Queue: do resorting
 	UINT32 _midiTempo;
 	UINT32 _nextEvtTick;
 	UINT64 _curTickTime;	// time for 1 MIDI tick at current tempo

@@ -9,7 +9,8 @@
 
 #include "MidiOut.h"
 
-#define MMOD_OPT_SIMPLE_VOL	0x01
+#define MMOD_OPT_SIMPLE_VOL	0x01	// simple volume control
+#define MMOD_OPT_AOT_INS	0x02	// early/premature instrument changes
 
 struct MidiModule
 {

@@ -739,6 +739,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		mMod.options = 0x00;
 		if (iniFile.GetBoolean(mMod.name, "SimpleVolCtrl", false))
 			mMod.options |= MMOD_OPT_SIMPLE_VOL;
+		if (iniFile.GetBoolean(mMod.name, "AoTInsChange", false))
+			mMod.options |= MMOD_OPT_AOT_INS;
 		
 		if (mMod.ports.empty())
 		{

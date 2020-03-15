@@ -249,6 +249,15 @@ void MidiPlayer::SendMidiEventS(size_t portID, UINT8 event, UINT8 data1, UINT8 d
 	MidiQueueEvt evt;
 	evt.time = _tmrStep + _outPortDelay[portID] * _tmrFreq / 1000;
 	evt.flag = 0x00;
+	if ((event & 0xE0) == 0x80)
+	{
+		evt.flag |= 0x01;	// mark Note Off/On
+	}
+	else if ((event & 0xF0) == 0xC0)
+	{
+		evt.flag |= 0x02;	// mark patch change
+		_meqDoSort = true;
+	}
 	evt.data.resize(3);
 	evt.data[0] = event;
 	evt.data[1] = data1;
@@ -346,6 +355,7 @@ UINT8 MidiPlayer::Start(void)
 	// clear event queues
 	for (curTrk = 0; curTrk < _midiEvtQueue.size(); curTrk ++)
 		_midiEvtQueue[curTrk] = std::queue<MidiQueueEvt>();
+	_meqDoSort = false;
 	
 	_midiTempo = 500000;	// default tempo
 	RefreshTickTime();
@@ -890,6 +900,21 @@ void MidiPlayer::ProcessEventQueue(bool flush)
 	size_t curPort;
 	UINT64 curTime;
 	
+	if ((_portOpts & MMOD_OPT_AOT_INS) && _meqDoSort)
+	{
+		// move patch changes 50 ms ahead, as they take veeery long on the Roland U-110
+		// (I measured about 10 ms for loading a single patch.)
+		INT64 dtMove = -50 * (INT64)_tmrFreq / 1000;
+		_meqDoSort = false;
+		
+		for (curPort = 0; curPort < _midiEvtQueue.size(); curPort ++)
+		{
+			std::queue<MidiQueueEvt>& meq = _midiEvtQueue[curPort];
+			if (! meq.empty())
+				EvtQueue_OptimizePortEvts(meq, dtMove);
+		}
+	}
+	
 	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
 	for (curPort = 0; curPort < _midiEvtQueue.size(); curPort ++)
 	{
@@ -905,6 +930,115 @@ void MidiPlayer::ProcessEventQueue(bool flush)
 				MidiOutPort_SendLongMsg(_outPorts[curPort], evt.data.size(), &evt.data[0]);
 			meq.pop();
 		}
+	}
+	
+	return;
+}
+
+void MidiPlayer::EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 dtMove)
+{
+	// optimize events by sending patch changes (and surrounding controllers) earlier
+	// Note On/Off events are untouched.
+	std::vector<MidiQueueEvt> tmpMEQ[0x10];
+	size_t chnPos[0x10];
+	size_t curChn;
+	UINT64 minTime;
+	UINT64 maxTime;
+	
+	while(! meq.empty())
+	{
+		MidiQueueEvt& evt = meq.front();
+		curChn = evt.data[0] & 0x0F;
+		tmpMEQ[curChn].push_back(evt);
+		meq.pop();
+	}
+	
+	maxTime = 0;
+	for (curChn = 0x00; curChn < 0x10; curChn ++)
+	{
+		std::vector<MidiQueueEvt>& meqList = tmpMEQ[curChn];
+		EvtQueue_OptimizeChnEvts(meqList, dtMove);
+		
+		if (! meqList.empty() && maxTime < meqList[meqList.size() - 1].time)
+			maxTime = meqList[meqList.size() - 1].time;
+		chnPos[curChn] = 0;
+	}
+	
+	do
+	{
+		minTime = (UINT64)-1;
+		for (curChn = 0x00; curChn < 0x10; curChn ++)
+		{
+			std::vector<MidiQueueEvt>& meqList = tmpMEQ[curChn];
+			if (chnPos[curChn] >= meqList.size())
+				continue;
+			if (minTime > meqList[chnPos[curChn]].time)
+				minTime = meqList[chnPos[curChn]].time;
+		}
+		for (curChn = 0x00; curChn < 0x10; curChn ++)
+		{
+			std::vector<MidiQueueEvt>& meqList = tmpMEQ[curChn];
+			while(chnPos[curChn] < meqList.size() && meqList[chnPos[curChn]].time <= minTime)
+			{
+				meq.push(meqList[chnPos[curChn]]);
+				chnPos[curChn] ++;
+			}
+		}
+	} while (minTime < maxTime);
+	
+	return;
+}
+
+void MidiPlayer::EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove)
+{
+	size_t curEvt;
+	
+	curEvt = 0;
+	while(true)
+	{
+		size_t moveSt = 0;
+		size_t moveEnd = 0;
+		size_t moveEvt;
+		UINT64 minTime = 0;
+		UINT64 maxTime = 0;
+		UINT64 moveTime = 0;
+		
+		for (; curEvt < meList.size(); curEvt ++)
+		{
+			if (meList[curEvt].flag & 0x01)	// Note event - mark lower bound for moving
+			{
+				minTime = meList[curEvt].time;
+				moveSt = curEvt + 1;
+			}
+			else if ((meList[curEvt].flag & 0x12) == 0x02)
+				break;	// found event to be moved
+		}
+		if (curEvt >= meList.size())
+			break;
+		for (moveEnd = curEvt + 1; moveEnd < meList.size(); moveEnd ++)
+		{
+			if (meList[moveEnd].flag & 0x01)
+				break;	// Note event - upper bound for moving
+		}
+		maxTime = (moveEnd < meList.size()) ? meList[moveEnd].time : meList[meList.size() - 1].time;
+		
+		if (meList[curEvt].time <= maxTime + dtMove)
+		{
+			// patch change is already far enough away - no further moving required
+			meList[curEvt].flag |= 0x10;
+			curEvt = moveEnd;
+			continue;
+		}
+		
+		for (moveEvt = moveSt; moveEvt < moveEnd; moveEvt ++)
+		{
+			MidiQueueEvt& mqe = meList[moveEvt];
+			mqe.time += dtMove;
+			if (mqe.time < minTime)
+				mqe.time = minTime;
+			mqe.flag |= 0x10;
+		}
+		curEvt = moveEnd;
 	}
 	
 	return;
