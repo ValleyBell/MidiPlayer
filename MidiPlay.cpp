@@ -836,12 +836,12 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			{
 				std::string text = Vector2String(midiEvt->evtData);
 				//printf("Marker: %s\n", text.c_str());
-				if (text == "loopStart")
+				if (text == _options.loopStartText)
 				{
 					vis_addstr("loopStart found.");
 					SaveLoopState(_loopPt, trkState);
 				}
-				else if (text == "loopEnd")
+				else if (text == _options.loopEndText)
 				{
 					if (_loopPt.used && _loopPt.tick < _nextEvtTick)
 					{
@@ -1278,14 +1278,14 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				if (chnSt->pbRange > 24)
 				{
 					chnSt->pbRange = 24;	// enforce limit according to GM standard
-					if (_options.srcType == MODULE_TYPE_GM)
+					if (_options.srcType == MODULE_GM_1 || _options.srcType == MODULE_SC55)
 					{
 						// allow this for MIDIs detected as GM
 						// Some MIDI drivers (like the SB32 AWE and MS GS Wavetable) allow
 						// going out-of-range and some MIDIs use it.
 						// e.g. Hawkeye_-_Title.mid on VGMusic.com
 						vis_printf("Warning: Chn %u using out-of-spec pitch bend range of %u!",
-								chnSt->midChn, chnSt->pbRangeUnscl);
+								1 + chnSt->midChn, chnSt->pbRangeUnscl);
 					}
 					else
 					{
@@ -1293,9 +1293,11 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 						// Some MIDIs on VGMusic.com (especially ones by Teck) rely on that
 						// behaviour and play incorrectly else.
 						vis_printf("Warning: Chn %u using out-of-spec pitch bend range of %u! Clipped to %u",
-								chnSt->midChn, chnSt->pbRangeUnscl, chnSt->pbRange);
+								1 + chnSt->midChn, chnSt->pbRangeUnscl, chnSt->pbRange);
 						chnSt->pbRangeUnscl = chnSt->pbRange;
 					}
+					if (_options.srcType == MODULE_SC55)
+						chnSt->pbRange = chnSt->pbRangeUnscl;
 				}
 				nvChn->_pbRange = chnSt->pbRange;
 				break;
@@ -2308,7 +2310,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			if (syxSize < 0x08)
 				break;	// We need enough bytes for a full address + checksum.
 			
-			bool retVal;
+			bool retVal = false;
 			UINT8 goodSum = 0xFF;
 			if (! CheckRolandChecksum(syxSize - 0x05, &syxData[0x04]))	// check data from address until (not including) 0xF7 byte
 			{

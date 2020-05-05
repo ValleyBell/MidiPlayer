@@ -22,6 +22,8 @@ struct PlayerOpts
 	UINT8 srcType;
 	UINT8 dstType;
 	UINT8 flags;	// see PLROPTS_ defines
+	std::string loopStartText;
+	std::string loopEndText;
 };
 
 struct MidiQueueEvt

@@ -26,9 +26,10 @@ int INIReader::ValueHandler(void* user, const char* section, const char* name, c
 		reader->_sections.push_back(section);
 	
 	std::string& savedVal = reader->_values[section][name];
-	if (! savedVal.empty())
-		savedVal += "\n";
-	savedVal += value;
+	//if (! savedVal.empty())
+	//	savedVal += "\n";
+	//savedVal += value;
+	savedVal = value;
 	
 	return 1;
 }

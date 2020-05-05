@@ -13,7 +13,6 @@
 #ifdef _WIN32
 #include <conio.h>
 #include <Windows.h>
-#define unlink	_unlink
 
 #define USE_WMAIN
 #else
@@ -75,6 +74,7 @@ static UINT32 numLoops;
 static UINT32 defNumLoops;
 static double fadeTime;
 static UINT8 playerCfgFlags;	// see PlayerOpts::flags
+static std::string plrLoopText[2];
 static UINT8 forceSrcType;
 static UINT8 forceModID;
 static std::vector<InstrumentSetCfg> insSetFiles;
@@ -163,6 +163,8 @@ int main(int argc, char* argv[])
 #endif
 	
 	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
+	plrLoopText[0] = "loopStart";
+	plrLoopText[1] = "loopEnd";
 	numLoops = 0;
 	forceSrcType = 0xFF;
 	forceModID = 0xFF;
@@ -446,7 +448,7 @@ int main(int argc, char* argv[])
 			iconv_close(hCurIConv[curCP]);
 	}
 	if (! strmSrv_metaFile.empty())
-		unlink(strmSrv_metaFile.c_str());
+		remove(strmSrv_metaFile.c_str());
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
 		FreeInstrumentBank(&insBanks[curInsBnk]);
@@ -665,6 +667,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
 	defNumLoops = iniFile.GetInteger("General", "LoopCount", 2);
 	fadeTime = iniFile.GetFloat("General", "FadeTime", 5.0);
+	plrLoopText[0] = iniFile.GetString("General", "Maker_LoopStart", plrLoopText[0]);
+	plrLoopText[1] = iniFile.GetString("General", "Maker_LoopEnd", plrLoopText[1]);
 	
 	strmSrv_pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
 	strmSrv_metaFile = iniFile.GetString("StreamServer", "MetadataFile", "");
@@ -925,6 +929,8 @@ void PlayMidi(void)
 	plrOpts.srcType = scanRes.modType;
 	plrOpts.dstType = mMod->modType;
 	plrOpts.flags = playerCfgFlags;
+	plrOpts.loopStartText = plrLoopText[0];
+	plrOpts.loopEndText = plrLoopText[1];
 	if (scanRes.hasReset != 0xFF)
 	{
 		bool resetOff = true;
