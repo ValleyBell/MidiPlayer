@@ -10,6 +10,12 @@
 #include <sstream>
 #include <algorithm>
 
+#ifdef _MSC_VER
+#define stricmp	_stricmp
+#else
+#define stricmp	strcasecmp
+#endif
+
 #ifdef _WIN32
 #include <conio.h>
 #include <Windows.h>
@@ -22,6 +28,10 @@
 #include <signal.h>	// for kill()
 #endif
 #include <iconv.h>
+
+#if ENABLE_ZIP_SUPPORT
+#include "unzip.h"
+#endif
 
 #include "INIReader.hpp"
 
@@ -48,6 +58,9 @@ struct InstrumentSetCfg
 
 //int main(int argc, char* argv[]);
 static char* GetAppFilePath(void);
+#if ENABLE_ZIP_SUPPORT
+static std::string DecompressFromZIP(const std::string& path);
+#endif
 static bool is_no_space(char c);
 static void CfgString2Vector(const std::string& valueStr, std::vector<std::string>& valueVector);
 static size_t GetMidiPortList(const std::vector<std::string>& portStrList, std::vector<UINT32>& portList);
@@ -107,6 +120,11 @@ static iconv_t hCurIConv[2];
 static BANKSCAN_RESULT scanRes;
 static size_t modIDOpen;
 static MidiOutPortList* mopList = NULL;
+
+#if ENABLE_ZIP_SUPPORT
+static std::string lastUnzFN;
+static ZIP_FILE lastZipFile;
+#endif
 
 
 #ifdef USE_WMAIN
@@ -369,6 +387,9 @@ int main(int argc, char* argv[])
 	for (curSong = initSongID; curSong < songList.size(); )
 	{
 		FILE* hFile;
+#if ENABLE_ZIP_SUPPORT
+		std::string zippedFName;
+#endif
 		
 		midFileName = songList[curSong].fileName;
 		//printf("Opening %s ...\n", midFileName.c_str());
@@ -379,6 +400,14 @@ int main(int argc, char* argv[])
 		hFile = _wfopen(fileNameW.c_str(), L"rb");
 #else
 		hFile = fopen(midFileName.c_str(), "rb");
+#endif
+#if ENABLE_ZIP_SUPPORT
+		if (hFile == NULL)
+		{
+			zippedFName = DecompressFromZIP(midFileName);
+			if (! zippedFName.empty())
+				hFile = fopen(zippedFName.c_str(), "rb");
+		}
 #endif
 		if (hFile == NULL)
 		{
@@ -407,6 +436,10 @@ int main(int argc, char* argv[])
 			}
 			fclose(hFile);
 		}
+#if ENABLE_ZIP_SUPPORT
+		if (! zippedFName.empty())
+			remove(zippedFName.c_str());
+#endif
 		if (retVal)
 		{
 			vis_printf("Error opening %s\n", midFileName.c_str());
@@ -447,6 +480,10 @@ int main(int argc, char* argv[])
 		if (hCurIConv[curCP] != NULL)
 			iconv_close(hCurIConv[curCP]);
 	}
+#if ENABLE_ZIP_SUPPORT
+	if (! lastUnzFN.empty())
+		ZIP_Unload(&lastZipFile);
+#endif
 	if (! strmSrv_metaFile.empty())
 		remove(strmSrv_metaFile.c_str());
 	
@@ -494,6 +531,106 @@ static char* GetAppFilePath(void)
 	
 	return appPath;
 }
+
+#if ENABLE_ZIP_SUPPORT
+static std::string DecompressFromZIP(const std::string& path)
+{
+	std::string normPath;	// path with normalized dir separators
+	size_t pathSepPos;
+	std::string zipPath;
+	FILE* hFileZip;
+	UINT8 retVal;
+	
+	normPath = path;
+#ifdef _WIN32
+	size_t curChr;
+	for (curChr = 0; curChr < normPath.size(); curChr ++)
+	{
+		if (normPath[curChr] == '\\')
+			normPath[curChr] = '/';
+	}
+#endif
+	
+	pathSepPos = normPath.rfind('/');
+	hFileZip = NULL;
+	while(pathSepPos != std::string::npos)
+	{
+		zipPath = path.substr(0, pathSepPos);
+		hFileZip = fopen(zipPath.c_str(), "rb");
+		if (hFileZip != NULL)
+			break;
+		if (pathSepPos > 0)
+			pathSepPos = normPath.rfind('/', pathSepPos - 1);
+		else
+			pathSepPos = std::string::npos;
+	}
+	if (hFileZip == NULL)
+	{
+		vis_printf("No ZIP found!\n");
+		return std::string();
+	}
+	if (lastUnzFN != zipPath)
+	{
+		if (! lastUnzFN.empty())
+			ZIP_Unload(&lastZipFile);
+		retVal = ZIP_LoadFromFile(hFileZip, &lastZipFile);
+		if (retVal)
+		{
+			fclose(hFileZip);
+			lastUnzFN.clear();
+			vis_printf("Error reading ZIP file: %s\n", zipPath);
+			return std::string();
+		}
+		lastUnzFN = zipPath;
+	}
+	std::string tempFilePath;
+#ifdef _WIN32
+	tempFilePath = getenv("TEMP");
+#else
+	tempFilePath = "/tmp";
+#endif
+	tempFilePath = tempFilePath + '/' + "_ztemp.mid";
+	vis_printf("Extracting ZIPed file to %s\n", tempFilePath.c_str());
+	vis_update();
+	
+	std::string packedFName = path.substr(pathSepPos + 1);
+	UINT64 curEnt;
+	const ZIP_DIR_ENTRY* zde = NULL;
+	for (curEnt = 0; curEnt < lastZipFile.eocd.totalEntries; curEnt ++)
+	{
+		zde = &lastZipFile.entries[curEnt];
+		if (! stricmp(zde->filename, packedFName.c_str()))
+			break;
+	}
+	if (zde == NULL)
+	{
+		fclose(hFileZip);
+		vis_printf("Error getting file from ZIP: %s\n", packedFName);
+		return std::string();
+	}
+	
+	FILE* hFileOut = fopen(tempFilePath.c_str(), "wb");
+	if (hFileOut == NULL)
+	{
+		fclose(hFileZip);
+		vis_printf("Unable to write to temp file: %s\n", tempFilePath.c_str());
+		return std::string();
+	}
+	
+	retVal = ZIP_ExtractToFile(hFileZip, zde, hFileOut);
+	
+	fclose(hFileZip);
+	fclose(hFileOut);
+	if (retVal >= 0x80)
+	{
+		vis_printf("ZIP decompression error %02X while extracting %s\n", retVal, tempFilePath.c_str());
+		remove(tempFilePath.c_str());
+		return std::string();
+	}
+	
+	return tempFilePath;
+}
+#endif	// ENABLE_ZIP_SUPPORT
 
 static bool is_no_space(char c)
 {
@@ -984,7 +1121,8 @@ void PlayMidi(void)
 			const char* fileTitle;
 			std::string songTitle;
 			
-			fileTitle = GetFileTitle(midFileName.c_str());
+			//fileTitle = GetFileTitle(midFileName.c_str());
+			fileTitle = midFileName.c_str();
 			songTitle = GetMidiSongTitle(&CMidi);
 			fprintf(hFile, "TITLE=%s", fileTitle);
 			if (1)
@@ -1013,7 +1151,7 @@ void PlayMidi(void)
 	vis_new_song();
 	
 	midPlay.Start();
-	if (! syxData.empty())
+	if (! syxData.empty() && curSong == 0)
 	{
 		vis_addstr("Sending SYX data ...");
 		vis_update();
@@ -1023,7 +1161,17 @@ void PlayMidi(void)
 	}
 	vis_update();
 	
+#ifdef _WIN32
+#ifndef _DEBUG
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+#else
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+#endif
+#endif
 	controlVal = vis_main();
+#ifdef _WIN32
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
+#endif
 	midPlay.Stop();
 	
 	vis_addstr("Cleaning ...");
@@ -1053,7 +1201,7 @@ static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_
 	
 	// wait for data to be transferred (3125 bytes per second)
 	// (31250 bits per second transfer rate, 1 byte of payload = 10 bits: 1 start bit, 8 data bits, 1 stop bit)
-	Sleep(dataLen * 1000 / 3125);
+	//Sleep(dataLen * 1000 / 3125);
 	
 	return;
 }

@@ -12,6 +12,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake_modules/")
 
 set(INCLUDES)
 set(LIBRARIES)
+set(DEFINES)
 
 set(HEADERS
 		MidiLib.hpp
@@ -92,7 +93,18 @@ set(INCLUDES ${INCLUDES} ${CURSES_INCLUDE_DIR})
 set(LIBRARIES ${LIBRARIES} ${CURSES_LIBRARIES} panel)
 
 
+# --- ZIP file reading ---
+find_package(ZLIB QUIET)
+if(ZLIB_FOUND)
+	set(LIBRARIES ${LIBRARIES} ZLIB::ZLIB)
+	set(DEFINES ${DEFINES} ENABLE_ZIP_SUPPORT=1)
+	set(HEADERS ${HEADERS} unzip.h)
+	set(SOURCES ${SOURCES} unzip.c)
+endif()
+
+
 add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES})
+target_compile_definitions(${PROJECT_NAME} PRIVATE ${DEFINES})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR} ${INCLUDES})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBRARIES})
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "bin")
