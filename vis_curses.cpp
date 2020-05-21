@@ -35,6 +35,8 @@
 #define snprintf	_snprintf
 #endif
 
+#define KEY_CTRL(x)	((x) & 0x1F)	// Ctrl+A = 0x01 .. Ctrl+Z = 0x1A
+
 
 // functions from main.cpp (I'll try to come up with a proper solution later)
 size_t main_GetOpenedModule(void);
@@ -121,6 +123,7 @@ public:
 
 typedef int (*KEYHANDLER)(void);
 
+static UINT8 count_digits(UINT32 value);
 static int mvwattron(WINDOW* win, int y, int x, int n, attr_t attr);
 static int mvwattroff(WINDOW* win, int y, int x, int n, attr_t attr);
 static int mvwattrtoggle(WINDOW* win, int y, int x, int n, attr_t attr);
@@ -177,6 +180,7 @@ static std::vector<iconv_t> hLocales;
 static UINT32 trackNo = 0;	// 1 = first track
 static UINT32 trackCnt = 0;
 static UINT32 trackNoDigits = 1;
+static UINT32 trkTickDigs[3] = {1, 1, 1};	// bar, beat, tick
 static const char* midFName = NULL;
 static MidiPlayer* midPlay = NULL;
 
@@ -184,6 +188,7 @@ static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
 static bool stopAfterSong = false;
 static bool restartSong = false;
+static bool showMeasureTicks = true;
 
 static std::string lastMeta01;
 static std::string lastMeta03;
@@ -221,6 +226,19 @@ static int mdsSelection;
 static int mdsDefaultSel;
 static int mdsForcedDevice;
 static int mdsCount;
+
+static UINT8 count_digits(UINT32 value)
+{
+	UINT8 digits = 0;
+	
+	do
+	{
+		value /= 10;
+		digits ++;
+	} while(value > 0);
+	
+	return digits;
+}
 
 static int mvwattron(WINDOW* win, int y, int x, int n, attr_t attr)
 {
@@ -444,14 +462,7 @@ void vis_set_track_number(UINT32 trkNo)
 void vis_set_track_count(UINT32 trkCnt)
 {
 	trackCnt = trkCnt;
-	
-	trackNoDigits = 0;
-	do
-	{
-		trkCnt /= 10;
-		trackNoDigits ++;
-	} while(trkCnt > 0);
-	
+	trackNoDigits = count_digits(trackCnt);
 	return;
 }
 
@@ -637,9 +648,50 @@ void vis_new_song(void)
 	}
 	attroff(A_BOLD);
 	
-	mvprintw(2, 0, "%u %s (Format %u), %u TpQ",
+	titlePosX = showMeasureTicks ? 56 : 48;
+	mvprintw(2, titlePosX, "%u %s (Format %u), %u TpQ",
 			midFile->GetTrackCount(), (midFile->GetTrackCount() == 1) ? "Track" : "Tracks",
 			midFile->GetMidiFormat(), midFile->GetMidiResolution());
+	if (midPlay != NULL)
+	{
+		UINT32 maxBar;
+		UINT16 maxBeatNum;
+		UINT32 maxTick;
+		UINT32 timeSig;
+		UINT16 tsNum, tsDen;
+		UINT8 tsDigits;
+		UINT32 lenBar, lenBeat, lenTick;
+		
+		midPlay->GetSongStatsM(&maxBar, &maxBeatNum, NULL, &maxTick);
+		trkTickDigs[0] = count_digits(1 + maxBar);
+		trkTickDigs[1] = count_digits(1 + maxBeatNum);
+		trkTickDigs[2] = count_digits(maxTick - 1);
+		if (trkTickDigs[1] < 2)
+			trkTickDigs[1] = 2;
+		if (trkTickDigs[2] < 2)
+			trkTickDigs[2] = 2;
+		
+		timeSig = midPlay->GetCurTimeSig();
+		tsNum = (timeSig >>  0) & 0xFFFF;
+		tsDen = (timeSig >> 16) & 0xFFFF;
+		tsDigits = count_digits(tsNum) + count_digits(tsDen);
+		midPlay->GetSongLengthM(&lenBar, &lenBeat, &lenTick);
+		
+		mvprintw(2, 0, "%6.2f BPM", midPlay->GetCurTempo());
+		mvprintw(2, 15 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
+		if (! showMeasureTicks)
+		{
+			mvprintw(2, 26, "Bar %0*u:%0*u", trkTickDigs[0], 0, trkTickDigs[1], 0);
+			addstr(" / ");
+			printw("%0*u:%0*u", trkTickDigs[0], 1 + lenBar, trkTickDigs[1], 1 + lenBeat);
+		}
+		else
+		{
+			mvprintw(2, 26, "Bar %0*u:%0*u.%0*u", trkTickDigs[0], 0, trkTickDigs[1], 0, trkTickDigs[2], 0);
+			addstr(" / ");
+			printw("%0*u:%0*u.%0*u", trkTickDigs[0], 1 + lenBar, trkTickDigs[1], 1 + lenBeat, trkTickDigs[2], lenTick);
+		}
+	}
 	
 	mvwvline(nvWin, 0, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
 	mvwhline(nvWin, chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);
@@ -703,7 +755,6 @@ void vis_do_ins_change(UINT16 chn)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
 	const MidiPlayer::InstrumentInfo* insInf = &chnSt->insSend;
-	int color = (chn % 6) + 1;
 	std::string insName;
 	char userInsName[20];
 	bool isDefMap = false; // based on actual controller value, so that it works in strict mode as well
@@ -939,8 +990,11 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 {
 	std::string text(data, &data[dataLen]);
 	
-	if (! optShowMeta[0] && (metaType != 1 && metaType != 6))
-		return;
+	if (metaType < 0x10)
+	{
+		if (! optShowMeta[0] && (metaType != 1 && metaType != 6))
+			return;
+	}
 	
 	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
 	wattron(logWin, COLOR_PAIR(metaType % 8));
@@ -1012,8 +1066,18 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		curYline ++;
 		break;
 	case 0x51:	// Tempo
+		mvhline(2, 0, ' ', 12);
+		mvprintw(2, 0, "%6.2f BPM", midPlay->GetCurTempo());
 		break;
 	case 0x58:	// Time Signature
+		{
+			UINT32 timeSig = midPlay->GetCurTimeSig();
+			UINT16 tsNum = (timeSig >>  0) & 0xFFFF;
+			UINT16 tsDen = (timeSig >> 16) & 0xFFFF;
+			UINT16 tsDigits = count_digits(tsNum) + count_digits(tsDen);
+			mvhline(2, 12, ' ', 12);
+			mvprintw(2, 15 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
+		}
 		break;
 	case 0x59:	// Key Signature
 		break;
@@ -1095,7 +1159,15 @@ void vis_update(void)
 		lcdDisp.RefreshDisplay();
 	
 	vis_mvprintms(1, 0, midPlay->GetPlaybackPos());
-	vis_mvprintms(1, 10, midPlay->GetSongLength());
+	//vis_mvprintms(1, 10, midPlay->GetSongLength());
+	{
+		UINT32 posBar, posBeat, posTick;
+		midPlay->GetPlaybackPosM(&posBar, &posBeat, &posTick);
+		if (! showMeasureTicks)
+			mvprintw(2, 26, "Bar %0*u:%0*u", trkTickDigs[0], 1 + posBar, trkTickDigs[1], 1 + posBeat);
+		else
+			mvprintw(2, 26, "Bar %0*u:%0*u.%0*u", trkTickDigs[0], 1 + posBar, trkTickDigs[1], 1 + posBeat, trkTickDigs[2], posTick);
+	}
 	update_panels();
 	refresh();
 	
@@ -1136,8 +1208,10 @@ static int vis_keyhandler_normal(void)
 		midPlay->Stop();
 		midPlay->Start();
 		break;
-	case 0x12:	// Ctrl+R
+	case KEY_CTRL('R'):
 		vis_addstr("Stopping all notes ...");
+		update_panels();
+		refresh();
 		midPlay->StopAllNotes();
 		break;
 	case 'M':
@@ -1151,12 +1225,14 @@ static int vis_keyhandler_normal(void)
 	case 'F':
 		midPlay->FadeOutT(main_GetFadeTime());
 		break;
-	case 0x18:	// Ctrl+X
+	case KEY_CTRL('X'):
 		stopAfterSong = ! stopAfterSong;
 		if (stopAfterSong)
-			vis_addstr("Quitting after song end.\n");
+			vis_addstr("Quitting after song end.");
 		else
-			vis_addstr("Not quitting after song end.\n");
+			vis_addstr("Not quitting after song end.");
+		update_panels();
+		refresh();
 		break;
 	}
 	
@@ -1259,8 +1335,8 @@ static int vis_keyhandler_mapsel(void)
 		break;
 	case KEY_DOWN:
 		cursorPos ++;
-		if (cursorPos >= mapSelTypes.size())
-			cursorPos = mapSelTypes.size() - 1;
+		if (cursorPos >= (int)mapSelTypes.size())
+			cursorPos = (int)mapSelTypes.size() - 1;
 		break;
 	case KEY_PPAGE:
 		if (cursorPos <= 0)
@@ -1283,29 +1359,29 @@ static int vis_keyhandler_mapsel(void)
 		}
 		break;
 	case KEY_NPAGE:
-		if (cursorPos >= mapSelTypes.size() - 1)
+		if (cursorPos >= (int)mapSelTypes.size() - 1)
 			break;
 		{
 			// go to first device of next module type (e.g. SC-55 [GS] -> MU50 [XG])
 			UINT8 curModType;
 			
 			curModType = MMASK_TYPE(mapSelTypes[cursorPos]);
-			for (cursorPos = cursorPos + 1; cursorPos < mapSelTypes.size(); cursorPos ++)
+			for (cursorPos = cursorPos + 1; cursorPos < (int)mapSelTypes.size(); cursorPos ++)
 			{
 				if (MMASK_TYPE(mapSelTypes[cursorPos]) != curModType)
 					break;
 			}
-			if (cursorPos >= mapSelTypes.size())
-				cursorPos = mapSelTypes.size() - 1;
+			if (cursorPos >= (int)mapSelTypes.size())
+				cursorPos = (int)mapSelTypes.size() - 1;
 		}
 		break;
 	case KEY_HOME:
 		cursorPos = 0;
 		break;
 	case KEY_END:
-		cursorPos = mapSelTypes.size() - 1;
+		cursorPos = (int)mapSelTypes.size() - 1;
 		break;
-	case 'R':
+	case 'R':	// restart song
 		restartSong = ! restartSong;
 		{
 			int sizeY = getmaxy(mmsWin);
@@ -1314,12 +1390,12 @@ static int vis_keyhandler_mapsel(void)
 			wrefresh(mmsWin);
 		}
 		break;
-	case 'D':
+	case 'D':	// select default map
 		if (mmsDefaultSel != -1)
 			cursorPos = mmsDefaultSel;
 		break;
-	case 'L':
-		if (cursorPos < 0 || cursorPos >= mapSelTypes.size())
+	case 'L':	// lock selection to this map
+		if (cursorPos < 0 || cursorPos >= (int)mapSelTypes.size())
 			break;
 		{
 			UINT8* forceSrcType = main_GetForcedInsMap();
@@ -1429,7 +1505,7 @@ static int vis_keyhandler_devsel(void)
 	case KEY_NPAGE:
 		cursorPos = mdsCount - 1;
 		break;
-	case 'R':
+	case 'R':	// restart song
 		restartSong = ! restartSong;
 		{
 			int sizeY = getmaxy(mdsWin);
@@ -1438,12 +1514,12 @@ static int vis_keyhandler_devsel(void)
 			wrefresh(mdsWin);
 		}
 		break;
-	case 'D':
+	case 'D':	// select default device
 		if (mdsDefaultSel != -1)
 			cursorPos = mdsDefaultSel;
 		break;
-	case 'L':
-		if (cursorPos < 0 || cursorPos >= mapSelTypes.size())
+	case 'L':	// lock selection to this device
+		if (cursorPos < 0 || cursorPos >= (int)mapSelTypes.size())
 			break;
 		{
 			UINT8* forceModID = main_GetForcedModule();
@@ -1500,8 +1576,8 @@ static void vis_show_map_selection(void)
 	{
 		UINT8 mapType = mapSelTypes[curMap];
 		const std::string& mapStr = midiModColl->GetLongModName(mapType);
-		if (sizeX < mapStr.length())
-			sizeX = mapStr.length();
+		if (sizeX < (int)mapStr.length())
+			sizeX = (int)mapStr.length();
 		if (mapType == midMapType)
 			mmsSelection = (int)curMap;
 		if (mapType == songMapType)
@@ -1510,8 +1586,8 @@ static void vis_show_map_selection(void)
 			mmsForcedType = (int)curMap;
 	}
 	sizeX += 3;	// 3 for map ID number
-	if (sizeX < mtLen)
-		sizeX = mtLen;
+	if (sizeX < (int)mtLen)
+		sizeX = (int)mtLen;
 	sizeX += 4;	// add additional space for borders and margin
 	sizeX += (sizeX ^ mtLen) & 1;	// make title nicely aligned (make both even or odd)
 	sizeY = mapSelTypes.size() + 2;
@@ -1562,10 +1638,10 @@ static void vis_show_device_selection(void)
 	
 	mdsSelection = (int)main_GetOpenedModule();
 	mdsDefaultSel = (int)main_GetSongOptDevice();
-	if (mdsDefaultSel < 0 || mdsDefaultSel >= midiModColl->GetModuleCount())
+	if (mdsDefaultSel < 0 || mdsDefaultSel >= (int)midiModColl->GetModuleCount())
 		mdsDefaultSel = -1;
 	mdsForcedDevice = (int)*main_GetForcedModule();
-	if (mdsForcedDevice < 0 || mdsForcedDevice >= midiModColl->GetModuleCount())
+	if (mdsForcedDevice < 0 || mdsForcedDevice >= (int)midiModColl->GetModuleCount())
 		mdsForcedDevice = -1;
 	sizeX = 0;
 	tempStr[0x7F] = '\0';
@@ -1575,12 +1651,12 @@ static void vis_show_device_selection(void)
 		snprintf(tempStr, 0x7F, "%u %s [%s]", (unsigned int)curMod, mMod.name.c_str(),
 				midiModColl->GetShortModName(mMod.modType).c_str());
 		modNames.push_back(tempStr);
-		if (sizeX < modNames.back().length())
-			sizeX = modNames.back().length();
+		if (sizeX < (int)modNames.back().length())
+			sizeX = (int)modNames.back().length();
 	}
 	mdsCount = modNames.size();
-	if (sizeX < mtLen)
-		sizeX = mtLen;
+	if (sizeX < (int)mtLen)
+		sizeX = (int)mtLen;
 	sizeX += 4;	// add additional space for borders and margin
 	sizeX += (sizeX ^ mtLen) & 1;	// make title nicely aligned (make both even or odd)
 	sizeY = mdsCount + 2;

@@ -2,6 +2,7 @@
 #define __MIDIPLAY_HPP__
 
 #include <stdtype.h>
+#include <string>
 #include <vector>
 #include <list>
 #include <queue>
@@ -89,6 +90,17 @@ private:
 		UINT32 tempo;
 		UINT64 tmrTick;
 	};
+	struct TimeSigChg
+	{
+		UINT32 tick;
+		UINT8 timeSig[4];
+		UINT32 measPos[3];	// bar, beat, tick
+	};
+	struct KeySigChg
+	{
+		UINT32 tick;
+		INT8 keySig[2];
+	};
 	struct LoopPoint
 	{
 		bool used;
@@ -120,7 +132,13 @@ public:
 	UINT8 FadeOutT(double fadeTime);	// fade out over x seconds
 	UINT8 GetState(void) const;
 	double GetSongLength(void) const;	// returns length in seconds
+	void GetSongLengthM(UINT32* bar, UINT32* beat, UINT32* tick) const;	// return length in bar:beat:tick
+	void GetSongStatsM(UINT32* maxBar, UINT16* maxBeatNum, UINT16* maxBeatDen, UINT32* maxTick) const;
 	double GetPlaybackPos(void) const;
+	void GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const;
+	UINT32 GetCurTimeSig(void) const;	// low word: numerator, high word: denominator
+	double GetCurTempo(void) const;
+	INT8 GetCurKeySig(void) const;
 	const std::vector<ChannelState>& GetChannelStates(void) const;
 	NoteVisualization* GetNoteVis(void);
 	void HandleRawEvent(size_t dataLen, const UINT8* data);
@@ -132,16 +150,21 @@ private:
 	
 	const INS_BANK* SelectInsMap(UINT8 moduleType, UINT8* insMapModule) const;
 	static bool tempo_compare(const TempoChg& first, const TempoChg& second);
+	static bool timesig_compare(const MidiPlayer::TimeSigChg& first, const MidiPlayer::TimeSigChg& second);
+	static bool keysig_compare(const MidiPlayer::KeySigChg& first, const MidiPlayer::KeySigChg& second);
 	void PrepareMidi(void);
 	void RefreshSrcDevSettings(void);
 	void InitChannelAssignment(void);
 	void InitializeChannels(void);
 	void InitializeChannels_Post(void);
 	void RefreshTickTime(void);
+	static void CalcMeasureTime(const TimeSigChg& tsc, UINT32 ticksWhole, UINT32 tickPos,
+								UINT32* mtBar, UINT32* mtBeat, UINT32* mtTick);
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	void ProcessEventQueue(bool flush = false);
 	void EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 dtMove);
 	void EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove);
+	void UpdateSongCtrlEvts(void);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank);
@@ -167,7 +190,12 @@ private:
 	
 	MidiFile* _cMidi;
 	UINT64 _songLength;
+	UINT32 _songTickLen;
+	UINT32 _songMeasLen[3];	// current bar/beat/tick pos
+	UINT8 _statsTimeSig[3];	// max. numerator, max. denominator (pow2), min. denominator (for max. tick count)
 	std::list<TempoChg> _tempoList;
+	std::list<TimeSigChg> _timeSigList;
+	std::list<KeySigChg> _keySigList;
 	const INS_BANK* _insBankGM1;
 	const INS_BANK* _insBankGM2;
 	const INS_BANK* _insBankGS;
@@ -191,6 +219,9 @@ private:
 	UINT64 _tmrFadeStart;
 	UINT64 _tmrFadeLen;
 	UINT64 _tmrFadeNext;
+	std::list<TempoChg>::const_iterator _tempoPos;
+	std::list<TimeSigChg>::const_iterator _timeSigPos;
+	std::list<KeySigChg>::const_iterator _keySigPos;
 	
 	UINT8 _defSrcInsMap;	// default instrument map of source device
 							// 00..0F when set via MIDI
@@ -225,6 +256,9 @@ private:
 	bool _initChnPost;
 	bool _meqDoSort;		// MIDI Event Queue: do resorting
 	UINT32 _midiTempo;
+	UINT8 _midiTimeSig[4];	// numerator, denominator (pow2), metronome pulse, 32nd notes per beat
+	INT8 _midiKeySig[2];	// number of sharps/flats, scale (major/minor)
+	UINT32 _curEvtTick;
 	UINT32 _nextEvtTick;
 	UINT64 _curTickTime;	// time for 1 MIDI tick at current tempo
 	UINT16 _fadeVol;		// current fade out volume (8.8 fixed point)

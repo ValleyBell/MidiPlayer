@@ -118,9 +118,18 @@ void MidiPlayer::SetMidiFile(MidiFile* midiFile)
 {
 	_songLength = 0;
 	_tempoList.clear();
+	_timeSigList.clear();
+	_keySigList.clear();
 	_cMidi = midiFile;
 	
 	PrepareMidi();
+	
+	_tempoPos = _tempoList.begin();
+	_timeSigPos = _timeSigList.begin();
+	_keySigPos = _keySigList.begin();
+	_midiTempo = _tempoPos->tempo;
+	memcpy(_midiTimeSig, _timeSigPos->timeSig, 4);
+	memcpy(_midiKeySig, _keySigPos->keySig, 2);
 	
 	return;
 }
@@ -357,9 +366,18 @@ UINT8 MidiPlayer::Start(void)
 		_midiEvtQueue[curTrk] = std::queue<MidiQueueEvt>();
 	_meqDoSort = false;
 	
-	_midiTempo = 500000;	// default tempo
+	_tempoPos = _tempoList.begin();
+	_timeSigPos = _timeSigList.begin();
+	_keySigPos = _keySigList.begin();
+	_midiTempo = _tempoPos->tempo;
+	memcpy(_midiTimeSig, _timeSigPos->timeSig, 4);
+	memcpy(_midiKeySig, _keySigPos->keySig, 2);
 	RefreshTickTime();
+	vis_print_meta(0xFF, 0x51, 0, NULL);
+	vis_print_meta(0xFF, 0x58, 0, NULL);
+	vis_print_meta(0xFF, 0x59, 0, NULL);
 	
+	_curEvtTick = 0;
 	_nextEvtTick = 0;
 	_tmrStep = 0;
 	_tmrMinStart = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
@@ -580,6 +598,30 @@ double MidiPlayer::GetSongLength(void) const
 	return U64_TO_DBL(_songLength) / U64_TO_DBL(_tmrFreq);
 }
 
+void MidiPlayer::GetSongLengthM(UINT32* bar, UINT32* beat, UINT32* tick) const
+{
+	if (tick != NULL)
+		*tick = _songMeasLen[2];
+	if (beat != NULL)
+		*beat = _songMeasLen[1];
+	if (bar != NULL)
+		*bar = _songMeasLen[0];
+	return;
+}
+
+void MidiPlayer::GetSongStatsM(UINT32* maxBar, UINT16* maxBeatNum, UINT16* maxBeatDen, UINT32* maxTick) const
+{
+	if (maxTick != NULL)
+		*maxTick = (_cMidi->GetMidiResolution() * 4) >> _statsTimeSig[2];	// _statsTimeSig[2] is log2(denominator)
+	if (maxBeatNum != NULL)
+		*maxBeatNum = _statsTimeSig[0];
+	if (maxBeatDen != NULL)
+		*maxBeatDen = 1 << _statsTimeSig[1];	// _statsTimeSig[1] is log2(denominator)
+	if (maxBar != NULL)
+		*maxBar = _songMeasLen[0];
+	return;
+}
+
 double MidiPlayer::GetPlaybackPos(void) const
 {
 	UINT64 curTime;
@@ -587,8 +629,7 @@ double MidiPlayer::GetPlaybackPos(void) const
 	std::list<TempoChg>::const_iterator tempoIt;
 	
 	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
-	tmrTick = 0;
-	for (tempoIt = _tempoList.begin(); tempoIt != _tempoList.end(); ++tempoIt)
+	for (tempoIt = _tempoPos; tempoIt != _tempoList.end(); ++tempoIt)
 	{
 		if (tempoIt->tick > _nextEvtTick)
 			break;	// stop when going too far
@@ -596,13 +637,79 @@ double MidiPlayer::GetPlaybackPos(void) const
 	--tempoIt;
 	// I just assume that _curTickTime is correct.
 	tmrTick = tempoIt->tmrTick + (_nextEvtTick - tempoIt->tick) * _curTickTime;
+	fprintf(hFileLog1, "PbTime - curTime: %f,\ttmrStep: %f,\ttmrTick: %f,\ttempoTmrTick: %f,\ttempoTick: %u,\tnextEvtTick: %u,\t",
+		curTime / U64_TO_DBL(_tmrFreq), _tmrStep / U64_TO_DBL(_tmrFreq), tmrTick / U64_TO_DBL(_tmrFreq),
+		tempoIt->tmrTick / (float)_tmrFreq, tempoIt->tick, _nextEvtTick);
 	if (curTime < _tmrStep)
 	{
 		if (tmrTick <= _tmrStep - curTime)
-			return 0;	// prevent underflow
+		{
+			fprintf(hFileLog1, "tmrTick < 0\n");
+			return 0;	// waiting for the song to begin
+		}
 		tmrTick -= (_tmrStep - curTime);
+		fprintf(hFileLog1, "final tmrTick: %f\n", tmrTick / U64_TO_DBL(_tmrFreq));
 	}
+	else
+		fprintf(hFileLog1, "curTime >= tmrStep\n");
 	return U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
+}
+
+void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
+{
+	std::list<TimeSigChg>::const_iterator tscIt;
+	UINT32 value = _curEvtTick;
+	
+	UINT64 curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	UINT64 tmrTick = _tempoPos->tmrTick + (_nextEvtTick - _tempoPos->tick) * _curTickTime;
+	if (curTime < _tmrStep || ! _tmrStep)
+	{
+		if (_tmrStep && tmrTick > _tmrStep - curTime)
+			tmrTick -= (_tmrStep - curTime);
+		else
+		{
+			tmrTick = 0;	// prevent underflow
+			if (tick != NULL)
+				*tick = 0;
+			if (beat != NULL)
+				*beat = -1;
+			if (bar != NULL)
+				*bar = -1;
+			return;
+		}
+	}
+	if (tmrTick < _tempoPos->tmrTick)
+		tmrTick = _tempoPos->tmrTick;
+	value = _tempoPos->tick + (tmrTick - _tempoPos->tmrTick) / _curTickTime;
+	
+	for (tscIt = _timeSigPos; tscIt != _timeSigList.end(); ++tscIt)
+	{
+		if (tscIt->tick > value)
+			break;
+	}
+	--tscIt;
+	
+	CalcMeasureTime(*tscIt, _cMidi->GetMidiResolution() * 4, value, bar, beat, tick);
+	
+	return;
+}
+
+double MidiPlayer::GetCurTempo(void) const
+{
+	return 60.0E+6 / _midiTempo;	// MIDI tempo -> Beats Per Minute
+}
+
+UINT32 MidiPlayer::GetCurTimeSig(void) const
+{
+	// low  word (bits  0-15): numerator
+	// high word (bits 16-31): denominator
+	// Note: _midiTimeSig[1] is log2(denominator)
+	return (_midiTimeSig[0] << 0) | (0x10000 << _midiTimeSig[1]);
+}
+
+INT8 MidiPlayer::GetCurKeySig(void) const
+{
+	return (_midiKeySig[0] << 4) | (_midiKeySig[1] << 0);
 }
 
 const std::vector<MidiPlayer::ChannelState>& MidiPlayer::GetChannelStates(void) const
@@ -626,6 +733,37 @@ void MidiPlayer::RefreshTickTime(void)
 	if (tmrDiv == 0)
 		tmrDiv = 1000000;
 	_curTickTime = (tmrMul + tmrDiv / 2) / tmrDiv;
+	return;
+}
+
+/*static*/ void MidiPlayer::CalcMeasureTime(const TimeSigChg& tsc, UINT32 ticksWhole, UINT32 tickPos,
+	UINT32* mtBar, UINT32* mtBeat, UINT32* mtTick)
+{
+	UINT32 tickDelta;
+	UINT32 tickDiv;
+	UINT32 beatDiv;
+	
+	tickDelta = tickPos - tsc.tick;
+	
+	tickDiv = ticksWhole >> tsc.timeSig[1];	// ticks per time signature beat
+	if (tickDiv == 0)
+		tickDiv = 1;
+	tickDelta += tsc.measPos[2];	// ticks
+	if (mtTick != NULL)
+		*mtTick = tickDelta % tickDiv;	// ticks in beat
+	tickDelta /= tickDiv;
+	
+	beatDiv = tsc.timeSig[0];
+	if (beatDiv == 0)
+		beatDiv = 1;
+	tickDelta += tsc.measPos[1];	// beats
+	if (mtBeat != NULL)
+		*mtBeat = tickDelta % beatDiv;	// beats in bar
+	tickDelta /= beatDiv;	// bars
+	
+	if (mtBar != NULL)
+		*mtBar = tsc.measPos[0] + tickDelta;	// bar
+	
 	return;
 }
 
@@ -881,9 +1019,13 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			RefreshTickTime();
 			break;
 		//case 0x54:	// SMPTE offset
-		//case 0x58:	// Time Signature
-		//case 0x59:	// Key Signature
-		//case 0x7F:	// Sequence Specific
+		case 0x58:	// Time Signature
+			memcpy(_midiTimeSig, &midiEvt->evtData[0x00], 4);
+			break;
+		case 0x59:	// Key Signature
+			memcpy(_midiKeySig, &midiEvt->evtData[0x00], 2);
+			break;
+		//case 0x7F:	// Sequencer Specific
 		}
 		if (midiEvt->evtData.empty())
 			vis_print_meta(trkState->trkID, midiEvt->evtValA, 0, NULL);
@@ -1120,6 +1262,7 @@ void MidiPlayer::DoPlaybackStep(void)
 			_tmrStep = curTime;	// reset time when lagging behind >= 1 second
 		
 		_breakMidiProc = false;
+		_curEvtTick = _nextEvtTick;
 		for (curTrk = 0; curTrk < _trkStates.size(); curTrk ++)
 		{
 			TrackState* mTS = &_trkStates[curTrk];
@@ -1135,6 +1278,33 @@ void MidiPlayer::DoPlaybackStep(void)
 		}
 	}
 	ProcessEventQueue();	// process events that were just added
+	UpdateSongCtrlEvts();
+	
+	return;
+}
+
+void MidiPlayer::UpdateSongCtrlEvts(void)
+{
+	for (; _tempoPos != _tempoList.end(); ++_tempoPos)
+	{
+		if (_tempoPos->tick > _curEvtTick)
+			break;
+	}
+	--_tempoPos;
+	
+	for (; _timeSigPos != _timeSigList.end(); ++_timeSigPos)
+	{
+		if (_timeSigPos->tick > _curEvtTick)
+			break;
+	}
+	--_timeSigPos;
+	
+	for (; _keySigPos != _keySigList.end(); ++_keySigPos)
+	{
+		if (_keySigPos->tick > _curEvtTick)
+			break;
+	}
+	--_keySigPos;
 	
 	return;
 }
@@ -3552,15 +3722,33 @@ void MidiPlayer::AllChannelRefresh(void)
 	return (first.tick < second.tick);
 }
 
+/*static*/ bool MidiPlayer::timesig_compare(const MidiPlayer::TimeSigChg& first, const MidiPlayer::TimeSigChg& second)
+{
+	return (first.tick < second.tick);
+}
+
+/*static*/ bool MidiPlayer::keysig_compare(const MidiPlayer::KeySigChg& first, const MidiPlayer::KeySigChg& second)
+{
+	return (first.tick < second.tick);
+}
+
 void MidiPlayer::PrepareMidi(void)
 {
 	UINT16 curTrk;
 	UINT32 tickBase;
 	UINT32 maxTicks;
+	UINT32 ticksWhole;
+	UINT32 tickDiv;
+	UINT32 tickDelta;
 	std::list<TempoChg>::iterator tempoIt;
 	std::list<TempoChg>::iterator tPrevIt;
+	std::list<TimeSigChg>::iterator tscIt;
+	std::list<TimeSigChg>::iterator tscPrevIt;
 	
 	_tempoList.clear();
+	_timeSigList.clear();
+	_keySigList.clear();
+	
 	tickBase = 0;
 	maxTicks = 0;
 	for (curTrk = 0; curTrk < _cMidi->GetTrackCount(); curTrk ++)
@@ -3572,13 +3760,36 @@ void MidiPlayer::PrepareMidi(void)
 		{
 			evtIt->tick += tickBase;	// for Format 2 files, apply track offset
 			
-			if (evtIt->evtType == 0xFF && evtIt->evtValA == 0x51)	// FF 51 - tempo change
+			if (evtIt->evtType == 0xFF)
 			{
-				TempoChg tc;
-				tc.tick = evtIt->tick;
-				tc.tempo = ReadBE24(&evtIt->evtData[0x00]);
-				tc.tmrTick = 0;
-				_tempoList.push_back(tc);
+				switch(evtIt->evtValA)
+				{
+				case 0x51:	// FF 51 - tempo change
+					{
+						TempoChg tc;
+						tc.tick = evtIt->tick;
+						tc.tempo = ReadBE24(&evtIt->evtData[0x00]);
+						tc.tmrTick = 0;
+						_tempoList.push_back(tc);
+					}
+					break;
+				case 0x58:	// FF 58 - time signature change
+					{
+						TimeSigChg tsc;
+						tsc.tick = evtIt->tick;
+						memcpy(tsc.timeSig, &evtIt->evtData[0x00], 4);
+						_timeSigList.push_back(tsc);
+					}
+					break;
+				case 0x59:	// FF 59 - key signature change
+					{
+						KeySigChg key;
+						key.tick = evtIt->tick;
+						memcpy(key.keySig, &evtIt->evtData[0x00], 2);
+						_keySigList.push_back(key);
+					}
+					break;
+				}
 			}
 		}
 		if (_cMidi->GetMidiFormat() == 2)
@@ -3592,6 +3803,7 @@ void MidiPlayer::PrepareMidi(void)
 				maxTicks = mTrk->GetTickCount();
 		}
 	}
+	
 	_tempoList.sort(tempo_compare);
 	if (_tempoList.empty() || _tempoList.front().tick > 0)
 	{
@@ -3601,6 +3813,25 @@ void MidiPlayer::PrepareMidi(void)
 		tc.tempo = 500000;	// 120 BPM
 		tc.tmrTick = 0;
 		_tempoList.push_front(tc);
+	}
+	_timeSigList.sort(timesig_compare);
+	if (_timeSigList.empty() || _timeSigList.front().tick > 0)
+	{
+		// add initial time signature (4/4)
+		TimeSigChg tsc;
+		tsc.tick = 0;
+		tsc.timeSig[0] = 4;		tsc.timeSig[1] = 2;
+		tsc.timeSig[2] = 24;	tsc.timeSig[3] = 8;
+		_timeSigList.push_front(tsc);
+	}
+	_keySigList.sort(keysig_compare);
+	if (_keySigList.empty() || _keySigList.front().tick > 0)
+	{
+		// add initial key signature (C major)
+		KeySigChg ksc;
+		ksc.tick = 0;
+		ksc.keySig[0] = 0;		ksc.keySig[1] = 0;
+		_keySigList.push_front(ksc);
 	}
 	
 	// calculate time position of tempo events and song length
@@ -3619,7 +3850,27 @@ void MidiPlayer::PrepareMidi(void)
 	
 	_midiTempo = tPrevIt->tempo;
 	RefreshTickTime();
+	_songTickLen = maxTicks;
 	_songLength = tPrevIt->tmrTick + (maxTicks - tPrevIt->tick) * _curTickTime;
+	
+	ticksWhole = _cMidi->GetMidiResolution() * 4;	// ticks per whole note
+	tscIt = _timeSigList.begin();
+	tscIt->measPos[0] = 0;	tscIt->measPos[1] = 0;	tscIt->measPos[2] = 0;
+	_statsTimeSig[0] = tscIt->timeSig[0];
+	_statsTimeSig[1] = tscIt->timeSig[1];
+	_statsTimeSig[2] = tscIt->timeSig[1];
+	for (tscPrevIt = tscIt, ++tscIt; tscIt != _timeSigList.end(); tscPrevIt = tscIt, ++tscIt)
+	{
+		CalcMeasureTime(*tscPrevIt, ticksWhole, tscIt->tick, &tscIt->measPos[0], &tscIt->measPos[1], &tscIt->measPos[2]);
+		
+		if (_statsTimeSig[0] < tscIt->timeSig[0])
+			_statsTimeSig[0] = tscIt->timeSig[0];
+		if (_statsTimeSig[1] < tscIt->timeSig[1])
+			_statsTimeSig[1] = tscIt->timeSig[1];
+		if (_statsTimeSig[2] > tscIt->timeSig[1])
+			_statsTimeSig[2] = tscIt->timeSig[1];
+	}
+	CalcMeasureTime(*tscPrevIt, ticksWhole, _songTickLen, &_songMeasLen[0], &_songMeasLen[1], &_songMeasLen[2]);
 	
 	return;
 }

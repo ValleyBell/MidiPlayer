@@ -143,6 +143,7 @@ int main(int argc, char* argv[])
 	size_t initSongID;
 	
 	setlocale(LC_ALL, "");	// enable UTF-8 support on Linux
+	setlocale(LC_NUMERIC, "C");	// enforce decimal dot
 	
 	printf("MIDI Player\n");
 	printf("-----------\n");
