@@ -624,72 +624,57 @@ void MidiPlayer::GetSongStatsM(UINT32* maxBar, UINT16* maxBeatNum, UINT16* maxBe
 
 double MidiPlayer::GetPlaybackPos(void) const
 {
-	UINT64 curTime;
-	UINT64 tmrTick;
-	std::list<TempoChg>::const_iterator tempoIt;
+	if (! _tmrStep)
+		return 0.0;	// the song isn't playing
+
+	UINT64 curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
 	
-	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
-	for (tempoIt = _tempoPos; tempoIt != _tempoList.end(); ++tempoIt)
-	{
-		if (tempoIt->tick > _nextEvtTick)
-			break;	// stop when going too far
-	}
-	--tempoIt;
-	// I just assume that _curTickTime is correct.
-	tmrTick = tempoIt->tmrTick + (_nextEvtTick - tempoIt->tick) * _curTickTime;
-	fprintf(hFileLog1, "PbTime - curTime: %f,\ttmrStep: %f,\ttmrTick: %f,\ttempoTmrTick: %f,\ttempoTick: %u,\tnextEvtTick: %u,\t",
-		curTime / U64_TO_DBL(_tmrFreq), _tmrStep / U64_TO_DBL(_tmrFreq), tmrTick / U64_TO_DBL(_tmrFreq),
-		tempoIt->tmrTick / (float)_tmrFreq, tempoIt->tick, _nextEvtTick);
-	if (curTime < _tmrStep)
-	{
-		if (tmrTick <= _tmrStep - curTime)
-		{
-			fprintf(hFileLog1, "tmrTick < 0\n");
-			return 0;	// waiting for the song to begin
-		}
-		tmrTick -= (_tmrStep - curTime);
-		fprintf(hFileLog1, "final tmrTick: %f\n", tmrTick / U64_TO_DBL(_tmrFreq));
-	}
-	else
-		fprintf(hFileLog1, "curTime >= tmrStep\n");
+	// calculate in-song time of _tmrStep (time of next event)
+	UINT64 tmrTick = _tempoPos->tmrTick + (_nextEvtTick - _tempoPos->tick) * _curTickTime;
+	if (curTime > _tmrStep)
+		curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
+	if (tmrTick <= _tmrStep - curTime)
+		return 0.0;	// waiting for the song to begin
+	
+	// current in-song time = [in-song time of next event] - ([clock time of next event] - [current clock time])
+	tmrTick -= (_tmrStep - curTime);
 	return U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
 }
 
 void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 {
-	std::list<TimeSigChg>::const_iterator tscIt;
-	UINT32 value = _curEvtTick;
+	UINT32 curTick;
 	
-	UINT64 curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
-	UINT64 tmrTick = _tempoPos->tmrTick + (_nextEvtTick - _tempoPos->tick) * _curTickTime;
-	if (curTime < _tmrStep || ! _tmrStep)
+	if (! _tmrStep)
 	{
-		if (_tmrStep && tmrTick > _tmrStep - curTime)
-			tmrTick -= (_tmrStep - curTime);
+		curTick = (UINT32)-1;	// no song playing
+	}
+	else
+	{
+		UINT64 curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+		if (curTime > _tmrStep)
+			curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
+		
+		UINT32 tickDiff = (_tmrStep - curTime) / _curTickTime;
+		if (tickDiff > _nextEvtTick)
+			curTick = (UINT32)-1;	// waiting for the song to begin
 		else
-		{
-			tmrTick = 0;	// prevent underflow
-			if (tick != NULL)
-				*tick = 0;
-			if (beat != NULL)
-				*beat = -1;
-			if (bar != NULL)
-				*bar = -1;
-			return;
-		}
+			curTick = _nextEvtTick - tickDiff;
 	}
-	if (tmrTick < _tempoPos->tmrTick)
-		tmrTick = _tempoPos->tmrTick;
-	value = _tempoPos->tick + (tmrTick - _tempoPos->tmrTick) / _curTickTime;
 	
-	for (tscIt = _timeSigPos; tscIt != _timeSigList.end(); ++tscIt)
+	if (curTick == (UINT32)-1)
 	{
-		if (tscIt->tick > value)
-			break;
+		if (tick != NULL)
+			*tick = 0;
+		if (beat != NULL)
+			*beat = -1;
+		if (bar != NULL)
+			*bar = -1;
 	}
-	--tscIt;
-	
-	CalcMeasureTime(*tscIt, _cMidi->GetMidiResolution() * 4, value, bar, beat, tick);
+	else
+	{
+		CalcMeasureTime(*_timeSigPos, _cMidi->GetMidiResolution() * 4, curTick, bar, beat, tick);
+	}
 	
 	return;
 }
@@ -1222,7 +1207,7 @@ void MidiPlayer::DoPlaybackStep(void)
 	
 	while(_playing)
 	{
-		UINT32 minTStamp = (UINT32)-1;
+		UINT32 minNextTick = (UINT32)-1;
 		
 		size_t curTrk;
 		for (curTrk = 0; curTrk < _trkStates.size(); curTrk ++)
@@ -1231,10 +1216,10 @@ void MidiPlayer::DoPlaybackStep(void)
 			if (mTS->evtPos == mTS->endPos)
 				continue;
 			
-			if (minTStamp > mTS->evtPos->tick)
-				minTStamp = mTS->evtPos->tick;
+			if (mTS->evtPos->tick < minNextTick)
+				minNextTick = mTS->evtPos->tick;
 		}
-		if (minTStamp == (UINT32)-1)
+		if (minNextTick == (UINT32)-1)	// -1 -> end of sequence
 		{
 			if (_loopPt.used && _loopPt.tick < _nextEvtTick)
 			{
@@ -1250,14 +1235,16 @@ void MidiPlayer::DoPlaybackStep(void)
 			break;
 		}
 		
-		if (minTStamp > _nextEvtTick)
+		if (minNextTick > _nextEvtTick)
 		{
-			_tmrStep += (minTStamp - _nextEvtTick) * _curTickTime;
-			_nextEvtTick = minTStamp;
+			// next event has higher tick number than "next tick to wait for" (_nextEvtTick)
+			// -> set new values for "update time" (system time: _tmrStep, event tick: _nextEvtTick)
+			_tmrStep += (minNextTick - _nextEvtTick) * _curTickTime;
+			_nextEvtTick = minNextTick;
 		}
 		
-		if (_tmrStep > curTime)
-			break;
+		if (curTime < _tmrStep)
+			break;	// exit the loop when going beyond "current time"
 		if (_tmrStep + _tmrFreq * 1 < curTime)
 			_tmrStep = curTime;	// reset time when lagging behind >= 1 second
 		

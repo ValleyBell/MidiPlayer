@@ -213,12 +213,12 @@ private:
 	std::vector< std::queue<MidiQueueEvt> > _midiEvtQueue;
 	
 	OS_TIMER* _osTimer;
-	UINT64 _tmrFreq;	// number of virtual timer ticks for 1 second
-	UINT64 _tmrStep;
-	UINT64 _tmrMinStart;
-	UINT64 _tmrFadeStart;
-	UINT64 _tmrFadeLen;
-	UINT64 _tmrFadeNext;
+	UINT64 _tmrFreq;		// number of virtual timer ticks for 1 second
+	UINT64 _tmrStep;		// timestamp: next update of sequence processor
+	UINT64 _tmrMinStart;	// timestamp when the song should start playing (for initialization delay)
+	UINT64 _tmrFadeStart;	// timestamp: beginning of fade out (-1 -> start with next update)
+	UINT64 _tmrFadeLen;		// duration of fade out (in timer ticks)
+	UINT64 _tmrFadeNext;	// timestamp: next fade out update
 	std::list<TempoChg>::const_iterator _tempoPos;
 	std::list<TimeSigChg>::const_iterator _timeSigPos;
 	std::list<KeySigChg>::const_iterator _keySigPos;
