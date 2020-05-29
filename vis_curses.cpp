@@ -666,10 +666,12 @@ void vis_new_song(void)
 		trkTickDigs[0] = count_digits(1 + maxBar);
 		trkTickDigs[1] = count_digits(1 + maxBeatNum);
 		trkTickDigs[2] = count_digits(maxTick - 1);
+		if (trkTickDigs[0] < 2)
+			trkTickDigs[0] = 2;
 		if (trkTickDigs[1] < 2)
 			trkTickDigs[1] = 2;
-		if (trkTickDigs[2] < 2)
-			trkTickDigs[2] = 2;
+		if (trkTickDigs[2] < 3)
+			trkTickDigs[2] = 3;
 		
 		timeSig = midPlay->GetCurTimeSig();
 		tsNum = (timeSig >>  0) & 0xFFFF;

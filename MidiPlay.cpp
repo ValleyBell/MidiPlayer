@@ -626,7 +626,7 @@ double MidiPlayer::GetPlaybackPos(void) const
 {
 	if (! _tmrStep)
 		return 0.0;	// the song isn't playing
-
+	
 	UINT64 curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
 	
 	// calculate in-song time of _tmrStep (time of next event)
@@ -655,7 +655,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 		if (curTime > _tmrStep)
 			curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
 		
-		UINT32 tickDiff = (_tmrStep - curTime) / _curTickTime;
+		UINT32 tickDiff = (UINT32)((_tmrStep - curTime) / _curTickTime);
 		if (tickDiff > _nextEvtTick)
 			curTick = (UINT32)-1;	// waiting for the song to begin
 		else
@@ -3725,8 +3725,6 @@ void MidiPlayer::PrepareMidi(void)
 	UINT32 tickBase;
 	UINT32 maxTicks;
 	UINT32 ticksWhole;
-	UINT32 tickDiv;
-	UINT32 tickDelta;
 	std::list<TempoChg>::iterator tempoIt;
 	std::list<TempoChg>::iterator tPrevIt;
 	std::list<TimeSigChg>::iterator tscIt;
@@ -3850,12 +3848,12 @@ void MidiPlayer::PrepareMidi(void)
 	{
 		CalcMeasureTime(*tscPrevIt, ticksWhole, tscIt->tick, &tscIt->measPos[0], &tscIt->measPos[1], &tscIt->measPos[2]);
 		
-		if (_statsTimeSig[0] < tscIt->timeSig[0])
-			_statsTimeSig[0] = tscIt->timeSig[0];
-		if (_statsTimeSig[1] < tscIt->timeSig[1])
-			_statsTimeSig[1] = tscIt->timeSig[1];
-		if (_statsTimeSig[2] > tscIt->timeSig[1])
-			_statsTimeSig[2] = tscIt->timeSig[1];
+		if (tscIt->timeSig[0] > _statsTimeSig[0])
+			_statsTimeSig[0] = tscIt->timeSig[0];	// max. numerator
+		if (tscIt->timeSig[1] > _statsTimeSig[1])
+			_statsTimeSig[1] = tscIt->timeSig[1];	// max. denominator
+		if (tscIt->timeSig[1] < _statsTimeSig[2])
+			_statsTimeSig[2] = tscIt->timeSig[1];	// min. denominator (for max. ticks/beat)
 	}
 	CalcMeasureTime(*tscPrevIt, ticksWhole, _songTickLen, &_songMeasLen[0], &_songMeasLen[1], &_songMeasLen[2]);
 	

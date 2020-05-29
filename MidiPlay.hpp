@@ -191,8 +191,8 @@ private:
 	MidiFile* _cMidi;
 	UINT64 _songLength;
 	UINT32 _songTickLen;
-	UINT32 _songMeasLen[3];	// current bar/beat/tick pos
-	UINT8 _statsTimeSig[3];	// max. numerator, max. denominator (pow2), min. denominator (for max. tick count)
+	UINT32 _songMeasLen[3];	// song length in [bars, beats, ticks]
+	UINT8 _statsTimeSig[3];	// max. numerator, max. denominator, min. denominator (for max. ticks/beat)
 	std::list<TempoChg> _tempoList;
 	std::list<TimeSigChg> _timeSigList;
 	std::list<KeySigChg> _keySigList;
