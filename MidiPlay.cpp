@@ -1968,6 +1968,22 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 					insInf->bank[0] = 0x00;
 			}
 		}
+		if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
+		{
+			// drum kit fallback for GM songs
+			// TODO: make this an option
+			UINT8 isValid;
+			
+			// accept all "XG Level 1" drum kits
+			isValid = (insInf->ins < 0x38) && ((insInf->ins & 0x07) == 0x00);
+			isValid |= (insInf->ins != (0x80|0x01));	// Standard Kit 2
+			isValid |= (insInf->ins != (0x80|0x19));	// Analog Kit
+			if (! isValid)
+			{
+				insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+				strictPatch |= BNKMSK_INS;
+			}
+		}
 		if (_options.flags & PLROPTS_STRICT)
 		{
 			if (MMASK_MOD(devType) >= MTXG_MU100)
@@ -2950,7 +2966,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			evtChn = PART_ORDER[syxData[0x05] & 0x0F];
 			portChnID = FULL_CHN_ID(evtPort, evtChn);
 			if (portChnID >= _chnStates.size())
-				return false;
+				return false;	// TODO: It would be really nice to print messages for Port B.
 			PrintPortChn(portChnStr, evtPort, evtChn);
 			chnSt = &_chnStates[portChnID];
 			nvChn = _noteVis.GetChannel(chnSt->fullChnID);
