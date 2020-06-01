@@ -1756,8 +1756,8 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 	const UINT8 devType = _options.srcType;
 	UINT8 mapModType;
 	
-	insInf->bank[0] = chnSt->ctrls[0x00];
-	insInf->bank[1] = chnSt->ctrls[0x20];
+	insInf->bank[0] = (chnSt->ctrls[0x00] != 0xFF) ? chnSt->ctrls[0x00] : 0x00;
+	insInf->bank[1] = (chnSt->ctrls[0x20] != 0xFF) ? chnSt->ctrls[0x20] : 0x00;
 	insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
 	insInf->bnkIgn = BNKMSK_NONE;
 	insBank = SelectInsMap(devType, &mapModType);
@@ -1844,8 +1844,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	}
 	else
 	{
-		insInf->bank[0] = chnSt->ctrls[0x00];
-		insInf->bank[1] = chnSt->ctrls[0x20];
+		insInf->bank[0] = (chnSt->ctrls[0x00] != 0xFF) ? chnSt->ctrls[0x00] : 0x00;
+		insInf->bank[1] = (chnSt->ctrls[0x20] != 0xFF) ? chnSt->ctrls[0x20] : 0x00;
 		insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
 	}
 	insIOld = *insInf;
@@ -2135,13 +2135,23 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	return;
 }
 
+static void PrintHexOrChr(char* buffer, UINT8 data, UINT8 wildcard, char wcChar)
+{
+	if (data == wildcard)
+		sprintf(buffer, "%c%c", wcChar, wcChar);
+	else
+		sprintf(buffer, "%02X", data);
+	return;
+}
+
 bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact)
 {
 	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 	UINT8 oldMSB = chnSt->insState[0];
 	UINT8 oldLSB = chnSt->insState[1];
 	UINT8 oldIns = chnSt->insState[2];
-	UINT8 bankMSB = chnSt->ctrls[0x00];
+	UINT8 bankMSB = (chnSt->ctrls[0x00] != 0xFF) ? chnSt->ctrls[0x00] : 0x00;
+	UINT8 bankLSB = (chnSt->ctrls[0x20] != 0xFF) ? chnSt->ctrls[0x20] : 0x00;
 	
 	chnSt->curIns = midiEvt->evtValA;
 	chnSt->userInsID = 0xFFFF;
@@ -2267,13 +2277,14 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	{
 		const char* oldName;
 		const char* newName;
+		char bnkNames[20];
 		UINT8 ctrlEvt = 0xB0 | chnSt->midChn;
 		UINT8 insEvt = midiEvt->evtType;
 		UINT8 didPatch = BNKMSK_NONE;
 		bool showOrgIns = false;
 		
-		didPatch |= (chnSt->insSend.bank[0] != chnSt->ctrls[0x00]) << BNKBIT_MSB;
-		didPatch |= (chnSt->insSend.bank[1] != chnSt->ctrls[0x20]) << BNKBIT_LSB;
+		didPatch |= (chnSt->insSend.bank[0] != bankMSB) << BNKBIT_MSB;
+		didPatch |= (chnSt->insSend.bank[1] != bankLSB) << BNKBIT_LSB;
 		didPatch |= ((chnSt->insSend.ins & 0x7F) != chnSt->curIns) << BNKBIT_INS;
 		if (_options.flags & PLROPTS_STRICT)
 		{
@@ -2282,7 +2293,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 				if (didPatch == BNKMSK_LSB)	// only Bank LSB was patched (instrument map)
 				{
 					bool hasMultipleInsMaps = (_options.dstType >= MODULE_SC88 && _options.dstType < MODULE_TG300B);
-					if (hasMultipleInsMaps && chnSt->ctrls[0x20] == 0x00)
+					if (hasMultipleInsMaps && bankLSB == 0x00)
 					{
 						// SC-88+: Bank LSB was patched from 0 (default instrument map) to the "native" map
 						didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
@@ -2298,38 +2309,48 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 			else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 			{
 				// MU instrument map for GM sounds (MSB 0, LSB 0 or drum kit 0)
-				if ((chnSt->ctrls[0x00] == 0x00 && chnSt->ctrls[0x20] == 0x00 && didPatch == BNKMSK_LSB) ||
-					(chnSt->ctrls[0x00] == 0x7F && chnSt->curIns == 0x00 && didPatch == BNKMSK_INS))
+				if ((bankMSB == 0x00 && bankLSB == 0x00 && didPatch == BNKMSK_LSB) ||
+					(bankMSB == 0x7F && chnSt->curIns == 0x00 && didPatch == BNKMSK_INS))
 				{
 					didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
 					showOrgIns = true;
 				}
 			}
-		}
-		if (! didPatch && chnSt->insSend.bankPtr == NULL)
-			showOrgIns = true;
-		
-		oldName = (chnSt->insOrg.bankPtr == NULL) ? "" : chnSt->insOrg.bankPtr->insName;
-		newName = (chnSt->insSend.bankPtr == NULL) ? "" : chnSt->insSend.bankPtr->insName;
-		if (didPatch)
-		{
-			vis_printf("%s Patch: %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
-				(chnSt->flags & 0x80) ? "Drm" : "Ins",
-				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, chnSt->curIns, oldName);
-			vis_printf("       ->  %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
-				ctrlEvt, chnSt->insSend.bank[0], ctrlEvt, chnSt->insSend.bank[1], insEvt, chnSt->insSend.ins & 0x7F, newName);
-		}
-		else if (! showOrgIns)
-		{
-			vis_printf("%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
-				(chnSt->flags & 0x80) ? "Drm" : "Ins",
-				ctrlEvt, chnSt->insSend.bank[0], ctrlEvt, chnSt->insSend.bank[1], insEvt, chnSt->insSend.ins & 0x7F, newName);
+			if (! didPatch && chnSt->insSend.bankPtr == NULL)
+				showOrgIns = true;
 		}
 		else
 		{
-			vis_printf("%s Set:   %02X 00 %02X  %02X 20 %02X  %02X %02X  %s\n",
+			showOrgIns = true;
+		}
+		
+		oldName = (chnSt->insOrg.bankPtr == NULL) ? "" : chnSt->insOrg.bankPtr->insName;
+		newName = (chnSt->insSend.bankPtr == NULL) ? "" : chnSt->insSend.bankPtr->insName;
+		PrintHexOrChr(&bnkNames[ 0], chnSt->ctrls[0x00], 0xFF, '-');
+		PrintHexOrChr(&bnkNames[ 3], chnSt->ctrls[0x20], 0xFF, '-');
+		PrintHexOrChr(&bnkNames[ 6], chnSt->curIns, 0xFF, '-');
+		PrintHexOrChr(&bnkNames[10], chnSt->insSend.bank[0], 0xFF, '-');
+		PrintHexOrChr(&bnkNames[13], chnSt->insSend.bank[1], 0xFF, '-');
+		PrintHexOrChr(&bnkNames[16], chnSt->insSend.ins & 0x7F, 0xFF, '-');
+		if (didPatch)
+		{
+			vis_printf("%s Patch: %02X 00 %s  %02X 20 %s  %02X %s  %s\n",
 				(chnSt->flags & 0x80) ? "Drm" : "Ins",
-				ctrlEvt, chnSt->ctrls[0x00], ctrlEvt, chnSt->ctrls[0x20], insEvt, chnSt->curIns, oldName);
+				ctrlEvt, &bnkNames[ 0], ctrlEvt, &bnkNames[ 3], insEvt, &bnkNames[ 6], oldName);
+			vis_printf("       ->  %02X 00 %s  %02X 20 %s  %02X %s  %s\n",
+				ctrlEvt, &bnkNames[10], ctrlEvt, &bnkNames[13], insEvt, &bnkNames[16], newName);
+		}
+		else if (! showOrgIns)
+		{
+			vis_printf("%s Set:   %02X 00 %s  %02X 20 %s  %02X %s  %s\n",
+				(chnSt->flags & 0x80) ? "Drm" : "Ins",
+				ctrlEvt, &bnkNames[10], ctrlEvt, &bnkNames[13], insEvt, &bnkNames[16], newName);
+		}
+		else
+		{
+			vis_printf("%s Set:   %02X 00 %s  %02X 20 %s  %02X %s  %s\n",
+				(chnSt->flags & 0x80) ? "Drm" : "Ins",
+				ctrlEvt, &bnkNames[ 0], ctrlEvt, &bnkNames[ 3], insEvt, &bnkNames[ 6], oldName);
 		}
 	}
 	
@@ -2919,8 +2940,9 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				evtChn = PART_ORDER[syxData[0x06] & 0x0F];
 				evtPort = portID;
-				if (syxData[0x06] & 0x10)
-					evtPort ^= 0x01;	// TODO: verify this
+				// Note: Receiving this on Port B does NOT invert the port.
+				// (unlike addresses 40xxxx/50xxxx, for which the port correction is
+				// even mentioned by the manual)
 				PrintPortChn(portChnStr, evtPort, evtChn);
 				vis_printf("SysEx GS Chn %s: Receive from Port %c", portChnStr, 'A' + syxData[0x07]);
 			}
@@ -3504,9 +3526,9 @@ void MidiPlayer::AllNotesStop(void)
 		for (ntIt = chnSt.notes.begin(); ntIt != chnSt.notes.end(); ++ntIt)
 			SendMidiEventS(chnSt.portID, 0x90 | ntIt->chn, ntIt->note, 0x00);
 		
-		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain off
+		if (chnSt.ctrls[0x40] != 0xFF && (chnSt.ctrls[0x40] & 0x40))	// turn Sustain off
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x40, 0x00);
-		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto off
+		if (chnSt.ctrls[0x42] != 0xFF && (chnSt.ctrls[0x42] & 0x40))	// turn Sostenuto off
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x42, 0x00);
 	}
 	
@@ -3523,9 +3545,9 @@ void MidiPlayer::AllNotesRestart(void)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
 		
-		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain on
+		if (chnSt.ctrls[0x40] != 0xFF && (chnSt.ctrls[0x40] & 0x40))	// turn Sustain on
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x40, chnSt.ctrls[0x40]);
-		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto on
+		if (chnSt.ctrls[0x42] != 0xFF && (chnSt.ctrls[0x42] & 0x40))	// turn Sostenuto on
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x42, chnSt.ctrls[0x42]);
 		
 		if (chnSt.flags & 0x80)
@@ -3664,15 +3686,14 @@ void MidiPlayer::AllChannelRefresh(void)
 		{
 			if (curCtrl == 0x06 || curCtrl == 0x07 || curCtrl == 0x0A || curCtrl == 0x0B)
 				continue;
-			// TODO: use 0xFF as default value - 0x00 is unsafe
-			if (chnSt.ctrls[0x00 | curCtrl] != 0x00)
+			if (chnSt.ctrls[0x00 | curCtrl] != 0xFF)
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x00 | curCtrl, chnSt.ctrls[0x00 | curCtrl]);
-			if (chnSt.ctrls[0x20 | curCtrl] != 0x00)
+			if (chnSt.ctrls[0x20 | curCtrl] != 0xFF)
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x20 | curCtrl, chnSt.ctrls[0x20 | curCtrl]);
 		}
 		for (curCtrl = 0x40; curCtrl < 0x60; curCtrl ++)
 		{
-			if (chnSt.ctrls[curCtrl] != 0x00)
+			if (chnSt.ctrls[curCtrl] != 0xFF)
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, curCtrl, chnSt.ctrls[curCtrl]);
 		}
 		// Channel Mode messages are left out
@@ -3993,11 +4014,13 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.curIns = 0xFF;
 		chnSt.userInsID = 0xFFFF;
 		chnSt.userInsName = NULL;
-		memset(&chnSt.ctrls[0], 0x00, 0x80);
+		memset(&chnSt.ctrls[0x00], 0xFF, 0x80);
 		chnSt.ctrls[0x07] = 100;
 		chnSt.ctrls[0x0A] = 0x40;
 		chnSt.ctrls[0x0B] = 127;
 		chnSt.ctrls[0x5B] = 40;
+		chnSt.ctrls[0x5D] = 0;
+		chnSt.ctrls[0x5E] = 0;
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0x7F;
