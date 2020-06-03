@@ -63,7 +63,7 @@ public:
 		UINT8 insState[3];	// 0 = Bank MSB, 1 = Bank LSB, 2 = instrument (last sent state)
 		UINT8 curIns;		// instrument set by the MIDI file
 		UINT16 userInsID;	// 0xFFFF - not a user instrument
-		UINT8 ctrls[0x80];
+		UINT8 ctrls[0x80];	// Bit 7 (80) - is still the default value
 		UINT8 idCC[2];	// for SC-8820 CC1/CC2 remapping
 		
 		UINT8 rpnCtrl[2];	// [0] = MSB, [1] = LSB, 00..7F = RPN, 80..FF = NRPN

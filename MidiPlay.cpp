@@ -1541,21 +1541,21 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		break;
 	case 0x79:	// Reset All Controllers
-		chnSt->ctrls[0x01] = 0x00;	// Modulation
-		chnSt->ctrls[0x07] = 100;	// Volume
-		chnSt->ctrls[0x0A] = 0x40;	// Pan
-		chnSt->ctrls[0x0B] = 0x7F;	// Expression
-		chnSt->ctrls[0x40] = 0x00;	// Sustain/Hold1
-		chnSt->ctrls[0x41] = 0x00;	// Portamento
-		chnSt->ctrls[0x42] = 0x00;	// Sostenuto
-		chnSt->ctrls[0x43] = 0x00;	// Soft Pedal
+		chnSt->ctrls[0x01] = 0x80 | 0x00;	// Modulation
+		chnSt->ctrls[0x07] = 0x80 | 100;	// Volume
+		chnSt->ctrls[0x0A] = 0x80 | 0x40;	// Pan
+		chnSt->ctrls[0x0B] = 0x80 | 0x7F;	// Expression
+		chnSt->ctrls[0x40] = 0x80 | 0x00;	// Sustain/Hold1
+		chnSt->ctrls[0x41] = 0x80 | 0x00;	// Portamento
+		chnSt->ctrls[0x42] = 0x80 | 0x00;	// Sostenuto
+		chnSt->ctrls[0x43] = 0x80 | 0x00;	// Soft Pedal
 		chnSt->rpnCtrl[0] = 0x7F;	// reset RPN state
 		chnSt->rpnCtrl[1] = 0x7F;
 		chnSt->pbRangeUnscl = _defPbRange;
 		chnSt->pbRange = _defPbRange;
-		nvChn->_attr.volume = chnSt->ctrls[0x07];
-		nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
-		nvChn->_attr.expression = chnSt->ctrls[0x0B];
+		nvChn->_attr.volume = chnSt->ctrls[0x07] & 0x7F;
+		nvChn->_attr.pan = (INT8)(chnSt->ctrls[0x0A] & 0x7F) - 0x40;
+		nvChn->_attr.expression = chnSt->ctrls[0x0B] & 0x7F;
 		nvChn->_pbRange = chnSt->pbRange;
 		break;
 	case 0x7B:	// All Notes Off
@@ -1756,8 +1756,8 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 	const UINT8 devType = _options.srcType;
 	UINT8 mapModType;
 	
-	insInf->bank[0] = (chnSt->ctrls[0x00] != 0xFF) ? chnSt->ctrls[0x00] : 0x00;
-	insInf->bank[1] = (chnSt->ctrls[0x20] != 0xFF) ? chnSt->ctrls[0x20] : 0x00;
+	insInf->bank[0] = chnSt->ctrls[0x00] & 0x7F;
+	insInf->bank[1] = chnSt->ctrls[0x20] & 0x7F;
 	insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
 	insInf->bnkIgn = BNKMSK_NONE;
 	insBank = SelectInsMap(devType, &mapModType);
@@ -1844,8 +1844,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	}
 	else
 	{
-		insInf->bank[0] = (chnSt->ctrls[0x00] != 0xFF) ? chnSt->ctrls[0x00] : 0x00;
-		insInf->bank[1] = (chnSt->ctrls[0x20] != 0xFF) ? chnSt->ctrls[0x20] : 0x00;
+		insInf->bank[0] = chnSt->ctrls[0x00] & 0x7F;
+		insInf->bank[1] = chnSt->ctrls[0x20] & 0x7F;
 		insInf->ins = (chnSt->flags & 0x80) | (chnSt->curIns & 0x7F);
 	}
 	insIOld = *insInf;
@@ -1973,11 +1973,12 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			// drum kit fallback for GM songs
 			// TODO: make this an option
 			UINT8 isValid;
+			UINT8 insID = insInf->ins & 0x7F;
 			
 			// accept all "XG Level 1" drum kits
-			isValid = (insInf->ins < 0x38) && ((insInf->ins & 0x07) == 0x00);
-			isValid |= (insInf->ins != (0x80|0x01));	// Standard Kit 2
-			isValid |= (insInf->ins != (0x80|0x19));	// Analog Kit
+			isValid = (insID < 0x38) && ((insID & 0x07) == 0x00);
+			isValid |= (insID == 0x01);	// Standard Kit 2
+			isValid |= (insID == 0x19);	// Analog Kit
 			if (! isValid)
 			{
 				insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-GS drum kits
@@ -2135,9 +2136,9 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	return;
 }
 
-static void PrintHexOrChr(char* buffer, UINT8 data, UINT8 wildcard, char wcChar)
+static void PrintHexCtrlVal(char* buffer, UINT8 data, char wcChar)
 {
-	if (data == wildcard)
+	if (wcChar != '\0' && (data & 0x80))	// invalid value
 		sprintf(buffer, "%c%c", wcChar, wcChar);
 	else
 		sprintf(buffer, "%02X", data);
@@ -2150,8 +2151,8 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	UINT8 oldMSB = chnSt->insState[0];
 	UINT8 oldLSB = chnSt->insState[1];
 	UINT8 oldIns = chnSt->insState[2];
-	UINT8 bankMSB = (chnSt->ctrls[0x00] != 0xFF) ? chnSt->ctrls[0x00] : 0x00;
-	UINT8 bankLSB = (chnSt->ctrls[0x20] != 0xFF) ? chnSt->ctrls[0x20] : 0x00;
+	UINT8 bankMSB = chnSt->ctrls[0x00] & 0x7F;
+	UINT8 bankLSB = chnSt->ctrls[0x20] & 0x7F;
 	
 	chnSt->curIns = midiEvt->evtValA;
 	chnSt->userInsID = 0xFFFF;
@@ -2309,14 +2310,18 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 			else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 			{
 				// MU instrument map for GM sounds (MSB 0, LSB 0 or drum kit 0)
-				if ((bankMSB == 0x00 && bankLSB == 0x00 && didPatch == BNKMSK_LSB) ||
-					(bankMSB == 0x7F && chnSt->curIns == 0x00 && didPatch == BNKMSK_INS))
+				bool hide = false;
+				if (bankMSB == 0x00 && bankLSB == 0x00 && didPatch == BNKMSK_LSB)
+					hide = true;
+				else if (bankMSB == 0x7F && chnSt->curIns == 0x00 && didPatch == BNKMSK_INS)
+					hide = true;
+				if (hide)
 				{
 					didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
 					showOrgIns = true;
 				}
 			}
-			if (! didPatch && chnSt->insSend.bankPtr == NULL)
+			if (! didPatch)
 				showOrgIns = true;
 		}
 		else
@@ -2326,12 +2331,12 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		
 		oldName = (chnSt->insOrg.bankPtr == NULL) ? "" : chnSt->insOrg.bankPtr->insName;
 		newName = (chnSt->insSend.bankPtr == NULL) ? "" : chnSt->insSend.bankPtr->insName;
-		PrintHexOrChr(&bnkNames[ 0], chnSt->ctrls[0x00], 0xFF, '-');
-		PrintHexOrChr(&bnkNames[ 3], chnSt->ctrls[0x20], 0xFF, '-');
-		PrintHexOrChr(&bnkNames[ 6], chnSt->curIns, 0xFF, '-');
-		PrintHexOrChr(&bnkNames[10], chnSt->insSend.bank[0], 0xFF, '-');
-		PrintHexOrChr(&bnkNames[13], chnSt->insSend.bank[1], 0xFF, '-');
-		PrintHexOrChr(&bnkNames[16], chnSt->insSend.ins & 0x7F, 0xFF, '-');
+		PrintHexCtrlVal(&bnkNames[ 0], chnSt->ctrls[0x00], '-');
+		PrintHexCtrlVal(&bnkNames[ 3], chnSt->ctrls[0x20], '-');
+		PrintHexCtrlVal(&bnkNames[ 6], chnSt->curIns, '-');
+		PrintHexCtrlVal(&bnkNames[10], chnSt->insSend.bank[0], '-');
+		PrintHexCtrlVal(&bnkNames[13], chnSt->insSend.bank[1], '-');
+		PrintHexCtrlVal(&bnkNames[16], chnSt->insSend.ins & 0x7F, '-');
 		if (didPatch)
 		{
 			vis_printf("%s Patch: %02X 00 %s  %02X 20 %s  %02X %s  %s\n",
@@ -2422,7 +2427,7 @@ static void PrintPortChn(char* buffer, UINT8 port, UINT8 chn)
 {
 	buffer[0] = (port < 0x1A) ? ('A' + port) : '-';
 	if (chn < 0x10)
-		sprintf(&buffer[1], "%02u", 1 + chn);
+		sprintf(&buffer[1], "%02u", 1 + (chn & 0x0F));	// use & to silence GCC warning
 	else
 		strcpy(&buffer[1], "--");
 	
@@ -3526,9 +3531,9 @@ void MidiPlayer::AllNotesStop(void)
 		for (ntIt = chnSt.notes.begin(); ntIt != chnSt.notes.end(); ++ntIt)
 			SendMidiEventS(chnSt.portID, 0x90 | ntIt->chn, ntIt->note, 0x00);
 		
-		if (chnSt.ctrls[0x40] != 0xFF && (chnSt.ctrls[0x40] & 0x40))	// turn Sustain off
+		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain off
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x40, 0x00);
-		if (chnSt.ctrls[0x42] != 0xFF && (chnSt.ctrls[0x42] & 0x40))	// turn Sostenuto off
+		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto off
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x42, 0x00);
 	}
 	
@@ -3545,10 +3550,10 @@ void MidiPlayer::AllNotesRestart(void)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
 		
-		if (chnSt.ctrls[0x40] != 0xFF && (chnSt.ctrls[0x40] & 0x40))	// turn Sustain on
-			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x40, chnSt.ctrls[0x40]);
-		if (chnSt.ctrls[0x42] != 0xFF && (chnSt.ctrls[0x42] & 0x40))	// turn Sostenuto on
-			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x42, chnSt.ctrls[0x42]);
+		if (chnSt.ctrls[0x40] & 0x40)	// turn Sustain on
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x40, chnSt.ctrls[0x40] & 0x7F);
+		if (chnSt.ctrls[0x42] & 0x40)	// turn Sostenuto on
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x42, chnSt.ctrls[0x42] & 0x7F);
 		
 		if (chnSt.flags & 0x80)
 			continue;	// skip restarting notes on drum channels
@@ -3587,7 +3592,9 @@ void MidiPlayer::AllInsRefresh(void)
 
 UINT8 MidiPlayer::CalcSimpleChnMainVol(const ChannelState* chnSt) const
 {
-	UINT32 vol = _mstVol * chnSt->ctrls[0x07] * chnSt->ctrls[0x0B];
+	UINT8 chnVol = chnSt->ctrls[0x07] & 0x7F;
+	UINT8 chnExpr = chnSt->ctrls[0x0B] & 0x7F;
+	UINT32 vol = _mstVol * chnVol * chnExpr;
 	if (_tmrFadeLen)
 		vol = (vol * _fadeVol + 0x80) / 0x100;
 	return (vol + 0x1F80) / 0x3F01;
@@ -3629,7 +3636,7 @@ void MidiPlayer::FadeVolRefresh(void)
 			ChannelState& chnSt = _chnStates[curChn];
 			NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
 			
-			val = (UINT8)((chnSt.ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
+			val = (UINT8)(((chnSt.ctrls[ctrlID] & 0x7F) * _fadeVol + 0x80) / 0x100);
 			if (_fadeVolMode == FDVMODE_CCVOL)
 				nvChn->_attr.volume = val;
 			else if (_fadeVolMode == FDVMODE_CCEXPR)
@@ -3671,13 +3678,14 @@ void MidiPlayer::AllChannelRefresh(void)
 			vis_do_ins_change(curChn);
 		}
 		// Main Volume (7) and Pan (10) may be patched
-		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x07, chnSt.ctrls[0x07]);
+		// TODO: don't remove "default" flag in chnSt.ctrls during event processing
+		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x07, chnSt.ctrls[0x07] & 0x7F);
 		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
 			SendMidiEventS(chnSt.portID, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
-		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0A, chnSt.ctrls[0x0A]);
+		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0A, chnSt.ctrls[0x0A] & 0x7F);
 		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
 			SendMidiEventS(chnSt.portID, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
-		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0B, chnSt.ctrls[0x0B]);
+		tempEvt = MidiTrack::CreateEvent_Std(0xB0 | chnSt.midChn, 0x0B, chnSt.ctrls[0x0B] & 0x7F);
 		if (! HandleControlEvent(&chnSt, NULL, &tempEvt))
 			SendMidiEventS(chnSt.portID, tempEvt.evtType, tempEvt.evtValA, tempEvt.evtValB);
 		
@@ -3686,14 +3694,14 @@ void MidiPlayer::AllChannelRefresh(void)
 		{
 			if (curCtrl == 0x06 || curCtrl == 0x07 || curCtrl == 0x0A || curCtrl == 0x0B)
 				continue;
-			if (chnSt.ctrls[0x00 | curCtrl] != 0xFF)
+			if (! (chnSt.ctrls[0x00 | curCtrl] & 0x80))
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x00 | curCtrl, chnSt.ctrls[0x00 | curCtrl]);
-			if (chnSt.ctrls[0x20 | curCtrl] != 0xFF)
+			if (! (chnSt.ctrls[0x20 | curCtrl] & 0x80))
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x20 | curCtrl, chnSt.ctrls[0x20 | curCtrl]);
 		}
 		for (curCtrl = 0x40; curCtrl < 0x60; curCtrl ++)
 		{
-			if (chnSt.ctrls[curCtrl] != 0xFF)
+			if (! (chnSt.ctrls[curCtrl] & 0x80))
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, curCtrl, chnSt.ctrls[curCtrl]);
 		}
 		// Channel Mode messages are left out
@@ -4014,13 +4022,11 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.curIns = 0xFF;
 		chnSt.userInsID = 0xFFFF;
 		chnSt.userInsName = NULL;
-		memset(&chnSt.ctrls[0x00], 0xFF, 0x80);
-		chnSt.ctrls[0x07] = 100;
-		chnSt.ctrls[0x0A] = 0x40;
-		chnSt.ctrls[0x0B] = 127;
-		chnSt.ctrls[0x5B] = 40;
-		chnSt.ctrls[0x5D] = 0;
-		chnSt.ctrls[0x5E] = 0;
+		memset(&chnSt.ctrls[0x00], 0x80, 0x80);	// initialize with (0x80 | 0x00)
+		chnSt.ctrls[0x07] = 0x80 | 100;
+		chnSt.ctrls[0x0A] = 0x80 | 0x40;
+		chnSt.ctrls[0x0B] = 0x80 | 127;
+		chnSt.ctrls[0x5B] = 0x80 | 40;
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0x7F;
@@ -4039,7 +4045,7 @@ void MidiPlayer::InitializeChannels(void)
 		ChannelState& drumChn = _chnStates[curChn | 0x09];
 		drumChn.flags |= 0x80;	// set drum channel mode
 		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
-			drumChn.ctrls[0x00] = 0x7F;
+			drumChn.ctrls[0x00] = 0x80 | 0x7F;	// default to Drum bank
 	}
 	
 	_noteVis.Reset();
@@ -4049,9 +4055,9 @@ void MidiPlayer::InitializeChannels(void)
 		ChannelState& chnSt = _chnStates[curChn];
 		NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
 		nvChn->_chnMode |= (chnSt.flags & 0x80) >> 7;
-		nvChn->_attr.volume = chnSt.ctrls[0x07];
-		nvChn->_attr.pan = (INT8)chnSt.ctrls[0x0A] - 0x40;
-		nvChn->_attr.expression = chnSt.ctrls[0x0B];
+		nvChn->_attr.volume = chnSt.ctrls[0x07] & 0x7F;
+		nvChn->_attr.pan = (INT8)(chnSt.ctrls[0x0A] & 0x7F) - 0x40;
+		nvChn->_attr.expression = chnSt.ctrls[0x0B] & 0x7F;
 		nvChn->_pbRange = chnSt.pbRange;
 	}
 	_initChnPost = true;

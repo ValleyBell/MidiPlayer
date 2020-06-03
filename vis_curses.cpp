@@ -757,10 +757,16 @@ void vis_do_ins_change(UINT16 chn)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
 	const MidiPlayer::InstrumentInfo* insInf = &chnSt->insSend;
+	UINT8 bankMSB;
+	UINT8 bankLSB;
+	UINT8 insID;
 	std::string insName;
 	char userInsName[20];
 	bool isDefMap = false; // based on actual controller value, so that it works in strict mode as well
 	
+	bankMSB = chnSt->ctrls[0x00] & 0x7F;
+	bankLSB = chnSt->ctrls[0x20] & 0x7F;
+	insID = (chnSt->curIns != 0xFF) ? chnSt->curIns : 0x00;
 	if (chnSt->userInsName != NULL)
 	{
 		insName = chnSt->userInsName;
@@ -789,7 +795,7 @@ void vis_do_ins_change(UINT16 chn)
 			insName[0] = SC_MAP_SYMBOLS[insInf->bank[1] - 0x01];
 		else
 			insName[0] = ' ';
-		isDefMap = (chnSt->ctrls[0x20] == 0x00);
+		isDefMap = (bankLSB == 0x00);
 		if (chnSt->flags & 0x80)
 			insName[1] = '*';	// drum channel
 		else if (insInf->bank[0] >= 0x7E)
@@ -822,9 +828,9 @@ void vis_do_ins_change(UINT16 chn)
 		else
 			insName[1] = ' ';
 		if (chnSt->flags & 0x80)
-			isDefMap = (chnSt->curIns == 0x00);
+			isDefMap = (insID == 0x00);
 		else
-			isDefMap = (chnSt->ctrls[0x00] == 0x00 && chnSt->ctrls[0x20] == 0x00);
+			isDefMap = (bankMSB == 0x00 && bankLSB == 0x00);
 		
 		if (insName[1] == ' ')	// make [bank] optional, as XG names can be pretty long
 			insName = insName[0] + insName.substr(2);
@@ -858,18 +864,21 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl)
 {
 	const MidiPlayer::ChannelState* chnSt = &midPlay->GetChannelStates()[chn];
 	const NoteVisualization::ChnInfo* nvChn = midPlay->GetNoteVis()->GetChannel(chn);
+	ChannelData& dispCh = dispChns[chn];
+	bool flag;
 	
 	switch(ctrl)
 	{
 	case 0x0A:	// Pan
+		flag = (chnSt->ctrls[0x0A] & 0x80);
 		if (nvChn->_attr.pan == -0x40)
-			dispChns[chn].SetPan(9);	// random
+			dispCh.SetPan(9, flag);	// random
 		else if (nvChn->_attr.pan < -0x15)
-			dispChns[chn].SetPan(-1);
+			dispCh.SetPan(-1, flag);
 		else if (nvChn->_attr.pan > 0x15)
-			dispChns[chn].SetPan(+1);
+			dispCh.SetPan(+1, flag);
 		else
-			dispChns[chn].SetPan(0);
+			dispCh.SetPan(0, flag);
 		break;
 	}
 	

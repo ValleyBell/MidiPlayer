@@ -263,9 +263,9 @@ void LCDDisplay::RefreshDisplay(void)
 		_chnPage.vol =  chnAttr->volume;
 		_chnPage.pan =  chnAttr->pan;
 		_chnPage.expr = chnAttr->expression;
-		_chnPage.reverb = chnSt.ctrls[0x5B];
-		_chnPage.chorus = chnSt.ctrls[0x5D];
-		_chnPage.delay = chnSt.ctrls[0x5E];
+		_chnPage.reverb = chnSt.ctrls[0x5B] & 0x7F;
+		_chnPage.chorus = chnSt.ctrls[0x5D] & 0x7F;
+		_chnPage.delay = chnSt.ctrls[0x5E] & 0x7F;
 		_chnPage.transp = chnAttr->detune[1] >> 8;
 	}
 	
