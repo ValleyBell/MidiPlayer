@@ -101,9 +101,9 @@ static inline UINT32 ReadBE21(const UINT8* data)	// 3 bytes, 7 bits per byte
 }
 
 MidiPlayer::MidiPlayer() :
-	_cMidi(NULL), _songLength(0),
+	_useManualTiming(false), _cMidi(NULL), _songLength(0),
 	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL),
-	_hardReset(true)
+	_hardReset(true), _manTimeTick(0)
 {
 	_osTimer = OSTimer_Init();
 	_tmrFreq = OSTimer_GetFrequency(_osTimer) << TICK_FP_SHIFT;
@@ -246,6 +246,14 @@ void MidiPlayer::SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank)
 	return;
 }
 
+UINT64 MidiPlayer::Timer_GetTime(void) const
+{
+	if (! _useManualTiming)
+		return OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	else
+		return _manTimeTick;
+}
+
 void MidiPlayer::SendMidiEventS(size_t portID, UINT8 event, UINT8 data1, UINT8 data2)
 {
 	if (portID >= _outPorts.size())
@@ -380,7 +388,7 @@ UINT8 MidiPlayer::Start(void)
 	_curEvtTick = 0;
 	_nextEvtTick = 0;
 	_tmrStep = 0;
-	_tmrMinStart = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	_tmrMinStart = Timer_GetTime();
 	initDelay = 0;	// additional time (in ms) to wait due to device reset commands
 	_tmrFadeStart = 0;
 	_tmrFadeLen = 0;
@@ -518,7 +526,7 @@ UINT8 MidiPlayer::Resume(void)
 	_tmrStep = 0;
 	if (_tmrFadeLen)
 	{
-		_tmrFadeNext = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+		_tmrFadeNext = Timer_GetTime();
 		_tmrFadeStart = _tmrFadeNext - (0x100 - _fadeVol) * _tmrFadeLen / 0x100;
 	}
 	_paused = false;
@@ -627,7 +635,7 @@ double MidiPlayer::GetPlaybackPos(void) const
 	if (! _tmrStep)
 		return 0.0;	// the song isn't playing
 	
-	UINT64 curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	UINT64 curTime = Timer_GetTime();
 	
 	// calculate in-song time of _tmrStep (time of next event)
 	UINT64 tmrTick = _tempoPos->tmrTick + (_nextEvtTick - _tempoPos->tick) * _curTickTime;
@@ -651,7 +659,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	}
 	else
 	{
-		UINT64 curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+		UINT64 curTime = Timer_GetTime();
 		if (curTime > _tmrStep)
 			curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
 		
@@ -787,7 +795,7 @@ void MidiPlayer::HandleRawEvent(size_t dataLen, const UINT8* data)
 	{
 		return;
 	}
-	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	_tmrStep = Timer_GetTime();
 	DoEvent(&_trkStates[0], &midiEvt);
 	ProcessEventQueue();
 	
@@ -1042,7 +1050,7 @@ void MidiPlayer::ProcessEventQueue(bool flush)
 		}
 	}
 	
-	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	curTime = Timer_GetTime();
 	for (curPort = 0; curPort < _midiEvtQueue.size(); curPort ++)
 	{
 		std::queue<MidiQueueEvt>& meq = _midiEvtQueue[curPort];
@@ -1171,6 +1179,26 @@ void MidiPlayer::EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT
 	return;
 }
 
+void MidiPlayer::AdvanceManualTiming(UINT64 time, INT8 mode)
+{
+	// mode: 0 - set, 1 - accumulate, -1 - set mode
+	if (mode < 0)
+	{
+		_useManualTiming = !!time;
+		if (_useManualTiming)
+			_tmrFreq = 1000000000;
+		else
+			_tmrFreq = OSTimer_GetFrequency(_osTimer) << TICK_FP_SHIFT;
+		return;
+	}
+	
+	if (mode)
+		_manTimeTick += time;
+	else
+		_manTimeTick = time;
+	return;
+}
+
 void MidiPlayer::DoPlaybackStep(void)
 {
 	ProcessEventQueue();
@@ -1179,7 +1207,7 @@ void MidiPlayer::DoPlaybackStep(void)
 	
 	UINT64 curTime;
 	
-	curTime = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;
+	curTime = Timer_GetTime();
 	if (! _tmrStep && curTime < _tmrMinStart)
 		_tmrStep = _tmrMinStart;	// handle "initial delay" after starting the song
 	if (_tmrFadeLen && _tmrFadeStart == (UINT64)-1)
@@ -3523,7 +3551,7 @@ void MidiPlayer::AllNotesStop(void)
 	size_t curChn;
 	std::list<NoteInfo>::iterator ntIt;
 	
-	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;	// properly time the following events
+	_tmrStep = Timer_GetTime();	// properly time the following events
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
@@ -3545,7 +3573,7 @@ void MidiPlayer::AllNotesRestart(void)
 	size_t curChn;
 	std::list<NoteInfo>::iterator ntIt;
 	
-	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;	// properly time the following events
+	_tmrStep = Timer_GetTime();	// properly time the following events
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
@@ -3659,7 +3687,7 @@ void MidiPlayer::AllChannelRefresh(void)
 	std::list<NoteInfo>::iterator ntIt;
 	UINT8 defDstPbRange;
 	
-	_tmrStep = OSTimer_GetTime(_osTimer) << TICK_FP_SHIFT;	// properly time the following events
+	_tmrStep = Timer_GetTime();	// properly time the following events
 	if (_options.dstType == MODULE_MT32)
 		defDstPbRange = 12;
 	else

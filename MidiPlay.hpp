@@ -143,8 +143,10 @@ public:
 	NoteVisualization* GetNoteVis(void);
 	void HandleRawEvent(size_t dataLen, const UINT8* data);
 	
+	void AdvanceManualTiming(UINT64 time, INT8 mode);	// mode: 0 - set, 1 - accumulate, -1 - set mode
 	void DoPlaybackStep(void);
 private:
+	UINT64 Timer_GetTime(void) const;
 	void SendMidiEventS(size_t portID, UINT8 event, UINT8 data1, UINT8 data2);	// short MIDI event
 	void SendMidiEventL(size_t portID, size_t dataLen, const void* data);	// long MIDI event
 	
@@ -187,6 +189,7 @@ private:
 	
 	bool _playing;
 	bool _paused;
+	bool _useManualTiming;
 	
 	MidiFile* _cMidi;
 	UINT64 _songLength;
@@ -219,6 +222,7 @@ private:
 	UINT64 _tmrFadeStart;	// timestamp: beginning of fade out (-1 -> start with next update)
 	UINT64 _tmrFadeLen;		// duration of fade out (in timer ticks)
 	UINT64 _tmrFadeNext;	// timestamp: next fade out update
+	UINT64 _manTimeTick;
 	std::list<TempoChg>::const_iterator _tempoPos;
 	std::list<TimeSigChg>::const_iterator _timeSigPos;
 	std::list<KeySigChg>::const_iterator _keySigPos;

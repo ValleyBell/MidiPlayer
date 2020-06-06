@@ -870,7 +870,7 @@ void vis_do_ctrl_change(UINT16 chn, UINT8 ctrl)
 	switch(ctrl)
 	{
 	case 0x0A:	// Pan
-		flag = (chnSt->ctrls[0x0A] & 0x80);
+		flag = !!(chnSt->ctrls[0x0A] & 0x80);
 		if (nvChn->_attr.pan == -0x40)
 			dispCh.SetPan(9, flag);	// random
 		else if (nvChn->_attr.pan < -0x15)
