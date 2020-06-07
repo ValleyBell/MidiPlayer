@@ -83,6 +83,7 @@ static std::string midFileName;
 static MidiFile CMidi;
 static MidiPlayer midPlay;
 
+static bool dummyOutput;
 static UINT32 numLoops;
 static UINT32 defNumLoops;
 static double fadeTime;
@@ -152,6 +153,7 @@ int main(int argc, char* argv[])
 		printf("Usage: MidiPlayer.exe [options] file.mid\n");
 		printf("Options:\n");
 		printf("    -L   - list all MIDI devices and quit\n");
+		printf("    -D   - dummy MIDI output\n");
 		printf("    -o n - set option bitmask (default: 0x01)\n");
 		printf("           Bit 0 (0x01) - send GM/GS/XG reset, if missing\n");
 		printf("           Bit 1 (0x02) - strict mode (enforce GS instrument map)\n");
@@ -184,6 +186,7 @@ int main(int argc, char* argv[])
 	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
 	plrLoopText[0] = "loopStart";
 	plrLoopText[1] = "loopEnd";
+	dummyOutput = false;
 	numLoops = 0;
 	forceSrcType = 0xFF;
 	forceModID = 0xFF;
@@ -272,6 +275,10 @@ int main(int argc, char* argv[])
 			}
 			MidiOut_FreePortList(&mpList);
 			return 0;
+		}
+		else if (optChr == 'D')
+		{
+			dummyOutput = true;
 		}
 		else
 		{
@@ -579,7 +586,7 @@ static std::string DecompressFromZIP(const std::string& path)
 		{
 			fclose(hFileZip);
 			lastUnzFN.clear();
-			vis_printf("Error reading ZIP file: %s\n", zipPath);
+			vis_printf("Error reading ZIP file: %s\n", zipPath.c_str());
 			return std::string();
 		}
 		lastUnzFN = zipPath;
@@ -606,7 +613,7 @@ static std::string DecompressFromZIP(const std::string& path)
 	if (zde == NULL)
 	{
 		fclose(hFileZip);
-		vis_printf("Error getting file from ZIP: %s\n", packedFName);
+		vis_printf("Error getting file from ZIP: %s\n", packedFName.c_str());
 		return std::string();
 	}
 	
@@ -889,7 +896,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 			printf("Module %s: No ports defined!\n", mMod.name.c_str());
 			continue;
 		}
-		if (! validPorts)
+		if (! validPorts && ! dummyOutput)
 		{
 			printf("Module %s: None of the ports is available!\n", mMod.name.c_str());
 			continue;
@@ -937,6 +944,9 @@ size_t main_GetOpenedModule(void)
 
 UINT8 main_CloseModule(void)
 {
+	if (mopList == NULL)
+		return 0x01;
+	
 	UINT8 retVal;
 	
 	retVal = midiModColl.ClosePorts(mopList);
@@ -958,7 +968,15 @@ UINT8 main_OpenModule(size_t modID)
 	mMod = midiModColl.GetModule(modID);
 	if (mMod != NULL && ! mMod->chnMask.empty())
 		portCnt *= mMod->chnMask.size();
-	retVal = midiModColl.OpenModulePorts(modID, portCnt, &mopList);
+	if (dummyOutput)
+	{
+		mopList = NULL;
+		retVal = 0x00;	// indicate success
+	}
+	else
+	{
+		retVal = midiModColl.OpenModulePorts(modID, portCnt, &mopList);
+	}
 	if (retVal && (mopList == NULL || mopList->mOuts.empty()))
 	{
 		vis_addstr("Error opening MIDI ports!");
@@ -966,7 +984,10 @@ UINT8 main_OpenModule(size_t modID)
 	}
 	modIDOpen = modID;
 	midPlay.SetDstModuleType(mMod->modType, false);
-	midPlay.SetOutputPorts(mopList->mOuts, mMod);
+	if (mopList != NULL)
+		midPlay.SetOutputPorts(mopList->mOuts, mMod);
+	else
+		midPlay.SetOutputPorts(std::vector<MIDIOUT_PORT*>(portCnt, NULL), mMod);
 	
 	if ((retVal & 0xF0) == 0x10)
 		vis_addstr("Warning: The module doesn't have enough ports defined for proper playback!");
@@ -1157,7 +1178,8 @@ void PlayMidi(void)
 		vis_addstr("Sending SYX data ...");
 		vis_update();
 		midPlay.Pause();	// do pause/resume to fix initial timing
-		SendSyxData(mopList->mOuts, syxData);
+		if (mopList != NULL)
+			SendSyxData(mopList->mOuts, syxData);
 		midPlay.Resume();
 	}
 	vis_update();

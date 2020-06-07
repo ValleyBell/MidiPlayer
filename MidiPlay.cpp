@@ -155,6 +155,9 @@ void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, cons
 	size_t portCnt = _outPorts.size();
 	if (! _portChnMask.empty())
 		portCnt = (portCnt + _portChnMask.size() - 1) / _portChnMask.size();
+	if (! _outPorts.empty() && _outPorts[0] == NULL)
+		_outPorts.clear();	// was filled with NULLs to indicate number of devices in "dummy output" mode
+	
 	if (_noteVis.GetChnGroupCount() == portCnt)
 	{
 		InitChannelAssignment();	// recalculate channel assignments on device change
@@ -341,8 +344,8 @@ const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule) 
 
 UINT8 MidiPlayer::Start(void)
 {
-	if (! _outPorts.size())
-		return 0xF1;
+	//if (! _outPorts.size())	// now allowed for "dummy output" mode
+	//	return 0xF1;
 	if (! _cMidi->GetTrackCount())
 		return 0xF0;
 	if (_chnStates.empty())
@@ -1059,10 +1062,13 @@ void MidiPlayer::ProcessEventQueue(bool flush)
 			MidiQueueEvt& evt = meq.front();
 			if (! flush && evt.time > curTime)
 				break;
-			if (evt.data[0] < 0xF0)
-				MidiOutPort_SendShortMsg(_outPorts[curPort], evt.data[0], evt.data[1], evt.data[2]);
-			else
-				MidiOutPort_SendLongMsg(_outPorts[curPort], evt.data.size(), &evt.data[0]);
+			if (curPort < _outPorts.size())
+			{
+				if (evt.data[0] < 0xF0)
+					MidiOutPort_SendShortMsg(_outPorts[curPort], evt.data[0], evt.data[1], evt.data[2]);
+				else
+					MidiOutPort_SendLongMsg(_outPorts[curPort], evt.data.size(), &evt.data[0]);
+			}
 			meq.pop();
 		}
 	}
@@ -3976,7 +3982,7 @@ void MidiPlayer::InitChannelAssignment(void)
 		chnSt.midChn = curChn & 0x0F;
 		chnSt.portID = curChn >> 4;
 		
-		if (_portChnMask.size() > 1)
+		if (_portChnMask.size() > 1 && ! _outPorts.empty())
 		{
 			// channel split: split "MIDI file port" across chnMask.size ports
 			UINT8 basePort = (UINT8)(chnSt.portID * _portChnMask.size());
