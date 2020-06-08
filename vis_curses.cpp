@@ -188,6 +188,7 @@ static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
 static bool stopAfterSong = false;
 static bool restartSong = false;
+static UINT8 secondDigits = 1;
 static bool showMeasureTicks = true;
 
 static std::string lastMeta01;
@@ -608,9 +609,10 @@ void vis_new_song(void)
 	mvaddch(1, 61, 'N');
 	attroff(A_BOLD);
 	
-	mvprintw(1, 0, "00:00.0 / 00:00.0");
-	if (midPlay != NULL)
-		vis_mvprintms(1, 10, midPlay->GetSongLength());
+	vis_mvprintms(1, 0, 0.0);	// assume the song begins at time 0
+	addstr(" / ");
+	vis_printms((midPlay != NULL) ? midPlay->GetSongLength() : 0.0);	// show song length
+	
 	if (mMod != NULL)
 		mvprintw(0, 21, "%.10s", mMod->name.c_str());
 	if (midOpts != NULL)
@@ -1119,16 +1121,24 @@ static void refresh_cursor_y(void)
 static void vis_printms(double time)
 {
 	// print time as mm:ss.c
-	unsigned int cSec;
+	unsigned int fracDiv;
+	unsigned int sFrac;
 	unsigned int sec;
 	unsigned int min;
 	
-	cSec = (unsigned int)floor(time * 10.0 + 0.5);
-	sec = cSec / 10;
-	cSec -= (sec * 10);
+	fracDiv = 1;
+	for (sFrac = secondDigits; sFrac > 0; sFrac --)
+		fracDiv *= 10;
+	
+	sFrac = (unsigned int)floor(time * fracDiv + 0.5);
+	sec = sFrac / fracDiv;
+	sFrac %= fracDiv;
 	min = sec / 60;
-	sec -= (min * 60);
-	printw("%02u:%02u.%1u", min, sec, cSec);
+	sec %= 60;
+	if (secondDigits == 0)
+		printw("%02u:%02u", min, sec);
+	else
+		printw("%02u:%02u.%0*u", min, sec, secondDigits, sFrac);
 	
 	return;
 }
@@ -1170,7 +1180,6 @@ void vis_update(void)
 		lcdDisp.RefreshDisplay();
 	
 	vis_mvprintms(1, 0, midPlay->GetPlaybackPos());
-	//vis_mvprintms(1, 10, midPlay->GetSongLength());
 	{
 		UINT32 posBar, posBeat, posTick;
 		midPlay->GetPlaybackPosM(&posBar, &posBeat, &posTick);

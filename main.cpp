@@ -1046,7 +1046,7 @@ void PlayMidi(void)
 	chosenModule = (forceModID != 0xFF) ? forceModID : songOptDev;
 	if (chosenModule == (size_t)-1 || chosenModule >= midiModColl.GetModuleCount())
 	{
-		vis_printf("Unable to find an appropriate MIDI module!\n");
+		vis_printf("Unable to find an appropriate MIDI module for %s!\n", GetModuleTypeNameL(songInsMap));
 		vis_update();
 		vis_getch_wait();
 		return;
