@@ -171,15 +171,15 @@ static void vis_show_device_selection(void);
 #define POS_PB_MEAS_X	0
 #define POS_PB_MEAS_Y	2
 
+#define POS_TEMPO_X		29
+#define POS_TEMPO_Y		1
+#define POS_TIMESIG_X	29	// position for "Beat 99/99"
+#define POS_TIMESIG_Y	2
+
 #define POS_INSMAP_X	44
 #define POS_INSMAP_Y	1
 #define POS_DEVICE_X	44
 #define POS_DEVICE_Y	2
-
-#define POS_TEMPO_X		29
-#define POS_TEMPO_Y		1
-#define POS_TIMESIG_X	28
-#define POS_TIMESIG_Y	2
 
 #define POS_MIDINFO1_X	64
 #define POS_MIDINFO1_Y	1
@@ -208,7 +208,7 @@ static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
 static bool stopAfterSong = false;
 static bool restartSong = false;
-static UINT8 secondDigits = 1;
+static UINT8 secondDigits = 2;
 static bool showMeasureTicks = true;
 
 static std::string lastMeta01;
@@ -672,7 +672,8 @@ void vis_new_song(void)
 		mvprintw(POS_DEVICE_Y, POS_DEVICE_X + 5, "%.13s", mMod->name.c_str());
 	
 	// show time / beat / tempo
-	vis_mvprintms(POS_PB_TIME_Y, POS_PB_TIME_X, 0.0);	// assume the song begins at time 0
+	mvaddstr(POS_PB_TIME_Y, POS_PB_TIME_X, "Time ");
+	vis_printms(0.0);	// assume the song begins at time 0
 	addstr(" / ");
 	vis_printms((midPlay != NULL) ? midPlay->GetSongLength() : 0.0);	// show song length
 	
@@ -704,7 +705,7 @@ void vis_new_song(void)
 		midPlay->GetSongLengthM(&lenBar, &lenBeat, &lenTick);
 		
 		mvprintw(POS_TEMPO_Y, POS_TEMPO_X, "%6.2f BPM", midPlay->GetCurTempo());
-		mvprintw(POS_TIMESIG_Y, POS_TIMESIG_X + 3 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
+		mvprintw(POS_TIMESIG_Y, POS_TIMESIG_X + 2 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
 		mvaddstr(POS_PB_MEAS_Y, POS_PB_MEAS_X, "Bar ");
 		if (! showMeasureTicks)
 		{
@@ -1113,8 +1114,8 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			UINT16 tsNum = (timeSig >>  0) & 0xFFFF;
 			UINT16 tsDen = (timeSig >> 16) & 0xFFFF;
 			UINT16 tsDigits = count_digits(tsNum) + count_digits(tsDen);
-			mvhline(POS_TIMESIG_Y, POS_TIMESIG_X, ' ', 12);
-			mvprintw(POS_TIMESIG_Y, POS_TIMESIG_X + 3 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
+			mvhline(POS_TIMESIG_Y, POS_TIMESIG_X - 1, ' ', 12);	// clear [-1..maxLen] for safety
+			mvprintw(POS_TIMESIG_Y, POS_TIMESIG_X + 2 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
 		}
 		break;
 	case 0x59:	// Key Signature
