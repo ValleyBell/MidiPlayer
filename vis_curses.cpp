@@ -166,6 +166,26 @@ static void vis_show_map_selection(void);
 static void vis_show_device_selection(void);
 
 
+#define POS_PB_TIME_X	0
+#define POS_PB_TIME_Y	1
+#define POS_PB_MEAS_X	0
+#define POS_PB_MEAS_Y	2
+
+#define POS_INSMAP_X	44
+#define POS_INSMAP_Y	1
+#define POS_DEVICE_X	44
+#define POS_DEVICE_Y	2
+
+#define POS_TEMPO_X		29
+#define POS_TEMPO_Y		1
+#define POS_TIMESIG_X	28
+#define POS_TIMESIG_Y	2
+
+#define POS_MIDINFO1_X	64
+#define POS_MIDINFO1_Y	1
+#define POS_MIDINFO2_X	64
+#define POS_MIDINFO2_Y	2
+
 #define CHN_BASE_LINE	3
 #define INS_COL_SIZE	14
 #define NOTE_BASE_COL	16
@@ -549,7 +569,6 @@ void vis_new_song(void)
 {
 	unsigned int chnCnt;
 	unsigned int curChn;
-	int titlePosX;
 	size_t maxTitleLen;
 	const PlayerOpts* midOpts;
 	MidiModule* mMod;
@@ -598,9 +617,8 @@ void vis_new_song(void)
 	attrset(A_NORMAL);
 	
 	mvprintw(0, 0, "MIDI Player");
-	mvaddstr(0, 16, "Dev: ");
-	mvprintw(0, 32, "Now Playing: ");
-	titlePosX = getcurx(stdscr);
+	mvprintw(0, 16, "Now Playing: ");
+#if 0
 	mvprintw(1, 32, "[Q]uit [ ]Pause [B]Previous [N]ext");
 	attron(A_BOLD);
 	mvaddch(1, 33, 'Q');
@@ -608,32 +626,17 @@ void vis_new_song(void)
 	mvaddch(1, 49, 'B');
 	mvaddch(1, 61, 'N');
 	attroff(A_BOLD);
+#endif
 	
-	vis_mvprintms(1, 0, 0.0);	// assume the song begins at time 0
-	addstr(" / ");
-	vis_printms((midPlay != NULL) ? midPlay->GetSongLength() : 0.0);	// show song length
-	
-	if (mMod != NULL)
-		mvprintw(0, 21, "%.10s", mMod->name.c_str());
-	if (midOpts != NULL)
-	{
-		const std::string& mapStr = midiModColl->GetShortModName(midOpts->srcType);
-		const char* mapStr2 = (! mapStr.empty()) ? mapStr.c_str() : "unknown";
-		mvprintw(1, 20, "(%.9s)", mapStr2);
-	}
-	
+	// show file name and optional playlist item number
 	attron(A_BOLD);
 	if (trackCnt > 0)
-	{
-		mvprintw(0, titlePosX, "%0*u / %u ", trackNoDigits, trackNo, trackCnt);
-		titlePosX = getcurx(stdscr);
-	}
+		printw("%0*u / %u ", trackNoDigits, trackNo, trackCnt);
 	if (midFName != NULL)
 	{
 		size_t nameLen;
 		
-		move(0, titlePosX);
-		maxTitleLen = COLS - titlePosX;
+		maxTitleLen = COLS - getcurx(stdscr);
 		nameLen = utf8strlen(midFName);
 		if (nameLen <= maxTitleLen)
 		{
@@ -650,30 +653,49 @@ void vis_new_song(void)
 	}
 	attroff(A_BOLD);
 	
-	titlePosX = showMeasureTicks ? 56 : 48;
-	mvprintw(2, titlePosX, "%u %s (Format %u), %u TpQ",
+	// show MIDI information
+	mvprintw(POS_MIDINFO1_Y, POS_MIDINFO1_X, "%u %s (Format %u)",
 			midFile->GetTrackCount(), (midFile->GetTrackCount() == 1) ? "Track" : "Tracks",
-			midFile->GetMidiFormat(), midFile->GetMidiResolution());
+			midFile->GetMidiFormat());
+	mvprintw(POS_MIDINFO2_Y, POS_MIDINFO2_X, "%u TpQ", midFile->GetMidiResolution());
+	
+	// show instrument map and playback device
+	mvaddstr(POS_INSMAP_Y, POS_INSMAP_X, "Type: ");
+	if (midOpts != NULL)
+	{
+		const std::string& mapStr = midiModColl->GetShortModName(midOpts->srcType);
+		const char* mapStr2 = (! mapStr.empty()) ? mapStr.c_str() : "unknown";
+		mvprintw(POS_INSMAP_Y, POS_INSMAP_X + 6, "%.12s", mapStr2);
+	}
+	mvaddstr(POS_DEVICE_Y, POS_DEVICE_X, "Dev: ");
+	if (mMod != NULL)
+		mvprintw(POS_DEVICE_Y, POS_DEVICE_X + 5, "%.13s", mMod->name.c_str());
+	
+	// show time / beat / tempo
+	vis_mvprintms(POS_PB_TIME_Y, POS_PB_TIME_X, 0.0);	// assume the song begins at time 0
+	addstr(" / ");
+	vis_printms((midPlay != NULL) ? midPlay->GetSongLength() : 0.0);	// show song length
+	
 	if (midPlay != NULL)
 	{
+		static const UINT32 maxTickDigs[3] = {2, 2, 3};
 		UINT32 maxBar;
 		UINT16 maxBeatNum;
-		UINT32 maxTick;
+		UINT32 maxTickCnt;
 		UINT32 timeSig;
 		UINT16 tsNum, tsDen;
 		UINT8 tsDigits;
 		UINT32 lenBar, lenBeat, lenTick;
 		
-		midPlay->GetSongStatsM(&maxBar, &maxBeatNum, NULL, &maxTick);
-		trkTickDigs[0] = count_digits(1 + maxBar);
-		trkTickDigs[1] = count_digits(1 + maxBeatNum);
-		trkTickDigs[2] = count_digits(maxTick - 1);
-		if (trkTickDigs[0] < 2)
-			trkTickDigs[0] = 2;
-		if (trkTickDigs[1] < 2)
-			trkTickDigs[1] = 2;
-		if (trkTickDigs[2] < 3)
-			trkTickDigs[2] = 3;
+		midPlay->GetSongStatsM(&maxBar, &maxBeatNum, NULL, &maxTickCnt);
+		trkTickDigs[0] = count_digits(1 + maxBar);		// [0..max], but 1-based
+		trkTickDigs[1] = count_digits(1 + maxBeatNum);	// [0..max], but 1-based
+		trkTickDigs[2] = count_digits(maxTickCnt - 1);	// [0..cnt-1]
+		for (tsDigits = 0; tsDigits < 3; tsDigits ++)
+		{
+			if (trkTickDigs[tsDigits] < maxTickDigs[tsDigits])
+				trkTickDigs[tsDigits] = maxTickDigs[tsDigits];
+		}
 		
 		timeSig = midPlay->GetCurTimeSig();
 		tsNum = (timeSig >>  0) & 0xFFFF;
@@ -681,28 +703,31 @@ void vis_new_song(void)
 		tsDigits = count_digits(tsNum) + count_digits(tsDen);
 		midPlay->GetSongLengthM(&lenBar, &lenBeat, &lenTick);
 		
-		mvprintw(2, 0, "%6.2f BPM", midPlay->GetCurTempo());
-		mvprintw(2, 15 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
+		mvprintw(POS_TEMPO_Y, POS_TEMPO_X, "%6.2f BPM", midPlay->GetCurTempo());
+		mvprintw(POS_TIMESIG_Y, POS_TIMESIG_X + 3 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
+		mvaddstr(POS_PB_MEAS_Y, POS_PB_MEAS_X, "Bar ");
 		if (! showMeasureTicks)
 		{
-			mvprintw(2, 26, "Bar %0*u:%0*u", trkTickDigs[0], 0, trkTickDigs[1], 0);
+			printw(" %0*u:%0*u", trkTickDigs[0], 0, trkTickDigs[1], 0);
 			addstr(" / ");
 			printw("%0*u:%0*u", trkTickDigs[0], 1 + lenBar, trkTickDigs[1], 1 + lenBeat);
 		}
 		else
 		{
-			mvprintw(2, 26, "Bar %0*u:%0*u.%0*u", trkTickDigs[0], 0, trkTickDigs[1], 0, trkTickDigs[2], 0);
+			printw("%0*u:%0*u.%0*u", trkTickDigs[0], 0, trkTickDigs[1], 0, trkTickDigs[2], 0);
 			addstr(" / ");
 			printw("%0*u:%0*u.%0*u", trkTickDigs[0], 1 + lenBar, trkTickDigs[1], 1 + lenBeat, trkTickDigs[2], lenTick);
 		}
 	}
 	
+	// draw layout for note visualization
 	mvwvline(nvWin, 0, NOTE_BASE_COL - 1, ACS_VLINE, chnCnt);
 	mvwhline(nvWin, chnCnt, 0, ACS_HLINE, NOTE_BASE_COL - 1);
 	mvwaddch(nvWin, chnCnt, NOTE_BASE_COL - 1, ACS_LRCORNER);
 	for (curChn = 0; curChn < chnCnt; curChn ++)
 		vis_do_channel_event(curChn, 0x00, 0x00);
 	
+	// prepare LCD display visualization
 	lcdDisp.ResetDisplay();
 	if (lcdEnable)
 		lcdDisp.FullRedraw();
@@ -1079,8 +1104,8 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		curYline ++;
 		break;
 	case 0x51:	// Tempo
-		mvhline(2, 0, ' ', 12);
-		mvprintw(2, 0, "%6.2f BPM", midPlay->GetCurTempo());
+		mvhline(POS_TEMPO_Y, POS_TEMPO_X, ' ', 12);
+		mvprintw(POS_TEMPO_Y, POS_TEMPO_X, "%6.2f BPM", midPlay->GetCurTempo());
 		break;
 	case 0x58:	// Time Signature
 		{
@@ -1088,8 +1113,8 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			UINT16 tsNum = (timeSig >>  0) & 0xFFFF;
 			UINT16 tsDen = (timeSig >> 16) & 0xFFFF;
 			UINT16 tsDigits = count_digits(tsNum) + count_digits(tsDen);
-			mvhline(2, 12, ' ', 12);
-			mvprintw(2, 15 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
+			mvhline(POS_TIMESIG_Y, POS_TIMESIG_X, ' ', 12);
+			mvprintw(POS_TIMESIG_Y, POS_TIMESIG_X + 3 - (tsDigits / 2), "Beat %u/%u", tsNum, tsDen);
 		}
 		break;
 	case 0x59:	// Key Signature
@@ -1179,14 +1204,15 @@ void vis_update(void)
 	if (lcdEnable)
 		lcdDisp.RefreshDisplay();
 	
-	vis_mvprintms(1, 0, midPlay->GetPlaybackPos());
+	vis_mvprintms(POS_PB_TIME_Y, POS_PB_TIME_X + 5, midPlay->GetPlaybackPos());
 	{
 		UINT32 posBar, posBeat, posTick;
 		midPlay->GetPlaybackPosM(&posBar, &posBeat, &posTick);
+		move(POS_PB_MEAS_Y, POS_PB_MEAS_X + 4);
 		if (! showMeasureTicks)
-			mvprintw(2, 26, "Bar %0*u:%0*u", trkTickDigs[0], 1 + posBar, trkTickDigs[1], 1 + posBeat);
+			printw(" %0*u:%0*u", trkTickDigs[0], 1 + posBar, trkTickDigs[1], 1 + posBeat);
 		else
-			mvprintw(2, 26, "Bar %0*u:%0*u.%0*u", trkTickDigs[0], 1 + posBar, trkTickDigs[1], 1 + posBeat, trkTickDigs[2], posTick);
+			printw("%0*u:%0*u.%0*u", trkTickDigs[0], 1 + posBar, trkTickDigs[1], 1 + posBeat, trkTickDigs[2], posTick);
 	}
 	update_panels();
 	refresh();
@@ -1341,8 +1367,8 @@ static int vis_keyhandler_mapsel(void)
 			const PlayerOpts& midOpts = midPlay->GetOptions();
 			const std::string& mapStr = midiModColl->GetShortModName(midOpts.srcType);
 			const char* mapStr2 = (! mapStr.empty()) ? mapStr.c_str() : "unknown";
-			mvhline(1, 20, ' ', 11);
-			mvprintw(1, 20, "(%.9s)", mapStr2);
+			mvhline(POS_INSMAP_Y, POS_INSMAP_X + 6, ' ', 12);
+			mvprintw(POS_INSMAP_Y, POS_INSMAP_X + 6, "%.12s", mapStr2);
 		}
 		
 		update_panels();
@@ -1499,9 +1525,9 @@ static int vis_keyhandler_devsel(void)
 				restartSong = false;
 			}
 			
-			mvhline(0, 21, ' ', 10);
+			mvhline(POS_DEVICE_Y, POS_DEVICE_X + 5, ' ', 13);
 			if (mMod != NULL)
-				mvprintw(0, 21, "%.10s", mMod->name.c_str());
+				mvprintw(POS_DEVICE_Y, POS_DEVICE_X + 5, "%.13s", mMod->name.c_str());
 		}
 		
 		update_panels();

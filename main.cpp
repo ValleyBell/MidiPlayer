@@ -1197,12 +1197,10 @@ void PlayMidi(void)
 #endif
 	midPlay.Stop();
 	
-	vis_addstr("Cleaning ...");
-	vis_update();
-	CMidi.ClearAll();
 	vis_addstr("Done.");
 	vis_update();
 	
+	CMidi.ClearAll();
 	midPlay.FlushEvents();
 	main_CloseModule();
 	Sleep(100);

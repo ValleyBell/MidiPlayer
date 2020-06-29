@@ -620,10 +620,10 @@ void MidiPlayer::GetSongLengthM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	return;
 }
 
-void MidiPlayer::GetSongStatsM(UINT32* maxBar, UINT16* maxBeatNum, UINT16* maxBeatDen, UINT32* maxTick) const
+void MidiPlayer::GetSongStatsM(UINT32* maxBar, UINT16* maxBeatNum, UINT16* maxBeatDen, UINT32* maxTickCnt) const
 {
-	if (maxTick != NULL)
-		*maxTick = (_cMidi->GetMidiResolution() * 4) >> _statsTimeSig[2];	// _statsTimeSig[2] is log2(denominator)
+	if (maxTickCnt != NULL)
+		*maxTickCnt = (_cMidi->GetMidiResolution() * 4) >> _statsTimeSig[2];	// _statsTimeSig[2] is log2(denominator)
 	if (maxBeatNum != NULL)
 		*maxBeatNum = _statsTimeSig[0];
 	if (maxBeatDen != NULL)
