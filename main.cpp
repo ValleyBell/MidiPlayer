@@ -97,6 +97,7 @@ static MidiModuleCollection midiModColl;
 static std::vector<INS_BANK> insBanks;
 static std::string syxFile;
 static std::vector<UINT8> syxData;
+static bool didSendSyx;
 
 static std::vector<SongFileList> songList;
 static std::vector<std::string> plList;
@@ -389,6 +390,7 @@ int main(int argc, char* argv[])
 	vis_init();
 	vis_set_locales(2, hCurIConv);
 	vis_set_midi_modules(&midiModColl);
+	didSendSyx = false;
 	
 	resVal = 0;
 	controlVal = +1;	// default: next song
@@ -398,6 +400,7 @@ int main(int argc, char* argv[])
 #if ENABLE_ZIP_SUPPORT
 		std::string zippedFName;
 #endif
+		std::vector<std::string> initFiles;
 		
 		midFileName = songList[curSong].fileName;
 		//printf("Opening %s ...\n", midFileName.c_str());
@@ -438,7 +441,7 @@ int main(int argc, char* argv[])
 			if (retVal >= 0x10)
 			{
 				rewind(hFile);
-				retVal = LoadRCPAsMidi(hFile, CMidi);
+				retVal = LoadRCPAsMidi(hFile, CMidi, initFiles);
 				vis_update();
 				//vis_getch_wait();
 			}
@@ -461,6 +464,21 @@ int main(int argc, char* argv[])
 			continue;
 		}
 		//printf("File loaded.\n");
+		
+		if (! initFiles.empty())
+		{
+			UINT8 iRetVal;
+			
+			const char* basePtr = midFileName.c_str();
+			const char* endPtr = GetFileTitle(basePtr);
+			std::string initFPath = std::string(basePtr, endPtr) + initFiles[0];
+			iRetVal = Cm62Syx(initFPath.c_str(), syxData);
+			if (! iRetVal)
+			{
+				syxFile = "";
+				didSendSyx = false;
+			}
+		}
 		
 		PlayMidi();
 		
@@ -1173,13 +1191,14 @@ void PlayMidi(void)
 	vis_new_song();
 	
 	midPlay.Start();
-	if (! syxData.empty() && curSong == 0)
+	if (! syxData.empty() && (! didSendSyx || false))
 	{
 		vis_addstr("Sending SYX data ...");
 		vis_update();
 		midPlay.Pause();	// do pause/resume to fix initial timing
 		if (mopList != NULL)
 			SendSyxData(mopList->mOuts, syxData);
+		didSendSyx = true;
 		midPlay.Resume();
 	}
 	vis_update();

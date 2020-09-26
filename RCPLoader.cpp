@@ -44,9 +44,13 @@ static void RTrimChar(std::string& text, char trimChar = ' ', bool leaveLast = f
 static std::vector<std::string> Str2Lines(const std::string& textStr, size_t lineLen);
 static UINT8 val2shift(UINT32 value);
 static void RcpKeySig2Mid(UINT8 rcpKeySig, UINT8 buffer[2]);
-//UINT8 LoadRCPAsMidi(const char* fileName, MidiFile& midFile);
-//UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile);
+//UINT8 LoadRCPAsMidi(const char* fileName, MidiFile& midFile, std::vector<std::string>& initFiles);
+//UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile, std::vector<std::string>& initFiles);
 static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* trk);
+static void WriteRolandSyxData(std::vector<UINT8>& buffer, const UINT8* syxHdr, UINT32 address, UINT32 len, const UINT8* data);
+static void WriteRolandSyxBulk(std::vector<UINT8>& buffer, const UINT8* syxHdr, UINT32 address, UINT32 len, const UINT8* data, UINT32 bulkSize);
+//UINT8 Cm62Syx(const char* fileName, std::vector<UINT8>& syxData);
+//UINT8 Cm62Syx(FILE* infile, std::vector<UINT8>& syxData);
 static UINT16 ReadLE16(FILE* infile);
 static UINT32 ReadLE32(FILE* infile);
 
@@ -178,7 +182,7 @@ static std::vector<UINT8> ProcessRcpSysEx(const std::vector<UINT8>& syxData, UIN
 	return syxBuf;
 }
 
-UINT8 LoadRCPAsMidi(const char* fileName, MidiFile& midFile)
+UINT8 LoadRCPAsMidi(const char* fileName, MidiFile& midFile, std::vector<std::string>& initFiles)
 {
 	FILE* infile;
 	UINT8 retVal;
@@ -187,13 +191,13 @@ UINT8 LoadRCPAsMidi(const char* fileName, MidiFile& midFile)
 	if (infile == NULL)
 		return 0xFF;
 	
-	retVal = LoadRCPAsMidi(infile, midFile);
+	retVal = LoadRCPAsMidi(infile, midFile, initFiles);
 	fclose(infile);
 	
 	return retVal;
 }
 
-UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile)
+UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile, std::vector<std::string>& initFiles)
 {
 	UINT8 fileVer;
 	char tempBuf[0x200];
@@ -248,9 +252,9 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile)
 		rcpInf.playBias = fgetc(infile);
 		
 		// names of additional files
-		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x10] = '\0';
+		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x0C] = '\0';
 		rcpInf.cm6File = RcpStr2StdStr(tempBuf);
-		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x10] = '\0';
+		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x0C] = '\0';
 		rcpInf.gsdFile1 = RcpStr2StdStr(tempBuf);
 		rcpInf.gsdFile2 = "";
 		
@@ -310,6 +314,13 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile)
 	if (rcpInf.trkCnt == 0)
 		rcpInf.trkCnt = 36;
 	
+	if (! rcpInf.cm6File.empty())
+		initFiles.push_back(rcpInf.cm6File);
+	if (! rcpInf.gsdFile1.empty())
+		initFiles.push_back(rcpInf.gsdFile1);
+	if (! rcpInf.gsdFile2.empty())
+		initFiles.push_back(rcpInf.gsdFile2);
+	
 	midFile.SetMidiFormat(1);
 	midFile.SetMidiResolution(rcpInf.tickRes);
 	
@@ -319,11 +330,14 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile)
 	tempBufU[2] = (tempLng >>  0) & 0xFF;
 	newTrk->AppendMetaEvent(0, 0x51, 0x03, tempBufU);
 	
-	tempBufU[0] = rcpInf.beatNum;
-	tempBufU[1] = val2shift(rcpInf.beatDen);
-	tempBufU[2] = 6 << tempBufU[1];
-	tempBufU[3] = 8;
-	newTrk->AppendMetaEvent(0, 0x58, 0x04, tempBufU);
+	if (rcpInf.beatNum > 0 && rcpInf.beatDen > 0)
+	{
+		tempBufU[0] = rcpInf.beatNum;
+		tempBufU[1] = val2shift(rcpInf.beatDen);
+		tempBufU[2] = 6 << tempBufU[1];
+		tempBufU[3] = 8;
+		newTrk->AppendMetaEvent(0, 0x58, 0x04, tempBufU);
+	}
 	
 	RcpKeySig2Mid(rcpInf.keySig, tempBufU);
 	newTrk->AppendMetaEvent(0, 0x59, 0x02, tempBufU);
@@ -651,6 +665,13 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				gsParams[0] = cmdP1;
 				gsParams[1] = cmdP2;
 				break;
+			case 0xE1:	// set XG instrument
+				if (midiDev == 0xFF)
+					break;
+				trk->AppendEvent(curDly, 0xB0 | midChn, 0x20, cmdP2);
+				trk->AppendEvent(0, 0xC0 | midChn, cmdP1, 0x00);
+				curDly = 0;
+				break;
 			case 0xE2:	// set GS instrument
 				if (midiDev == 0xFF)
 					break;
@@ -876,6 +897,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					
 					if (! parentPos)	// this check was verified to be necessary for some files
 						parentPos = ftell(infile);
+					else //if (parentPos == ftell(infile))
+						break;
 					if (rcpInf->fileVer == 2)
 					{
 						fseek(infile, trkBasePos + repeatPos, SEEK_SET);	// YS3-25.RCP relies on this
@@ -948,6 +971,117 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	}
 	
 	fseek(infile, trkEndPos, SEEK_SET);
+	return 0x00;
+}
+
+static void WriteRolandSyxData(std::vector<UINT8>& buffer, const UINT8* syxHdr, UINT32 address, UINT32 len, const UINT8* data)
+{
+	UINT32 pos = buffer.size();
+	
+	buffer.resize(pos + 0x0A + len);
+	buffer[pos + 0x00] = 0xF0;
+	buffer[pos + 0x01] = syxHdr[0];
+	buffer[pos + 0x02] = syxHdr[1];
+	buffer[pos + 0x03] = syxHdr[2];
+	buffer[pos + 0x04] = syxHdr[3];
+	buffer[pos + 0x05] = (address >> 16) & 0x7F;
+	buffer[pos + 0x06] = (address >>  8) & 0x7F;
+	buffer[pos + 0x07] = (address >>  0) & 0x7F;
+	memcpy(&buffer[pos + 0x08], data, len);
+	
+	UINT8 chkSum = 0x00;
+	UINT32 curPos;
+	for (curPos = 0x05; curPos < 0x08 + len; curPos ++)
+		chkSum += buffer[pos + curPos];
+	
+	buffer[pos + len + 0x08] = (-chkSum) & 0x7F;
+	buffer[pos + len + 0x09] = 0xF7;
+	
+	return;
+}
+
+static void WriteRolandSyxBulk(std::vector<UINT8>& buffer, const UINT8* syxHdr, UINT32 address, UINT32 len, const UINT8* data, UINT32 bulkSize)
+{
+	UINT32 curPos;
+	UINT32 wrtBytes;
+	UINT32 curAddr;
+	UINT32 syxAddr;
+	
+	curAddr = ((address & 0x00007F) >> 0) |
+				((address & 0x007F00) >> 1) |
+				((address & 0x7F0000) >> 2);
+	for (curPos = 0x00; curPos < len; )
+	{
+		wrtBytes = len - curPos;
+		if (wrtBytes > bulkSize)
+			wrtBytes = bulkSize;
+		syxAddr = ((curAddr & 0x00007F) << 0) |
+					((curAddr & 0x003F80) << 1) |
+					((curAddr & 0x1FC000) << 2);
+		WriteRolandSyxData(buffer, syxHdr, syxAddr, wrtBytes, &data[curPos]);
+		curPos += wrtBytes;
+		curAddr += wrtBytes;
+	}
+	
+	return;
+}
+
+UINT8 Cm62Syx(const char* fileName, std::vector<UINT8>& syxData)
+{
+	FILE* infile;
+	UINT8 retVal;
+	
+	infile = fopen(fileName, "rb");
+	if (infile == NULL)
+		return 0xFF;
+	
+	retVal = Cm62Syx(infile, syxData);
+	fclose(infile);
+	
+	return retVal;
+}
+
+UINT8 Cm62Syx(FILE* infile, std::vector<UINT8>& syxData)
+{
+	static const UINT8 MT32_SYX_HDR[4] = {0x41, 0x10, 0x16, 0x12};
+	std::vector<UINT8> cm6Data;
+	char tempBuf[0x80];
+	
+	fread(tempBuf, 0x01, 0x20, infile);
+	if (strcmp(&tempBuf[0x00], "COME ON MUSIC"))
+		return 0x10;
+	if (memcmp(&tempBuf[0x0E], "\0\0R ", 0x04))
+		return 0x10;
+	
+	fseek(infile, 0, SEEK_END);
+	cm6Data.resize(ftell(infile));
+	fseek(infile, 0, SEEK_SET);
+	if (cm6Data.size() < 0x5849)
+		return 0xF8;	// file too small
+	fread(&cm6Data[0], 0x01, cm6Data.size(), infile);
+	
+	syxData.clear();
+	UINT8 deviceType = cm6Data[0x001A];
+	printf("Loading CM6 Control File, %s mode\n", deviceType ? "CM-64" : "MT-32");
+	// comment
+	memcpy(tempBuf, &cm6Data[0x0040], 0x40);	tempBuf[0x40] = '\0';
+	
+	//ReadRcpStr(&cm6Inf.comment, 0x40, &cm6Data[0x0040]);
+	WriteRolandSyxData(syxData, MT32_SYX_HDR, 0x7F0000, 0x00, NULL);	// MT-32/CM-32P Reset
+	WriteRolandSyxData(syxData, MT32_SYX_HDR, 0x100000, 0x17, &cm6Data[0x0080]);	// MT-32 System
+	WriteRolandSyxBulk(syxData, MT32_SYX_HDR, 0x050000, 0x400, &cm6Data[0x0A34], 0x100);	// MT-32 Patch Memory
+	WriteRolandSyxBulk(syxData, MT32_SYX_HDR, 0x080000, 0x4000, &cm6Data[0x0E34], 0x100);	// MT-32 Timbre Memory
+	//WriteRolandSyxBulk(syxData, MT32_SYX_HDR, 0x040000, 0x7B0, &cm6Data[0x0130], 0x100);	// MT-32 Timbre Temporary
+	//WriteRolandSyxData(syxData, MT32_SYX_HDR, 0x030000, 0x90, &cm6Data[0x00A0]);	// MT-32 Patch Temporary
+	WriteRolandSyxBulk(syxData, MT32_SYX_HDR, 0x030110, 0x154, &cm6Data[0x0130], 0x100);	// MT-32 Rhythm Setup
+	
+	if (deviceType > 0)
+	{
+		WriteRolandSyxData(syxData, MT32_SYX_HDR, 0x520000, 0x11, &cm6Data[0x5832]);	// CM-32P System
+		WriteRolandSyxBulk(syxData, MT32_SYX_HDR, 0x510000, 0x980, &cm6Data[0x4EB2], 0x100);	// CM-32P Patch Memory
+		//WriteRolandSyxData(syxData, MT32_SYX_HDR, 0x500000, 0x7E, &cm6Data[0x4E34]);	// CM-32P Patch Temporary
+	}
+	
 	return 0x00;
 }
 
