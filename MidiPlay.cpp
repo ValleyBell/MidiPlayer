@@ -2166,6 +2166,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			insInf->bank[1] = 0x00;
 		}
 	}
+	insInf->bnkIgn |= strictPatch;
 	
 	return;
 }
@@ -2402,6 +2403,13 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		return false;
 	
 	// resend Bank MSB/LSB
+	if (! (_options.flags & PLROPTS_STRICT))
+	{
+		if (chnSt->insSend.bnkIgn & BNKMSK_MSB)
+			oldMSB = chnSt->insState[0];
+		if (chnSt->insSend.bnkIgn & BNKMSK_LSB)
+			oldLSB = chnSt->insState[1];
+	}
 	if (oldMSB != chnSt->insState[0] || oldLSB != chnSt->insState[1])
 	{
 		UINT8 evtType = 0xB0 | chnSt->midChn;
@@ -2904,7 +2912,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			{
 				int tuneVal = syxData[0x07] - 0x40;
 				float tuneHz = (float)(440.0 * pow(2.0, tuneVal / 128.0 / 12.0));
-				vis_printf("SysEx MT-32: Master Tune = %.1f Hz", tuneHz);
+				vis_printf("SysEx CM-32P: Master Tune = %.1f Hz", tuneHz);
 			}
 			break;
 		case 0x0010:	// Master Volume
