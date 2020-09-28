@@ -98,6 +98,7 @@ static std::vector<INS_BANK> insBanks;
 static std::string syxFile;
 static std::vector<UINT8> syxData;
 static bool didSendSyx;
+static UINT8 tempSrcType;
 
 static std::vector<SongFileList> songList;
 static std::vector<std::string> plList;
@@ -392,6 +393,25 @@ int main(int argc, char* argv[])
 	vis_set_midi_modules(&midiModColl);
 	didSendSyx = false;
 	
+	if (! syxFile.empty())
+	{
+		FILE* hFile = fopen(syxFile.c_str(), "rb");
+		if (hFile != NULL)
+		{
+			size_t readBytes;
+			
+			fseek(hFile, 0, SEEK_END);
+			syxData.resize(ftell(hFile));
+			rewind(hFile);
+			
+			readBytes = 0;
+			if (syxData.size() > 0)
+				readBytes = fread(&syxData[0], 0x01, syxData.size(), hFile);
+			syxData.resize(readBytes);
+			fclose(hFile);
+		}
+	}
+	
 	resVal = 0;
 	controlVal = +1;	// default: next song
 	for (curSong = initSongID; curSong < songList.size(); )
@@ -453,8 +473,7 @@ int main(int argc, char* argv[])
 #endif
 		if (retVal)
 		{
-			vis_printf("Error opening %s\n", midFileName.c_str());
-			vis_printf("Errorcode: %02X\n", retVal);
+			vis_printf("Error 0x%02X opening %s\n", retVal, midFileName.c_str());
 			vis_update();
 			resVal = 1;
 			if (controlVal == -1 && curSong == 0)
@@ -464,6 +483,7 @@ int main(int argc, char* argv[])
 			continue;
 		}
 		//printf("File loaded.\n");
+		tempSrcType = 0xFF;
 		
 		if (! initFiles.empty())
 		{
@@ -475,8 +495,14 @@ int main(int argc, char* argv[])
 			iRetVal = Cm62Syx(initFPath.c_str(), syxData);
 			if (! iRetVal)
 			{
-				syxFile = "";
 				didSendSyx = false;
+				tempSrcType = MODULE_MT32;
+			}
+			else
+			{
+				vis_printf("Error 0x%02X opening %s\n", retVal, initFPath.c_str());
+				vis_update();
+				vis_getch_wait();
 			}
 		}
 		
@@ -1050,6 +1076,8 @@ void PlayMidi(void)
 	
 	// try to detect the instrument set used by the MIDI
 	MidiBankScan(&CMidi, true, &scanRes);
+	if (tempSrcType != 0xFF)
+		scanRes.modType = tempSrcType;
 	if (forceSrcType != 0xFF)
 		scanRes.modType = forceSrcType;
 	songInsMap = scanRes.modType;
@@ -1081,27 +1109,6 @@ void PlayMidi(void)
 		return;
 	}
 	vis_update();
-	
-	if (! syxFile.empty())
-	{
-		FILE* hFile;
-		
-		hFile = fopen(syxFile.c_str(), "rb");
-		if (hFile != NULL)
-		{
-			size_t readBytes;
-			
-			fseek(hFile, 0, SEEK_END);
-			syxData.resize(ftell(hFile));
-			rewind(hFile);
-			
-			readBytes = 0;
-			if (syxData.size() > 0)
-				readBytes = fread(&syxData[0], 0x01, syxData.size(), hFile);
-			syxData.resize(readBytes);
-			fclose(hFile);
-		}
-	}
 	
 	plrOpts.srcType = scanRes.modType;
 	plrOpts.dstType = mMod->modType;

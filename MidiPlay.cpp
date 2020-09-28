@@ -2728,6 +2728,11 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				if (_filteredVol & (1 << FILTVOL_GMSYX))
 					return true;	// don't send when fading
 				_noteVis.GetAttributes().volume = _mstVol;
+				if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+				{
+					FadeVolRefresh();
+					return true;
+				}
 				break;
 			}
 		}
@@ -2865,6 +2870,11 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
+			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			{
+				FadeVolRefresh();
+				return true;
+			}
 			break;
 		}
 		break;
@@ -2924,6 +2934,11 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
+			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			{
+				FadeVolRefresh();
+				return true;
+			}
 			break;
 		}
 		break;
@@ -3068,6 +3083,11 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
+			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			{
+				FadeVolRefresh();
+				return true;
+			}
 			break;
 		case 0x400005:	// Master Key-Shift
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
@@ -3350,6 +3370,11 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
+			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			{
+				FadeVolRefresh();
+				return true;
+			}
 			break;
 		case 0x000005:	// Master Attenuator
 			vis_printf("SysEx XG: Master Attenuator = %u", syxData[0x06]);
