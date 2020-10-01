@@ -2867,6 +2867,8 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_options.dstType != MODULE_MT32)
 				break;
 			_mstVol = syxData[0x07] * 0x7F / 100;
+			if (_mstVol > 0x7F)
+				_mstVol = 0x7F;
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
@@ -2931,6 +2933,8 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_options.dstType != MODULE_MT32)
 				break;
 			_mstVol = syxData[0x07] * 0x7F / 100;
+			if (_mstVol > 0x7F)
+				_mstVol = 0x7F;
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;

@@ -426,6 +426,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	UINT8 xgParams[6];	// 0 device ID, 1 model ID, 2 address high, 3 address low
 	UINT8 chkSum;
 	UINT32 tempoVal;
+	UINT8 lastCmd;
 	
 	trkBasePos = ftell(infile);
 	if (rcpInf->fileVer == 2)
@@ -489,6 +490,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	loopIdx = 0x00;
 	measurePos.push_back(ftell(infile));
 	curBar = 0;
+	lastCmd = 0x00;
 	while((UINT32)ftell(infile) < trkEndPos && ! feof(infile) && ! trkEnd)
 	{
 		UINT32 prevPos = ftell(infile);
@@ -550,7 +552,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					
 					syxID = cmdType & 0x07;
 					syxBuf = ProcessRcpSysEx(rcpInf->usrSyx[syxID].data, cmdP1, cmdP2, midChn);
-					trk->AppendSysEx(curDly, syxBuf.size(), &syxBuf[0]);
+					if (! syxBuf.empty())
+						trk->AppendSysEx(curDly, syxBuf.size(), &syxBuf[0]);
 					curDly = 0;
 				}
 				break;
@@ -581,7 +584,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 						break;
 					
 					syxBuf = ProcessRcpSysEx(text, cmdP1, cmdP2, midChn);
-					trk->AppendSysEx(curDly, syxBuf.size(), &syxBuf[0]);
+					if (! syxBuf.empty())
+						trk->AppendSysEx(curDly, syxBuf.size(), &syxBuf[0]);
 					curDly = 0;
 				}
 				break;
@@ -756,11 +760,11 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				curDly = 0;
 				break;
 			case 0xF5:	// Key Signature Change
-				// TODO: find a file that uses this
 				printf("Warning: Key Signature Change at 0x%04X!\n", prevPos);
 				RcpKeySig2Mid((UINT8)cmdP0Delay, tempBufU);
-				trk->AppendMetaEvent(0, 0x59, 0x02, tempBufU);
+				trk->AppendMetaEvent(curDly, 0x59, 0x02, tempBufU);
 				curDly = 0;
+				cmdP0Delay = 0;
 				break;
 			case 0xF6:	// comment
 				{
@@ -820,7 +824,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					takeLoop = false;
 					loopIdx --;
 					loopCnt[loopIdx] ++;
-					if (cmdP0Delay == 0 || cmdP0Delay > 250)
+					if (cmdP0Delay == 0 || cmdP0Delay >= 0x7F)
 					{
 						// infinite loop
 						//trk->AppendEvent(curDly, 0xB0 | midChn, 0x6F, (UINT8)loopCnt);
@@ -862,6 +866,14 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				cmdP0Delay = 0;
 				break;
 			case 0xFC:	// repeat previous measure
+				if (lastCmd != 0xFC && parentPos)
+				{
+					printf("Warning Track %u: Leaving recursive Repeat Measure at 0x%04X!\n", trkID, prevPos);
+					fseek(infile, parentPos, SEEK_SET);
+					parentPos = 0x00;
+					cmdP0Delay = 0;
+				}
+				else
 				{
 					UINT16 measureID;
 					UINT32 repeatPos;
@@ -870,7 +882,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					if (rcpInf->fileVer == 2)
 					{
 						measureID = cmdP0Delay;
-						repeatPos = (cmdP2 << 8) | (cmdP1 << 0);
+						repeatPos = (cmdP2 << 8) | ((cmdP1 & ~0x03) << 0);
 					}
 					else if (rcpInf->fileVer == 3)
 					{
@@ -890,6 +902,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 							measureID, curBar + 1, prevPos);
 						break;
 					}
+					if (parentPos == ftell(infile))
+						break;
 					cachedPos = measurePos[measureID] - trkBasePos;
 					//if (cachedPos != repeatPos)
 					//	printf("Warning: Repeat Measure %u: offset mismatch (0x%04X != 0x%04X) at 0x%04X!\n",
@@ -897,17 +911,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					
 					if (! parentPos)	// this check was verified to be necessary for some files
 						parentPos = ftell(infile);
-					else //if (parentPos == ftell(infile))
-						break;
-					if (rcpInf->fileVer == 2)
-					{
-						fseek(infile, trkBasePos + repeatPos, SEEK_SET);	// YS3-25.RCP relies on this
-					}
-					else
-					{
-						// using cachedPos here, just in case the offsets are incorrect
-						fseek(infile, trkBasePos + cachedPos, SEEK_SET);
-					}
+					fseek(infile, trkBasePos + repeatPos, SEEK_SET);	// YS3-25.RCP relies on this
 				}
 				break;
 			case 0xFD:	// measure end
@@ -939,6 +943,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			}	// end switch(cmdType)
 		}	// end if (cmdType >= 0x80)
 		
+		lastCmd = cmdType;
 		do
 		{
 			if (playNotes.empty())
@@ -968,6 +973,32 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			}
 		} while(minDurat > 0 && cmdP0Delay > 0);
 		curDly += cmdP0Delay;
+	}
+	
+	while(! playNotes.empty())
+	{
+		size_t curPN;
+		UINT32 minDurat = playNotes[0].len;
+		for (curPN = 1; curPN < playNotes.size(); curPN ++)
+		{
+			if (playNotes[curPN].len < minDurat)
+				minDurat = playNotes[curPN].len;
+		}
+		
+		for (curPN = 0; curPN < playNotes.size(); curPN ++)
+			playNotes[curPN].len -= minDurat;
+		curDly += minDurat;
+		
+		for (curPN = 0; curPN < playNotes.size(); curPN ++)
+		{
+			if (playNotes[curPN].len == 0)
+			{
+				trk->AppendEvent(curDly, 0x90 | midChn, playNotes[curPN].note, 0x00);
+				curDly = 0;
+				playNotes.erase(playNotes.begin() + curPN);
+				curPN --;
+			}
+		}
 	}
 	
 	fseek(infile, trkEndPos, SEEK_SET);
