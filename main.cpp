@@ -487,20 +487,40 @@ int main(int argc, char* argv[])
 		
 		if (! initFiles.empty())
 		{
-			UINT8 iRetVal;
+			bool hadError = false;
 			
-			const char* basePtr = midFileName.c_str();
-			const char* endPtr = GetFileTitle(basePtr);
-			std::string initFPath = std::string(basePtr, endPtr) + initFiles[0];
-			iRetVal = Cm62Syx(initFPath.c_str(), syxData);
-			if (! iRetVal)
+			for (size_t curFile = 0; curFile < initFiles.size(); curFile ++)
 			{
-				didSendSyx = false;
-				tempSrcType = MODULE_MT32;
+				UINT8 iRetVal;
+			
+				const char* basePtr = midFileName.c_str();
+				const char* endPtr = GetFileTitle(basePtr);
+				std::string initFPath = std::string(basePtr, endPtr) + initFiles[0];
+				
+				iRetVal = Cm62Syx(initFPath.c_str(), syxData);
+				if (! iRetVal)
+				{
+					tempSrcType = MODULE_MT32;
+				}
+				else
+				{
+					iRetVal = Gsd2Syx(initFPath.c_str(), syxData);
+					if (! iRetVal)
+						tempSrcType = MODULE_SC55;
+				}
+					
+				if (! iRetVal)
+				{
+					didSendSyx = false;
+				}
+				else
+				{
+					vis_printf("Error 0x%02X opening %s\n", retVal, initFPath.c_str());
+					hadError = true;
+				}
 			}
-			else
+			if (hadError)
 			{
-				vis_printf("Error 0x%02X opening %s\n", retVal, initFPath.c_str());
 				vis_update();
 				vis_getch_wait();
 			}

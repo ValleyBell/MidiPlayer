@@ -51,6 +51,10 @@ static void WriteRolandSyxData(std::vector<UINT8>& buffer, const UINT8* syxHdr, 
 static void WriteRolandSyxBulk(std::vector<UINT8>& buffer, const UINT8* syxHdr, UINT32 address, UINT32 len, const UINT8* data, UINT32 bulkSize);
 //UINT8 Cm62Syx(const char* fileName, std::vector<UINT8>& syxData);
 //UINT8 Cm62Syx(FILE* infile, std::vector<UINT8>& syxData);
+static void Bytes2NibblesHL(UINT32 bytes, UINT8* nibData, const UINT8* byteData);
+static void GsdPartParam2BulkDump(UINT8* bulkData, const UINT8* partData);
+UINT8 Gsd2Syx(const char* fileName, std::vector<UINT8>& syxData);
+UINT8 Gsd2Syx(FILE* infile, std::vector<UINT8>& syxData);
 static UINT16 ReadLE16(FILE* infile);
 static UINT32 ReadLE32(FILE* infile);
 
@@ -252,9 +256,9 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile, std::vector<std::string>& i
 		rcpInf.playBias = fgetc(infile);
 		
 		// names of additional files
-		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x0C] = '\0';
+		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x10] = '\0';
 		rcpInf.cm6File = RcpStr2StdStr(tempBuf);
-		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x0C] = '\0';
+		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x10] = '\0';
 		rcpInf.gsdFile1 = RcpStr2StdStr(tempBuf);
 		rcpInf.gsdFile2 = "";
 		
@@ -318,8 +322,9 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile, std::vector<std::string>& i
 		initFiles.push_back(rcpInf.cm6File);
 	if (! rcpInf.gsdFile1.empty())
 		initFiles.push_back(rcpInf.gsdFile1);
-	if (! rcpInf.gsdFile2.empty())
-		initFiles.push_back(rcpInf.gsdFile2);
+	// TODO: tell main MIDI player somehow that this would go to Port B
+	//if (! rcpInf.gsdFile2.empty())
+	//	initFiles.push_back(rcpInf.gsdFile2);
 	
 	midFile.SetMidiFormat(1);
 	midFile.SetMidiResolution(rcpInf.tickRes);
@@ -1111,6 +1116,168 @@ UINT8 Cm62Syx(FILE* infile, std::vector<UINT8>& syxData)
 		WriteRolandSyxData(syxData, MT32_SYX_HDR, 0x520000, 0x11, &cm6Data[0x5832]);	// CM-32P System
 		WriteRolandSyxBulk(syxData, MT32_SYX_HDR, 0x510000, 0x980, &cm6Data[0x4EB2], 0x100);	// CM-32P Patch Memory
 		//WriteRolandSyxData(syxData, MT32_SYX_HDR, 0x500000, 0x7E, &cm6Data[0x4E34]);	// CM-32P Patch Temporary
+	}
+	
+	return 0x00;
+}
+
+// nibbilize, high-low order
+static void Bytes2NibblesHL(UINT32 bytes, UINT8* nibData, const UINT8* byteData)
+{
+	UINT32 curPos;
+	
+	for (curPos = 0x00; curPos < bytes; curPos ++)
+	{
+		nibData[curPos * 2 + 0] = (byteData[curPos] >> 4) & 0x0F;
+		nibData[curPos * 2 + 1] = (byteData[curPos] >> 0) & 0x0F;
+	}
+	
+	return;
+}
+
+static void GsdPartParam2BulkDump(UINT8* bulkData, const UINT8* partData)
+{
+	UINT8 partMem[0x70];
+	UINT8 curPos;
+	UINT8 curCtrl;
+	
+	partMem[0x00] = partData[0x00];	// Bank MSB
+	partMem[0x01] = partData[0x01];	// tone number
+	
+	// Rx. Pitch Bend/Ch. Pressure/Program Change/Control Change/Poly Pressure/Note Message/RPN/NRPN
+	partMem[0x02] = 0x00;
+	for (curPos = 0; curPos < 8; curPos ++)
+		partMem[0x02] |= (partData[0x03 + curPos] & 0x01) << (7 - curPos);
+	// Rx. Modulation/Volume/Panpot/Expression/Hold 1 (Sustain)/Portamento/SostenutoSoft Pedal
+	partMem[0x03] = 0x00;
+	for (curPos = 0; curPos < 8; curPos ++)
+		partMem[0x03] |= (partData[0x0B + curPos] & 0x01) << (7 - curPos);
+	partMem[0x04] = partData[0x02];	// Rx. Channel
+	
+	partMem[0x05] = (partData[0x13] & 0x01) << 7;	// Mono/Poly Mode
+	partMem[0x05] |= ((partData[0x15] & 0x03) << 5) | (partData[0x15] ? 0x10 : 0x00);	// Rhythm Part Mode
+	partMem[0x05] |= (partData[0x14] & 0x03) << 0;	// Assign Mode
+	
+	partMem[0x06] = partData[0x16];	// Pitch Key Shift
+	partMem[0x07] = ((partData[0x17] & 0x0F) << 4) | ((partData[0x18] & 0x0F) << 0);	// Pitch Offset Fine
+	partMem[0x08] = partData[0x19];	// Part Level
+	partMem[0x09] = partData[0x1C];	// Part Panpot
+	partMem[0x0A] = partData[0x1B];	// Velocity Sense Offset
+	partMem[0x0B] = partData[0x1A];	// Velocity Sense Depth
+	partMem[0x0C] = partData[0x1D];	// Key Range Low
+	partMem[0x0D] = partData[0x1E];	// Key Range High
+	
+	// Chorus Send Depth/Reverb Send Depth/Tone Modify 1-8
+	for (curPos = 0x00; curPos < 0x0A; curPos ++)
+		partMem[0x0E + curPos] = partData[0x21 + curPos];
+	partMem[0x18] = 0x00;
+	partMem[0x19] = 0x00;
+	// Scale Tuning C to B
+	for (curPos = 0x00; curPos < 0x0C; curPos ++)
+		partMem[0x1A + curPos] = partData[0x2B + curPos];
+	partMem[0x26] = partData[0x1F];	// CC1 Controller Number
+	partMem[0x27] = partData[0x20];	// CC2 Controller Number
+	
+	// Destination Controllers
+	for (curCtrl = 0; curCtrl < 6; curCtrl ++)
+	{
+		UINT8 srcPos = 0x37 + curCtrl * 0x0B;
+		UINT8 dstPos = 0x28 + curCtrl * 0x0C;
+		for (curPos = 0x00; curPos < 0x03; curPos ++)
+			partMem[dstPos + 0x00 + curPos] = partData[srcPos + 0x00 + curPos];
+		partMem[dstPos + 0x03] = (curCtrl == 2 || curCtrl == 3) ? 0x40 : 0x00;	// verified with Recomposer 3.0 PC-98
+		for (curPos = 0x00; curPos < 0x08; curPos ++)
+			partMem[dstPos + 0x04 + curPos] = partData[srcPos + 0x03 + curPos];
+	}
+	
+	Bytes2NibblesHL(0x70, bulkData, partMem);
+	return;
+}
+
+UINT8 Gsd2Syx(const char* fileName, std::vector<UINT8>& syxData)
+{
+	FILE* infile;
+	UINT8 retVal;
+	
+	infile = fopen(fileName, "rb");
+	if (infile == NULL)
+		return 0xFF;
+	
+	retVal = Gsd2Syx(infile, syxData);
+	fclose(infile);
+	
+	return retVal;
+}
+
+UINT8 Gsd2Syx(FILE* infile, std::vector<UINT8>& syxData)
+{
+	static const UINT8 SC55_SYX_HDR[4] = {0x41, 0x10, 0x42, 0x12};
+	static const UINT8 PART2CHN[0x10] =
+		{0x09, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};
+	static const UINT8 CHN2PART[0x10] =
+		{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x00, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};
+	std::vector<UINT8> gsdData;
+	char tempBuf[0x20];
+	UINT8 voiceRes[0x10];
+	UINT8 bulkBuffer[0x100];
+	UINT8 curChn;
+	
+	fread(tempBuf, 0x01, 0x20, infile);
+	if (strcmp(&tempBuf[0x00], "COME ON MUSIC"))
+		return 0x10;
+	if (strcmp(&tempBuf[0x0E], "GS CONTROL 1.0"))
+		return 0x10;
+	
+	fseek(infile, 0, SEEK_END);
+	gsdData.resize(ftell(infile));
+	fseek(infile, 0, SEEK_SET);
+	if (gsdData.size() < 0x0A71)
+		return 0xF8;	// file too small
+	fread(&gsdData[0], 0x01, gsdData.size(), infile);
+	
+	syxData.clear();
+	printf("Loading GSD Control File\n");
+	
+	curChn = 0x00;
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x40007F, 0x01, &curChn);	// SC-55 Reset
+	// Recomposer 3.0 sends Master Volume (40 00 04), Key-Shift (40 00 06) and Pan (via GM SysEx) separately,
+	// but doing a bulk-dump works just fine on SC-55/88.
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400000, 0x07, &gsdData[0x0020]);	// Common Settings
+	for (curChn = 0x00; curChn < 0x10; curChn ++)
+		voiceRes[curChn] = gsdData[0x0036 + PART2CHN[curChn] * 0x7A + 0x79];
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400110, 0x10, voiceRes);	// Voice Reserve
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400130, 0x07, &gsdData[0x0027]);	//Reverb Settings
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400138, 0x08, &gsdData[0x002E]);	// Chorus Settings
+	
+	// Part Settings
+	for (curChn = 0x00; curChn < 0x10; curChn ++)
+	{
+		UINT32 addrOfs = 0x90 + CHN2PART[curChn] * 0xE0;
+		UINT32 syxAddr = ((addrOfs & 0x007F) << 0) | ((addrOfs & 0x3F80) << 1);
+		GsdPartParam2BulkDump(bulkBuffer, &gsdData[0x0036 + curChn * 0x7A]);
+		WriteRolandSyxBulk(syxData, SC55_SYX_HDR, 0x480000 | syxAddr, 0xE0, bulkBuffer, 0x80);
+	}
+	
+	// Drum Setup
+	for (curChn = 0; curChn < 2; curChn ++)	// 2 drum maps
+	{
+		// drum level, pan, reverb, chorus
+		static const UINT8 DRMPAR_ADDR[4] = {0x02, 0x06, 0x08, 0x0A};
+		const UINT8* drmPtr = &gsdData[0x07D6 + curChn * 0x014C];
+		UINT8 curNote;
+		UINT8 curParam;
+		UINT8 paramBuf[0x80];
+		
+		for (curParam = 0; curParam < 4; curParam ++)
+		{
+			UINT32 syxAddr = (curChn << 12) | (DRMPAR_ADDR[curParam] << 8);
+			
+			memset(paramBuf, 0x00, 0x80);
+			for (curNote = 0x00; curNote < 82; curNote ++)
+				paramBuf[27 + curNote] = drmPtr[curNote * 4 + curParam];
+			Bytes2NibblesHL(0x80, bulkBuffer, paramBuf);
+			WriteRolandSyxBulk(syxData, SC55_SYX_HDR, 0x490000 | syxAddr, 0x100, bulkBuffer, 0x80);
+		}
 	}
 	
 	return 0x00;

@@ -2734,6 +2734,16 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 					return true;
 				}
 				break;
+			case 0x02:	// Master Balance
+				// F0 7F 7F 04 02 ll mm F7
+				// mmll = 4000 - centre
+				{
+					UINT8 panVal = syxData[0x05];
+					if (panVal == 0x00)
+						panVal = 0x01;
+					_noteVis.GetAttributes().pan = panVal - 0x40;
+				}
+				break;
 			}
 		}
 		break;
@@ -3116,6 +3126,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x40007F:	// GS reset
+			if (syxSize < 0x0A)
+				break;	// when there is no parameter, the message has no effect
 			vis_addstr("SysEx: GS Reset\n");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
