@@ -1703,7 +1703,7 @@ void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentIn
 	return;
 }
 
-void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank)
+void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, UINT8 maxModuleID, const INS_BANK* insBank)
 {
 	if (chnSt->userInsID != 0xFFFF)
 		return;
@@ -1724,7 +1724,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 					
 					// 1. sub-CTF according to https://www.vogons.org/viewtopic.php?p=501280#p501280
 					insInf->bank[0] &= ~0x07;
-					if (GetInsMapData(insPrg, insInf->bank[0], bankLSB, 0xFF) != NULL)
+					if (GetInsMapData(insPrg, insInf->bank[0], bankLSB, maxModuleID) != NULL)
 						return;
 				}
 				
@@ -1739,7 +1739,7 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 					newIns = insInf->ins & ~0x07;
 				else
 					newIns = insInf->ins;
-				if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], bankLSB, 0xFF) != NULL)
+				if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], bankLSB, maxModuleID) != NULL)
 				{
 					insInf->ins = newIns;
 					return;
@@ -1856,7 +1856,7 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 		else
 		{
 			// handle device-specific fallback modes
-			HandleIns_DoFallback(chnSt, insInf, devType, insBank);
+			HandleIns_DoFallback(chnSt, insInf, devType, mapModType, insBank);
 			insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
 		}
 	}
@@ -2088,7 +2088,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 				// 2. ignore the variation setting (Bank MSB) via SC-55 fallback
 				if (insInf->bankPtr == NULL)
 				{
-					HandleIns_DoFallback(chnSt, insInf, MODULE_SC55, insBank);
+					HandleIns_DoFallback(chnSt, insInf, MODULE_SC55, mapModType, insBank);
 					insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
 				}
 				
@@ -2098,7 +2098,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			{
 				if (insInf->bank[0] > 0x00 && insInf->bank[0] < 0x40)
 					insInf->bank[0] = 0x00;	// additional Bank MSB fallback to prevent sounds from going silent
-				HandleIns_DoFallback(chnSt, insInf, devType, insBank);
+				HandleIns_DoFallback(chnSt, insInf, devType, mapModType, insBank);
 				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
 				
 				if (insInf->bankPtr == NULL)
@@ -2119,7 +2119,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			}
 			else
 			{
-				HandleIns_DoFallback(chnSt, insInf, devType, insBank);
+				HandleIns_DoFallback(chnSt, insInf, devType, mapModType, insBank);
 				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
 			}
 			if (insInf->bankPtr == NULL)
