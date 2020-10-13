@@ -183,6 +183,7 @@ static std::vector<UINT8> ProcessRcpSysEx(const std::vector<UINT8>& syxData, UIN
 		}
 	}
 	
+	syxBuf.push_back(0xF7);
 	return syxBuf;
 }
 
@@ -407,7 +408,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	UINT8 rhythmMode;
 	UINT8 midiDev;
 	UINT8 transp;
-	INT8 startTick;
+	INT32 startTick;
 	UINT8 trkMute;
 	char tempBuf[0x40];
 	UINT8* tempBufU = (UINT8*)tempBuf;
@@ -483,15 +484,19 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 		printf("Warning: RCP Track %u: Key 0x%02X!\n", trkID, transp);
 		transp = 0x00;
 	}
-	if (startTick != 0)
-		printf("Warning: RCP Track %u: Start Tick %+d!\n", trkID, startTick);
 	
 	memset(gsParams, 0x00, 6);
 	memset(xgParams, 0x00, 6);
-	trkEnd = 0;
+	trkEnd = trkMute;
 	parentPos = 0x00;
 	playNotes.clear();
 	curDly = 0;
+	// add "startTick" offset to initial delay
+	if (startTick >= 0)
+	{
+		curDly += startTick;
+		startTick = 0;
+	}
 	loopIdx = 0x00;
 	measurePos.push_back(ftell(infile));
 	curBar = 0;
@@ -978,6 +983,21 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			}
 		} while(minDurat > 0 && cmdP0Delay > 0);
 		curDly += cmdP0Delay;
+		
+		// remove ticks from curDly from all events until startTicks reaches 0
+		if (startTick < 0 && curDly > 0)
+		{
+			startTick += curDly;
+			if (startTick >= 0)
+			{
+				curDly = startTick;
+				startTick = 0;
+			}
+			else
+			{
+				curDly = 0;
+			}
+		}
 	}
 	
 	while(! playNotes.empty())
