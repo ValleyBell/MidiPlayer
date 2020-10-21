@@ -1047,7 +1047,10 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		lastMeta01 = text;
 		
 		str_prepare_print(text);
-		wprintw(logWin, "Text: %s", text.c_str());
+		if (trk == 0 || midFile->GetMidiFormat() == 2)
+			wprintw(logWin, "Text: %s", text.c_str());
+		else
+			wprintw(logWin, "Track %u Text: %s", trk, text.c_str());
 		curYline ++;
 		break;
 	case 0x02:	// Copyright Notice

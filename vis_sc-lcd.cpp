@@ -131,8 +131,8 @@ void LCDDisplay::ResetDisplay(void)
 	_allPage.vol = 127;
 	_allPage.pan = 0x00;
 	_allPage.expr = 127;
-	_allPage.reverb = 64;
-	_allPage.chorus = 64;
+	_allPage.reverb = 255;
+	_allPage.chorus = 255;
 	_allPage.delay = 0;
 	_allPage.transp = 0;
 	_chnPage = _allPage;

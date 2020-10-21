@@ -3316,16 +3316,19 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		evtPort = portID;
 		if (addr & 0x100000)
 			evtPort ^= 0x01;
+		evtChn = (addr & 0x001000) >> 12;
 		addr &= ~0x10F0FF;	// remove port bit (bit 20), map ID (bits 12-15) and note number (bits 0-7)
+		PrintPortChn(portChnStr, evtPort, evtChn);
+		memmove(&portChnStr[1], &portChnStr[2], 2);	// A01 -> A1
 		switch(addr)
 		{
 		case 0x410000:	// Drum Map Name
 		{
 			std::string drmName = Vector2String(syxData, 0x07, syxSize - 2);
 			if (syxData[0x06] == 0x00 && drmName.length() > 1)
-				vis_printf("SysEx SC-88: Set Drum Map Name = \"%s\"\n", drmName.c_str());
+				vis_printf("SysEx GS: Set Drum Map %s Name = \"%s\"\n", portChnStr, drmName.c_str());
 			else
-				vis_printf("SysEx SC-88: Set Drum Map Name [%X] = \"%s\"\n", syxData[0x06], drmName.c_str());
+				vis_printf("SysEx GS: Set Drum Map %s Name [%X] = \"%s\"\n", portChnStr, syxData[0x06], drmName.c_str());
 		}
 			break;
 		}
