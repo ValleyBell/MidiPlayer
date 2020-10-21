@@ -505,8 +505,6 @@ UINT8 MidiPlayer::Stop(void)
 
 UINT8 MidiPlayer::Pause(void)
 {
-	if (! _playing)
-		return 0xFF;
 	if (_paused)
 		return 0x00;
 	
@@ -518,8 +516,6 @@ UINT8 MidiPlayer::Pause(void)
 
 UINT8 MidiPlayer::Resume(void)
 {
-	if (! _playing)
-		return 0xFF;
 	if (! _paused)
 		return 0x00;
 	

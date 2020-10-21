@@ -207,6 +207,7 @@ static MidiPlayer* midPlay = NULL;
 static std::vector<ChannelData> dispChns;
 static UINT64 lastUpdateTime = 0;
 static bool stopAfterSong = false;
+static bool pauseAfterSong = false;
 static bool restartSong = false;
 static UINT8 secondDigits = 2;
 static bool showMeasureTicks = true;
@@ -745,6 +746,9 @@ void vis_new_song(void)
 	currentKeyHandler.push_back(&vis_keyhandler_normal);
 	lastUpdateTime = 0;
 	curYline = 0;
+	stopAfterSong = false;
+	pauseAfterSong = false;
+	restartSong = false;
 	
 	return;
 }
@@ -1275,6 +1279,15 @@ static int vis_keyhandler_normal(void)
 	case 'F':
 		midPlay->FadeOutT(main_GetFadeTime());
 		break;
+	case KEY_CTRL('P'):
+		pauseAfterSong = ! pauseAfterSong;
+		if (pauseAfterSong)
+			vis_addstr("Pausing after song end.");
+		else
+			vis_addstr("Not pausing after song end.");
+		update_panels();
+		refresh();
+		break;
 	case KEY_CTRL('X'):
 		stopAfterSong = ! stopAfterSong;
 		if (stopAfterSong)
@@ -1300,7 +1313,7 @@ int vis_main(void)
 	
 	lastUpdateTime = 0;
 	result = 0;
-	while(midPlay->GetState() & 0x01)
+	while(midPlay->GetState() & 0x03)	// loop while playing OR paused
 	{
 		int retval = 0;
 		
@@ -1316,6 +1329,17 @@ int vis_main(void)
 		{
 			result = retval;
 			break;
+		}
+		if (pauseAfterSong)
+		{
+			UINT8 state = midPlay->GetState();
+			if ((state & 0x03) == 0x00)
+			{
+				midPlay->Pause();
+				pauseAfterSong = false;
+				update_panels();
+				refresh();
+			}
 		}
 		Sleep(1);
 	}
