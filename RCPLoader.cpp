@@ -424,10 +424,12 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	UINT16 cmdP0Delay;
 	UINT16 cmdDurat;
 	UINT32 curDly;
+	UINT32 curTick;
 	UINT8 loopIdx;
 	UINT32 loopPPos[8];
 	UINT32 loopPos[8];
 	UINT16 loopCnt[8];
+	UINT32 loopTick[8];
 	UINT8 gsParams[6];	// 0 device ID, 1 model ID, 2 address high, 3 address low
 	UINT8 xgParams[6];	// 0 device ID, 1 model ID, 2 address high, 3 address low
 	UINT8 chkSum;
@@ -487,9 +489,10 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	
 	memset(gsParams, 0x00, 6);
 	memset(xgParams, 0x00, 6);
-	trkEnd = trkMute;
+	trkEnd = (trkMute == 0x01);	// EUPHO01.RCP has trkMute == 0x20 and the tracks need to play
 	parentPos = 0x00;
 	playNotes.clear();
+	curTick = (UINT32)startTick;
 	curDly = 0;
 	// add "startTick" offset to initial delay
 	if (startTick >= 0)
@@ -830,11 +833,16 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				else
 				{
 					bool takeLoop;
+					UINT32 loopTicks;
+					UINT32 loopBeats;
+					UINT32 lbLimit = (rcpInf->beatNum ? rcpInf->beatNum : 4) * 500;
 					
 					takeLoop = false;
 					loopIdx --;
 					loopCnt[loopIdx] ++;
-					if (cmdP0Delay == 0 || cmdP0Delay >= 0x7F)
+					loopTicks = (curTick - loopTick[loopIdx]) / loopCnt[loopIdx];
+					loopBeats = loopTicks / rcpInf->tickRes;
+					if (cmdP0Delay == 0 || (loopBeats * cmdP0Delay) >= lbLimit)
 					{
 						// infinite loop
 						//trk->AppendEvent(curDly, 0xB0 | midChn, 0x6F, (UINT8)loopCnt);
@@ -869,6 +877,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 					loopPPos[loopIdx] = parentPos;	// required by YS-2･018.RCP
 					loopPos[loopIdx] = ftell(infile);
 					loopCnt[loopIdx] = 0;
+					loopTick[loopIdx] = curTick;
 					if (loopIdx > 0 && loopPos[loopIdx] == loopPos[loopIdx - 1])
 						loopIdx --;	// ignore loop command (required by YS-2･018.RCP)
 					loopIdx ++;
@@ -970,6 +979,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 				playNotes[curPN].len -= minDurat;
 			cmdP0Delay -= minDurat;
 			curDly += minDurat;
+			curTick += minDurat;
 			
 			for (curPN = 0; curPN < playNotes.size(); curPN ++)
 			{
@@ -983,6 +993,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 			}
 		} while(minDurat > 0 && cmdP0Delay > 0);
 		curDly += cmdP0Delay;
+		curTick += cmdP0Delay;
 		
 		// remove ticks from curDly from all events until startTicks reaches 0
 		if (startTick < 0 && curDly > 0)
