@@ -629,7 +629,7 @@ void MidiPlayer::GetSongStatsM(UINT32* maxBar, UINT16* maxBeatNum, UINT16* maxBe
 	return;
 }
 
-double MidiPlayer::GetPlaybackPos(void) const
+double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 {
 	if (! _tmrStep)
 		return 0.0;	// the song isn't playing
@@ -638,9 +638,9 @@ double MidiPlayer::GetPlaybackPos(void) const
 	
 	// calculate in-song time of _tmrStep (time of next event)
 	UINT64 tmrTick = _tempoPos->tmrTick + (_nextEvtTick - _tempoPos->tick) * _curTickTime;
-	if (curTime > _tmrStep)
+	if (curTime > _tmrStep && ! allowOverflow)
 		curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
-	if (tmrTick <= _tmrStep - curTime)
+	if (curTime <= _tmrStep && tmrTick <= _tmrStep - curTime)
 		return 0.0;	// waiting for the song to begin
 	
 	// current in-song time = [in-song time of next event] - ([clock time of next event] - [current clock time])
@@ -662,11 +662,13 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 		if (curTime > _tmrStep)
 			curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
 		
-		UINT32 tickDiff = (UINT32)((_tmrStep - curTime) / _curTickTime);
+		INT64 timeDiff = _tmrStep - curTime;
+		// Note: integer ceil(), as we're subtracting below
+		INT32 tickDiff = (INT32)((timeDiff + (_curTickTime - 1)) / _curTickTime);
 		if (tickDiff > _nextEvtTick)
 			curTick = (UINT32)-1;	// waiting for the song to begin
 		else
-			curTick = _nextEvtTick - tickDiff;
+			curTick = _nextEvtTick - (UINT32)tickDiff;
 	}
 	
 	if (curTick == (UINT32)-1)
@@ -2763,7 +2765,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		if ((addr & 0x0F) > 0x00)
 			break;	// Right now we can only handle bulk writes.
 		dataPtr = &syxData[0x07];
-		if (addr < 0x030110)
+		if (addr < 0x030100)
 		{
 			UINT8 evtChn;
 			UINT16 portChnID;
@@ -2808,7 +2810,9 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			nvChn->_pbRange = chnSt->pbRange;
 			if (true)
 			{
-				vis_printf("SysEx MT-32: Set Ch %u instrument = %u", evtChn, newIns);
+				static const char timGroup[4] = {'A', 'B', 'I', 'R'};
+				vis_printf("SysEx MT-32: Set Part %u Patch: Group %c, Timbre %u",
+						evtChn, timGroup[dataPtr[0x00] & 0x03], 1 + (dataPtr[0x01] & 0x3F));
 			}
 			vis_do_ins_change(portChnID);
 			break;

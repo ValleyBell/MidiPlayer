@@ -1243,7 +1243,7 @@ void PlayMidi(void)
 #endif
 	midPlay.Stop();
 	
-	vis_addstr("Done.");
+	vis_addstr("Finished.");
 	vis_update();
 	
 	CMidi.ClearAll();

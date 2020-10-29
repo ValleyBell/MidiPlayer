@@ -134,7 +134,7 @@ public:
 	double GetSongLength(void) const;	// returns length in seconds
 	void GetSongLengthM(UINT32* bar, UINT32* beat, UINT32* tick) const;	// return length in bar:beat:tick
 	void GetSongStatsM(UINT32* maxBar, UINT16* maxBeatNum, UINT16* maxBeatDen, UINT32* maxTickCnt) const;
-	double GetPlaybackPos(void) const;
+	double GetPlaybackPos(bool allowOverflow = false) const;
 	void GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const;
 	UINT32 GetCurTimeSig(void) const;	// low word: numerator, high word: denominator
 	double GetCurTempo(void) const;

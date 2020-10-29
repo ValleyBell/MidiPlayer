@@ -1198,7 +1198,7 @@ void vis_update(void)
 		return;
 	}
 	
-	newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
+	newUpdateTime = (UINT64)(midPlay->GetPlaybackPos(true) * 1000.0);
 	if (newUpdateTime < lastUpdateTime)
 		lastUpdateTime = 0;	// fix looping
 	updateTicks = (int)(newUpdateTime - lastUpdateTime);
@@ -1337,8 +1337,7 @@ int vis_main(void)
 			{
 				midPlay->Pause();
 				pauseAfterSong = false;
-				update_panels();
-				refresh();
+				vis_update();
 			}
 		}
 		Sleep(1);
