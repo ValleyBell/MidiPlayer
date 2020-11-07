@@ -131,9 +131,9 @@ void LCDDisplay::ResetDisplay(void)
 	_allPage.vol = 127;
 	_allPage.pan = 0x00;
 	_allPage.expr = 127;
-	_allPage.reverb = 255;
-	_allPage.chorus = 255;
-	_allPage.delay = 0;
+	_allPage.reverb = 64;
+	_allPage.chorus = 64;
+	_allPage.delay = 64;
 	_allPage.transp = 0;
 	_chnPage = _allPage;
 	_chnPage.insID = 0x00;
@@ -247,9 +247,9 @@ void LCDDisplay::RefreshDisplay(void)
 	_allPage.vol = modAttr.volume;
 	_allPage.pan = modAttr.pan;
 	_allPage.expr = modAttr.expression;
-	//_allPage.reverb = 0;
-	//_allPage.chorus = 0;
-	//_allPage.delay = 0;
+	_allPage.reverb = modAttr.reverb;
+	_allPage.chorus = modAttr.chorus;
+	_allPage.delay = modAttr.delay;
 	_allPage.transp = modAttr.detune[1] >> 8;
 	
 	if (_chnPage.chnID < chnStates.size())

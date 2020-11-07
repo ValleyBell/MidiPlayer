@@ -42,9 +42,12 @@ void NoteVisualization::Initialize(UINT8 chnGroups)
 {
 	size_t curChn;
 	
-	_modAttrs.volume = 0x7F;
-	_modAttrs.expression = 0x7F;
+	_modAttrs.volume = 127;
+	_modAttrs.expression = 127;
 	_modAttrs.pan = 0x00;
+	_modAttrs.reverb = 64;
+	_modAttrs.chorus = 64;
+	_modAttrs.delay = 64;
 	_modAttrs.detune[0] = 0;
 	_modAttrs.detune[1] = 0;
 	

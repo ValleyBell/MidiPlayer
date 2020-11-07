@@ -2990,6 +2990,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
+	// TODO: make separate variables "dLen" and "data", which point to the actual payload
 	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
 	{
 		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
@@ -3164,6 +3165,30 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				syxData[0x0C], syxData[0x0D], syxData[0x0E], syxData[0x0F],
 				syxData[0x10], syxData[0x07], syxData[0x11], syxData[0x12],
 				syxData[0x13], syxData[0x14], syxData[0x15], syxData[0x15]);
+			break;
+		case 0x400130:	// Reverb Macro
+		case 0x400133:	// Reverb Level
+			{
+				UINT8 lvlPos = 0x33 - (addr & 0x7F);
+				if (lvlPos < syxSize - 0x09)
+					_noteVis.GetAttributes().reverb = syxData[0x07 + lvlPos];
+			}
+			// fall through (for larger block writes)
+		case 0x400138:	// Chorus Macro
+		case 0x40013A:	// Chorus Level
+			{
+				UINT8 lvlPos = 0x3A - (addr & 0x7F);
+				if (lvlPos < syxSize - 0x09)
+					_noteVis.GetAttributes().chorus = syxData[0x07 + lvlPos];
+			}
+			break;
+		case 0x400150:	// Delay Macro
+		case 0x400158:	// Delay Level
+			{
+				UINT8 lvlPos = 0x58 - (addr & 0x7F);
+				if (lvlPos < syxSize - 0x09)
+					_noteVis.GetAttributes().delay = syxData[0x07 + lvlPos];
+			}
 			break;
 		case 0x401000:	// Tone Number
 			chnSt->ctrls[0x00] = syxData[0x07];
@@ -3444,14 +3469,41 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			RefreshSrcDevSettings();
 			_hardReset = true;
 			InitializeChannels();
-			if (_options.flags & PLROPTS_STRICT)
-				return true;	// ignore for now, TODO: send, then ensure proper Voice Map
 			break;
 		}
 		break;
 	case 0x020000:	// Effect 1
+		// Reverb, Chorus, Variaion, EQ
+		switch(addr)
+		{
+		case 0x020100:	// Reverb Type
+		case 0x02010C:	// Reverb Return Level
+			{
+				UINT8 lvlPos = 0x0C - (addr & 0x7F);
+				if (lvlPos < syxSize - 0x07)
+					_noteVis.GetAttributes().reverb = syxData[0x06 + lvlPos];
+			}
+			break;
+		case 0x020120:	// Chorus Type
+		case 0x02012C:	// Chorus Return Level
+			{
+				UINT8 lvlPos = 0x2C - (addr & 0x7F);
+				if (lvlPos < syxSize - 0x07)
+					_noteVis.GetAttributes().chorus = syxData[0x06 + lvlPos];
+			}
+			break;
+		case 0x020140:	// Delay Type
+		case 0x020156:	// Delay Return Level
+			{
+				UINT8 lvlPos = 0x56 - (addr & 0x7F);
+				if (lvlPos < syxSize - 0x07)
+					_noteVis.GetAttributes().delay = syxData[0x06 + lvlPos];
+			}
+			break;
+		}
 		break;
 	case 0x030000:	// Effect 2
+		// mostly Insertion Effects
 		break;
 	case 0x060000:	// ASCII Display
 	{

@@ -14,6 +14,9 @@ public:
 		UINT8 expression;
 		INT8 pan;	// -0x40 .. 0x00 .. +0x3F
 		INT16 detune[2];	// [0] - pitch bend, [1] - RPN tuning
+		UINT8 reverb;
+		UINT8 chorus;
+		UINT8 delay;
 	};
 	struct NoteInfo
 	{
