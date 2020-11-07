@@ -2765,18 +2765,20 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
-	const UINT8* dataPtr;
+	UINT32 xLen;
+	const UINT8* xData;
 	
 	// Data[0x04]	Address High
 	// Data[0x05]	Address Mid
 	// Data[0x06]	Address Low
 	addr = ReadBE24(&syxData[0x04]);
+	xLen = (UINT32)syxSize - 0x09;	// 0x07 [header] + 0x01 [checksum] + 0x01 [F7 terminator]
+	xData = &syxData[0x07];
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x030000:	// Patch Temporary Area
 		if ((addr & 0x0F) > 0x00)
 			break;	// Right now we can only handle bulk writes.
-		dataPtr = &syxData[0x07];
 		if (addr < 0x030100)
 		{
 			UINT8 evtChn;
@@ -2791,7 +2793,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 				return false;
 			chnSt = &_chnStates[portChnID];
 			nvChn = _noteVis.GetChannel(chnSt->fullChnID);
-			newIns = ((dataPtr[0x00] & 0x03) << 6) | ((dataPtr[0x01] & 0x3F) << 0);
+			newIns = ((xData[0x00] & 0x03) << 6) | ((xData[0x01] & 0x3F) << 0);
 			chnSt->curIns = 0xFF;
 			chnSt->userInsID = newIns;
 			chnSt->insOrg.bankPtr = NULL;
@@ -2817,14 +2819,14 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 				//else
 				//	// timbre group R
 			}
-			chnSt->pbRangeUnscl = dataPtr[0x04];
+			chnSt->pbRangeUnscl = xData[0x04];
 			chnSt->pbRange = chnSt->pbRangeUnscl;
 			nvChn->_pbRange = chnSt->pbRange;
 			if (true)
 			{
 				static const char timGroup[4] = {'A', 'B', 'I', 'R'};
 				vis_printf("SysEx MT-32: Set Part %u Patch: Group %c, Timbre %u",
-						evtChn, timGroup[dataPtr[0x00] & 0x03], 1 + (dataPtr[0x01] & 0x3F));
+						evtChn, timGroup[xData[0x00] & 0x03], 1 + (xData[0x01] & 0x3F));
 			}
 			vis_do_ins_change(portChnID);
 			break;
@@ -2835,7 +2837,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 	case 0x050000:	// Patch Memory
 		{
 			UINT32 dataLen = syxSize - 0x09;
-			const UINT8* data = &syxData[0x07];
+			const UINT8* data = xData;
 			UINT16 internalAddr = ((addr & 0x007F00) >> 1) | ((addr & 0x00007F) >> 0);
 			for (; dataLen > 0 && internalAddr < 0x0400; internalAddr ++, data ++, dataLen --)
 			{
@@ -2858,11 +2860,10 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			UINT8 timID = (addr & 0x007E00) >> 9;
 			UINT16 timAddr = addr & 0x0001FF;
 			
-			dataPtr = &syxData[0x07];
 			if (timAddr >= 0x00 && timAddr <= 0x0A)
 			{
 				size_t copyLen;
-				std::string timName = Vector2String(syxData, 0x07, syxSize - 2);
+				std::string timName = Vector2String(xData, 0x00, xLen);
 				SanitizeSysExText(timName);
 				
 				copyLen = _mt32TimbreNames[timID].length() - timAddr;
@@ -2878,17 +2879,17 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			// Note: default tuning is value 0x4A (442 Hz)
 			{
 				// formula from Munt MT-32 emulator
-				int tuneVal = syxData[0x07] - 0x40;
+				int tuneVal = xData[0x00] - 0x40;
 				float tuneHz = (float)(440.0 * pow(2.0, tuneVal / 128.0 / 12.0));
 				vis_printf("SysEx MT-32: Master Tune = %.1f Hz", tuneHz);
 			}
 			break;
 		case 0x0016:	// Master Volume
 			// Note: Unlike GM/GS/XG, MT-32 volume is 0..100.
-			vis_printf("SysEx MT-32: Master Volume = %u", syxData[0x07]);
+			vis_printf("SysEx MT-32: Master Volume = %u", xData[0x00]);
 			if (_options.dstType != MODULE_MT32)
 				break;
-			_mstVol = syxData[0x07] * 0x7F / 100;
+			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
 				_mstVol = 0x7F;
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
@@ -2905,7 +2906,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 	case 0x200000:	// Display
 		if (addr < 0x200100)
 		{
-			std::string dispMsg = Vector2String(syxData, 0x07, syxSize - 2);
+			std::string dispMsg = Vector2String(xData, 0x00, xLen);
 			
 			SanitizeSysExText(dispMsg);
 			vis_printf("SysEx MT-32: Display = \"%s\"", dispMsg.c_str());
@@ -2921,7 +2922,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 	case 0x510000:	// CM-32P Patch Memory
 		{
 			UINT32 dataLen = syxSize - 0x09;
-			const UINT8* data = &syxData[0x07];
+			const UINT8* data = xData;
 			UINT16 internalAddr = ((addr & 0x007F00) >> 1) | ((addr & 0x00007F) >> 0);
 			for (; dataLen > 0 && internalAddr < 0x0980; internalAddr ++, data ++, dataLen --)
 			{
@@ -2944,17 +2945,17 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		{
 		case 0x0000:	// Master Tune
 			{
-				int tuneVal = syxData[0x07] - 0x40;
+				int tuneVal = xData[0x00] - 0x40;
 				float tuneHz = (float)(440.0 * pow(2.0, tuneVal / 128.0 / 12.0));
 				vis_printf("SysEx CM-32P: Master Tune = %.1f Hz", tuneHz);
 			}
 			break;
 		case 0x0010:	// Master Volume
 			// Note: Like MT-32/CM-32L, CM-32P volume is 0..100.
-			vis_printf("SysEx CM-32P: Master Volume = %u", syxData[0x07]);
+			vis_printf("SysEx CM-32P: Master Volume = %u", xData[0x00]);
 			if (_options.dstType != MODULE_MT32)
 				break;
-			_mstVol = syxData[0x07] * 0x7F / 100;
+			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
 				_mstVol = 0x7F;
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
@@ -2983,6 +2984,8 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
+	UINT32 xLen;
+	const UINT8* xData;
 	UINT8 evtPort;
 	UINT8 evtChn;
 	UINT16 portChnID;
@@ -2990,7 +2993,6 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
-	// TODO: make separate variables "dLen" and "data", which point to the actual payload
 	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
 	{
 		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
@@ -3003,6 +3005,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	// Data[0x05]	Address Mid
 	// Data[0x06]	Address Low
 	addr = ReadBE24(&syxData[0x04]);
+	xLen = (UINT32)syxSize - 0x09;	// 0x07 [header] + 0x01 [checksum] + 0x01 [F7 terminator]
+	xData = &syxData[0x07];
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x000000:	// System
@@ -3011,7 +3015,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x00007F:	// SC-88 System Mode Set
-			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + syxData[0x07]);
+			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + xData[0x00]);
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
@@ -3033,7 +3037,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				// (unlike addresses 40xxxx/50xxxx, for which the port correction is
 				// even mentioned by the manual)
 				PrintPortChn(portChnStr, evtPort, evtChn);
-				vis_printf("SysEx GS Chn %s: Receive from Port %c", portChnStr, 'A' + syxData[0x07]);
+				vis_printf("SysEx GS Chn %s: Receive from Port %c", portChnStr, 'A' + xData[0x00]);
 			}
 			break;
 		}
@@ -3047,7 +3051,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		{
 			size_t copyLen;
 			
-			std::string drmName = Vector2String(syxData, 0x07, syxSize - 2);
+			std::string drmName = Vector2String(xData, 0x00, xLen);
 			SanitizeSysExText(drmName);
 			if (syxData[0x06] == 0x00 && drmName.length() > 1)
 				vis_printf("SysEx SC-88: Set User Drum Set %u Name = \"%s\"\n", evtChn, drmName.c_str());
@@ -3090,10 +3094,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				INT16 tune;
 				// one nibble per byte, range is 0x0018 [-1 semitone] .. 0x0400 [center] .. 0x07E8 [+1 semitone]
-				tune =	((syxData[0x07] & 0x0F) << 12) |
-						((syxData[0x08] & 0x0F) <<  8) |
-						((syxData[0x09] & 0x0F) <<  4) |
-						((syxData[0x0A] & 0x0F) <<  0);
+				tune =	((xData[0x00] & 0x0F) << 12) |
+						((xData[0x01] & 0x0F) <<  8) |
+						((xData[0x02] & 0x0F) <<  4) |
+						((xData[0x03] & 0x0F) <<  0);
 				tune -= 0x400;
 				if (tune < -0x3E8)
 					tune = -0x3E8;
@@ -3103,10 +3107,10 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x400004:	// Master Volume
-			vis_printf("SysEx GS: Master Volume = %u", syxData[0x07]);
+			vis_printf("SysEx GS: Master Volume = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
-			_mstVol = syxData[0x07];
+			_mstVol = xData[0x00];
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
@@ -3120,7 +3124,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
 			{
-				INT8 transp = (INT8)syxData[0x07] - 0x40;
+				INT8 transp = (INT8)xData[0x00] - 0x40;
 				if (transp < -24)
 					transp = -24;
 				else if (transp > +24)
@@ -3132,14 +3136,14 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
 			{
-				UINT8 panVal = syxData[0x07];
+				UINT8 panVal = xData[0x00];
 				if (panVal == 0x00)
 					panVal = 0x01;
 				_noteVis.GetAttributes().pan = panVal - 0x40;
 			}
 			break;
 		case 0x40007F:	// GS reset
-			if (syxSize < 0x0A)
+			if (xLen < 0x01)
 				break;	// when there is no parameter, the message has no effect
 			vis_addstr("SysEx: GS Reset\n");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
@@ -3150,7 +3154,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x400100:	// Patch Name
 		{
-			std::string dispMsg = Vector2String(syxData, 0x07, syxSize - 2);
+			std::string dispMsg = Vector2String(xData, 0x00, xLen);
 			
 			SanitizeSysExText(dispMsg);
 			vis_printf("SysEx SC: ALL Display = \"%s\"", dispMsg.c_str());
@@ -3158,41 +3162,41 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		}
 			break;
 		case 0x400110:	// Voice Reserve (SC-55 only)
-			if (syxSize < 0x07 + 0x10 + 0x01)
+			if (xLen < 0x10)
 				break;
 			vis_printf("SysEx SC-55: Voice Reserve = %u %u %u %u  %u %u %u %u  %u %u %u %u  %u %u %u %u",
-				syxData[0x08], syxData[0x09], syxData[0x0A], syxData[0x0B],
-				syxData[0x0C], syxData[0x0D], syxData[0x0E], syxData[0x0F],
-				syxData[0x10], syxData[0x07], syxData[0x11], syxData[0x12],
-				syxData[0x13], syxData[0x14], syxData[0x15], syxData[0x15]);
+				xData[0x01], xData[0x02], xData[0x03], xData[0x04],
+				xData[0x05], xData[0x06], xData[0x07], xData[0x08],
+				xData[0x09], xData[0x00], xData[0x0A], xData[0x0B],
+				xData[0x0C], xData[0x0D], xData[0x0E], xData[0x0F]);
 			break;
 		case 0x400130:	// Reverb Macro
 		case 0x400133:	// Reverb Level
 			{
 				UINT8 lvlPos = 0x33 - (addr & 0x7F);
-				if (lvlPos < syxSize - 0x09)
-					_noteVis.GetAttributes().reverb = syxData[0x07 + lvlPos];
+				if (lvlPos < xLen)
+					_noteVis.GetAttributes().reverb = xData[lvlPos];
 			}
 			// fall through (for larger block writes)
 		case 0x400138:	// Chorus Macro
 		case 0x40013A:	// Chorus Level
 			{
 				UINT8 lvlPos = 0x3A - (addr & 0x7F);
-				if (lvlPos < syxSize - 0x09)
-					_noteVis.GetAttributes().chorus = syxData[0x07 + lvlPos];
+				if (lvlPos < xLen)
+					_noteVis.GetAttributes().chorus = xData[lvlPos];
 			}
 			break;
 		case 0x400150:	// Delay Macro
 		case 0x400158:	// Delay Level
 			{
 				UINT8 lvlPos = 0x58 - (addr & 0x7F);
-				if (lvlPos < syxSize - 0x09)
-					_noteVis.GetAttributes().delay = syxData[0x07 + lvlPos];
+				if (lvlPos < xLen)
+					_noteVis.GetAttributes().delay = xData[lvlPos];
 			}
 			break;
 		case 0x401000:	// Tone Number
-			chnSt->ctrls[0x00] = syxData[0x07];
-			chnSt->curIns = syxData[0x08];
+			chnSt->ctrls[0x00] = xData[0x00];
+			chnSt->curIns = xData[0x01];
 			vis_printf("SysEx GS Chn %s: Bank MSB = %02X, Ins = %02X", portChnStr, chnSt->ctrls[0x00], chnSt->curIns);
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
@@ -3201,20 +3205,20 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x401002:	// Receive Channel
-			if (syxData[0x07] >= 0x10)
+			if (xData[0x00] >= 0x10)
 				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %s", portChnStr, "--");
 			else
-				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + syxData[0x07]);
+				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + xData[0x00]);
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
-			if (! syxData[0x07])
+			if (! xData[0x00])
 				vis_printf("SysEx GS Chn %s: Part Mode: %s", portChnStr, "Normal");
 			else
-				vis_printf("SysEx GS Chn %s: Part Mode: %s %u", portChnStr, "Drum", syxData[0x07]);
+				vis_printf("SysEx GS Chn %s: Part Mode: %s %u", portChnStr, "Drum", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				break;
 			
-			if (syxData[0x07])
+			if (xData[0x00])
 				chnSt->flags |= 0x80;	// drum mode on
 			else
 				chnSt->flags &= ~0x80;	// drum mode off
@@ -3243,7 +3247,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x401016:	// Pitch Key Shift
 			{
-				chnSt->tuneCoarse = (INT8)syxData[0x07] - 0x40;
+				chnSt->tuneCoarse = (INT8)xData[0x00] - 0x40;
 				if (chnSt->tuneCoarse < -24)
 					chnSt->tuneCoarse = -24;
 				else if (chnSt->tuneCoarse > +24)
@@ -3254,7 +3258,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x401017:	// Pitch Offset Fine
 			{
-				UINT8 offset = ((syxData[0x07] & 0x0F) << 4) | ((syxData[0x08] & 0x0F) << 0);
+				UINT8 offset = ((xData[0x00] & 0x0F) << 4) | ((xData[0x01] & 0x0F) << 0);
 				chnSt->tuneFine = (offset - 0x80) << 7;
 				if (chnSt->tuneFine < -0x3C00)
 					chnSt->tuneFine = -0x3C00;
@@ -3265,7 +3269,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x401019:	// Part Level
-			chnSt->ctrls[0x07] = syxData[0x07];
+			chnSt->ctrls[0x07] = xData[0x00];
 			if (_filteredVol & (1 << FILTVOL_CCVOL))
 				return true;
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
@@ -3273,7 +3277,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x40101C:	// Part Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
-			chnSt->ctrls[0x0A] = syxData[0x07];
+			chnSt->ctrls[0x0A] = xData[0x00];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 			vis_do_ctrl_change(portChnID, 0x0A);
 			break;
@@ -3286,13 +3290,13 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				// On the SC-8820, CC1/CC2 number reprogramming is broken.
 				// It's best to ignore the message and manually remap the controllers to CC#16/CC#17.
 				ccNo = addr - 0x40101F;
-				if (syxData[0x07] < 0x0C)
+				if (xData[0x00] < 0x0C)
 				{
 					vis_printf("Warning: SysEx GS Chn %s: CC%u reprogramming to CC#%u might not work!",
-								portChnStr, 1 + ccNo, syxData[0x07]);
+								portChnStr, 1 + ccNo, xData[0x00]);
 					break;	// ignore stuff like Modulation
 				}
-				chnSt->idCC[ccNo] = syxData[0x07];
+				chnSt->idCC[ccNo] = xData[0x00];
 				if (chnSt->idCC[ccNo] == 0x10 + ccNo)
 				{
 					chnSt->idCC[ccNo] = 0xFF;
@@ -3300,21 +3304,21 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				}
 				
 				vis_printf("Warning: SysEx GS Chn %s: Enabling CC reprogramming bug fix! (CC%u assigned to CC#%u)",
-							portChnStr, 1 + ccNo, syxData[0x07]);
+							portChnStr, 1 + ccNo, xData[0x00]);
 				return true;
 			}
 			break;
 		case 0x401021:	// Part Reverb Level
-			chnSt->ctrls[0x5B] = syxData[0x07];
+			chnSt->ctrls[0x5B] = xData[0x00];
 			break;
 		case 0x401022:	// Part Chorus Level
-			chnSt->ctrls[0x5D] = syxData[0x07];
+			chnSt->ctrls[0x5D] = xData[0x00];
 			break;
 		case 0x40102C:	// Part Delay Level
-			chnSt->ctrls[0x5E] = syxData[0x07];
+			chnSt->ctrls[0x5E] = xData[0x00];
 			break;
 		case 0x402010:	// Bend Pitch Control
-			chnSt->pbRangeUnscl = (INT8)syxData[0x07] - 0x40;
+			chnSt->pbRangeUnscl = (INT8)xData[0x00] - 0x40;
 			if (_options.srcType == MODULE_SC55)
 			{
 				// Note: SC-55 allows a range of -24 .. 0 .. +24
@@ -3339,12 +3343,12 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			nvChn->_pbRange = chnSt->pbRange;
 			break;
 		case 0x404000:	// Tone Map Number (== Bank LSB)
-			chnSt->ctrls[0x20] = syxData[0x07];
+			chnSt->ctrls[0x20] = xData[0x00];
 			vis_printf("SysEx GS Chn %s: Bank LSB = %02X", portChnStr, chnSt->ctrls[0x20]);
 			break;
 		case 0x404001:	// Tone Map 0 Number (setting when Bank LSB == 0)
-			vis_printf("SysEx GS Chn %s: Set Default Tone Map to %u", portChnStr, syxData[0x07]);
-			chnSt->defInsMap = syxData[0x07] - 0x01;	// 00,01..04 -> FF,00..03
+			vis_printf("SysEx GS Chn %s: Set Default Tone Map to %u", portChnStr, xData[0x00]);
+			chnSt->defInsMap = xData[0x00] - 0x01;	// 00,01..04 -> FF,00..03
 			break;
 		}
 		break;
@@ -3361,7 +3365,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		{
 		case 0x410000:	// Drum Map Name
 		{
-			std::string drmName = Vector2String(syxData, 0x07, syxSize - 2);
+			std::string drmName = Vector2String(xData, 0x00, xLen);
 			if (syxData[0x06] == 0x00 && drmName.length() > 1)
 				vis_printf("SysEx GS: Set Drum Map %s Name = \"%s\"\n", portChnStr, drmName.c_str());
 			else
@@ -3378,6 +3382,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxData)
 {
 	UINT32 addr;
+	UINT32 xLen;
+	const UINT8* xData;
 	UINT8 evtPort;
 	UINT8 evtChn;
 	UINT16 portChnID;
@@ -3395,6 +3401,8 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	}
 	
 	addr = ReadBE24(&syxData[0x03]);
+	xLen = (UINT32)syxSize - 0x07;	// 0x06 [header] + 0x01 [F7 terminator]
+	xData = &syxData[0x06];
 	switch(addr & 0xFF0000)	// Address High
 	{
 	case 0x000000:	// System
@@ -3406,10 +3414,10 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				INT16 tune;
 				// one nibble per byte, range is 0x0018 [-1 semitone] .. 0x0400 [center] .. 0x07E8 [+1 semitone]
-				tune =	((syxData[0x06] & 0x0F) << 12) |
-						((syxData[0x07] & 0x0F) <<  8) |
-						((syxData[0x08] & 0x0F) <<  4) |
-						((syxData[0x09] & 0x0F) <<  0);
+				tune =	((xData[0x00] & 0x0F) << 12) |
+						((xData[0x01] & 0x0F) <<  8) |
+						((xData[0x02] & 0x0F) <<  4) |
+						((xData[0x03] & 0x0F) <<  0);
 				tune -= 0x400;
 				if (tune < -0x400)
 					tune = -0x400;
@@ -3419,10 +3427,10 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x000004:	// Master Volume
-			vis_printf("SysEx XG: Master Volume = %u", syxData[0x06]);
+			vis_printf("SysEx XG: Master Volume = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
-			_mstVol = syxData[0x06];
+			_mstVol = xData[0x00];
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
@@ -3433,16 +3441,16 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x000005:	// Master Attenuator
-			vis_printf("SysEx XG: Master Attenuator = %u", syxData[0x06]);
+			vis_printf("SysEx XG: Master Attenuator = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
-			_noteVis.GetAttributes().expression = 0x7F - syxData[0x06];
+			_noteVis.GetAttributes().expression = 0x7F - xData[0x00];
 			break;
 		case 0x000006:	// Master Transpose
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
 			{
-				INT8 transp = (INT8)syxData[0x06] - 0x40;
+				INT8 transp = (INT8)xData[0x00] - 0x40;
 				if (transp < -24)
 					transp = -24;
 				else if (transp > +24)
@@ -3451,7 +3459,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x00007D:	// Drum Setup Reset
-			vis_printf("SysEx XG: Drum %u Reset", syxData[0x06]);
+			vis_printf("SysEx XG: Drum %u Reset", xData[0x00]);
 			break;
 		case 0x00007E:	// XG System On
 			vis_addstr("SysEx: XG Reset");
@@ -3480,24 +3488,24 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x02010C:	// Reverb Return Level
 			{
 				UINT8 lvlPos = 0x0C - (addr & 0x7F);
-				if (lvlPos < syxSize - 0x07)
-					_noteVis.GetAttributes().reverb = syxData[0x06 + lvlPos];
+				if (lvlPos < xLen)
+					_noteVis.GetAttributes().reverb = xData[lvlPos];
 			}
 			break;
 		case 0x020120:	// Chorus Type
 		case 0x02012C:	// Chorus Return Level
 			{
 				UINT8 lvlPos = 0x2C - (addr & 0x7F);
-				if (lvlPos < syxSize - 0x07)
-					_noteVis.GetAttributes().chorus = syxData[0x06 + lvlPos];
+				if (lvlPos < xLen)
+					_noteVis.GetAttributes().chorus = xData[lvlPos];
 			}
 			break;
 		case 0x020140:	// Delay Type
 		case 0x020156:	// Delay Return Level
 			{
 				UINT8 lvlPos = 0x56 - (addr & 0x7F);
-				if (lvlPos < syxSize - 0x07)
-					_noteVis.GetAttributes().delay = syxData[0x06 + lvlPos];
+				if (lvlPos < xLen)
+					_noteVis.GetAttributes().delay = xData[lvlPos];
 			}
 			break;
 		}
@@ -3507,7 +3515,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		break;
 	case 0x060000:	// ASCII Display
 	{
-		std::string dispMsg = Vector2String(syxData, 0x06, syxSize - 1);
+		std::string dispMsg = Vector2String(xData, 0x00, xLen);
 		
 		SanitizeSysExText(dispMsg);
 		vis_printf("SysEx MU: Display = \"%s\"", dispMsg.c_str());
@@ -3524,10 +3532,10 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		
 		// Partial writes to anywhere in the display memory sets those bits and redraws the image.
 		startOfs = addr & 0xFF;
-		dataLen = syxSize - 0x07;	// 0x06 (start ofs) + 1 (F7 terminator)
+		dataLen = xLen;
 		if (startOfs + dataLen > 0x30)
 			dataLen = 0x30 - startOfs;
-		memcpy(&_pixelPageMem[0][startOfs], &syxData[0x06], dataLen);
+		memcpy(&_pixelPageMem[0][startOfs], &xData[0x00], dataLen);
 		
 		vis_do_syx_bitmap(FULL_CHN_ID(portID, 0x00), 0x43, 0x30, _pixelPageMem[0]);
 	}
@@ -3547,15 +3555,15 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x080001:	// Bank MSB
-			chnSt->ctrls[0x00] = syxData[0x06];
+			chnSt->ctrls[0x00] = xData[0x00];
 			vis_printf("SysEx XG Chn %s: Bank MSB = %02X", portChnStr, chnSt->ctrls[0x00]);
 			break;
 		case 0x080002:	// Bank LSB
-			chnSt->ctrls[0x20] = syxData[0x06];
+			chnSt->ctrls[0x20] = xData[0x00];
 			vis_printf("SysEx XG Chn %s: Bank LSB = %02X", portChnStr, chnSt->ctrls[0x20]);
 			break;
 		case 0x080003:	// Program Number
-			chnSt->curIns = syxData[0x06];
+			chnSt->curIns = xData[0x00];
 			vis_printf("SysEx XG Chn %s: Ins = %02X", portChnStr, chnSt->curIns);
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
@@ -3566,24 +3574,24 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x080004:	// Receive Channel
 			{
 				char recvPCStr[4];
-				if (syxData[0x06] == 0x7F)
+				if (xData[0x00] == 0x7F)
 					PrintPortChn(recvPCStr, 0xFF, 0xFF);
 				else
-					PrintPortChn(recvPCStr, syxData[0x06] >> 4, syxData[0x06] & 0x0F);
+					PrintPortChn(recvPCStr, xData[0x00] >> 4, xData[0x00] & 0x0F);
 				vis_printf("SysEx XG Chn %s: Receive from MIDI channel %s", portChnStr, recvPCStr);
 			}
 			break;
 		case 0x080007:	// Part Mode
-			if (syxData[0x06] == 0x00)
+			if (xData[0x00] == 0x00)
 				vis_printf("SysEx XG Chn %s: Part Mode: %s", portChnStr, "Normal");
-			else if (syxData[0x06] == 0x01)
+			else if (xData[0x00] == 0x01)
 				vis_printf("SysEx XG Chn %s: Part Mode: %s (%s)", portChnStr, "Drum", "Auto");
 			else
-				vis_printf("SysEx XG Chn %s: Part Mode: %s %u", portChnStr, "Drum", syxData[0x06] - 0x01);
+				vis_printf("SysEx XG Chn %s: Part Mode: %s %u", portChnStr, "Drum", xData[0x00] - 0x01);
 			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
 				break;
 			
-			if (syxData[0x06])
+			if (xData[0x00])
 				chnSt->flags |= 0x80;	// drum mode on
 			else
 				chnSt->flags &= ~0x80;	// drum mode off
@@ -3592,7 +3600,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x080008:	// Note Shift
 			{
-				chnSt->tuneCoarse = (INT8)syxData[0x06] - 0x40;
+				chnSt->tuneCoarse = (INT8)xData[0x00] - 0x40;
 				if (chnSt->tuneCoarse < -24)
 					chnSt->tuneCoarse = -24;
 				else if (chnSt->tuneCoarse > +24)
@@ -3603,14 +3611,14 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x080017:	// Detune
 			{
-				UINT8 offset = ((syxData[0x06] & 0x0F) << 4) | ((syxData[0x07] & 0x0F) << 0);
+				UINT8 offset = ((xData[0x00] & 0x0F) << 4) | ((xData[0x01] & 0x0F) << 0);
 				chnSt->tuneFine = (offset - 0x80) << 7;
 				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
 				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
 			}
 			break;
 		case 0x08000B:	// Volume
-			chnSt->ctrls[0x07] = syxData[0x06];
+			chnSt->ctrls[0x07] = xData[0x00];
 			if (_filteredVol & (1 << FILTVOL_CCVOL))
 				return true;
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
@@ -3618,23 +3626,23 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x08000E:	// Pan
 			// 00 [random], 01 [L63] .. 40 [C] .. 7F [R63]
-			chnSt->ctrls[0x0A] = syxData[0x06];
+			chnSt->ctrls[0x0A] = xData[0x00];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 			vis_do_ctrl_change(portChnID, 0x0A);
 			break;
 		case 0x080011:	// Dry Level
 			break;
 		case 0x080012:	// Chorus Send
-			chnSt->ctrls[0x5D] = syxData[0x06];
+			chnSt->ctrls[0x5D] = xData[0x00];
 			break;
 		case 0x080013:	// Reverb Send
-			chnSt->ctrls[0x5B] = syxData[0x06];
+			chnSt->ctrls[0x5B] = xData[0x00];
 			break;
 		case 0x080014:	// Variation Send
-			chnSt->ctrls[0x5E] = syxData[0x06];
+			chnSt->ctrls[0x5E] = xData[0x00];
 			break;
 		case 0x080023:	// Pitch Bend Control
-			chnSt->pbRangeUnscl = (INT8)syxData[0x06] - 0x40;
+			chnSt->pbRangeUnscl = (INT8)xData[0x00] - 0x40;
 			if (chnSt->pbRangeUnscl < 0)
 				chnSt->pbRangeUnscl = 0;
 			else if (chnSt->pbRangeUnscl > 24)
@@ -3644,13 +3652,13 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x080035:	// Receive Note Message
 			vis_printf("SysEx XG Chn %s: Receive Notes: %s", portChnStr,
-				syxData[0x06] ? "Yes" : "No (muted)");
+				xData[0x00] ? "Yes" : "No (muted)");
 			break;
 		case 0x080067:	// Portamento Switch
-			chnSt->ctrls[0x41] = syxData[0x06] ? 0x00 : 0x40;
+			chnSt->ctrls[0x41] = xData[0x00] ? 0x00 : 0x40;
 			break;
 		case 0x080068:	// Portamento Time
-			chnSt->ctrls[0x05] = syxData[0x06];
+			chnSt->ctrls[0x05] = xData[0x00];
 			break;
 		}
 		break;
