@@ -1399,9 +1399,13 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 	{
 	case 0x00:	// Bank MSB
 		chnSt->insState[0] = chnSt->ctrls[ctrlID];
+		if ((_options.flags & PLROPTS_STRICT) && (chnSt->insSend.bnkIgn & BNKMSK_MSB))
+			return true;	// suppress in strict mode when ignored by destination device
 		break;
 	case 0x20:	// Bank LSB
 		chnSt->insState[1] = chnSt->ctrls[ctrlID];
+		if ((_options.flags & PLROPTS_STRICT) && (chnSt->insSend.bnkIgn & BNKMSK_LSB))
+			return true;	// suppress in strict mode when ignored by destination device
 		break;
 	case 0x07:	// Main Volume
 		if (_filteredVol & (1 << FILTVOL_CCVOL))
@@ -1869,6 +1873,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	const UINT8 devType = _options.dstType;
 	UINT8 mapModType;
 	UINT8 strictPatch;
+	UINT8 realBnkIgn;
 	
 	if (_options.flags & PLROPTS_STRICT)
 	{
@@ -1886,6 +1891,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	insBank = SelectInsMap(devType, &mapModType);
 	
 	HandleIns_CommonPatches(chnSt, insInf, devType, insBank);
+	realBnkIgn = insInf->bnkIgn;
 	if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 	{
 		if (_options.srcType == MODULE_MT32)
@@ -1973,8 +1979,11 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		{
 			// set (ignored) MSB to 0 on drum channels
 			insInf->bank[0] = 0x00;
-			strictPatch |= BNKMSK_MSB;
+			insInf->bnkIgn |= BNKMSK_MSB;
 		}
+		
+		if (devType == MODULE_SC55 || devType == MODULE_TG300B)
+			realBnkIgn |= BNKMSK_LSB;	// SC-55 ignores Bank LSB
 		if (insBank != NULL && insBank->maxBankLSB == 0x00)
 			insInf->bnkIgn |= BNKMSK_LSB;
 	}
@@ -2050,11 +2059,12 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		{
 			// set (ignored) LSB to 0 on drum channels and SFX banks
 			insInf->bank[1] = 0x00;
-			strictPatch |= BNKMSK_LSB;
+			insInf->bnkIgn |= BNKMSK_LSB;
 		}
 	}
 	else if (devType == MODULE_MT32)
 	{
+		realBnkIgn = BNKMSK_ALLBNK;
 		strictPatch = ~insInf->bnkIgn & BNKMSK_ALLBNK;	// mark for undo when not strict
 	}
 	
@@ -2162,9 +2172,10 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			// All SC-55 models ignore LSB, but early XG devices in TG300B mode do not.
 			// (MU80 is known to require LSB 0, DB50XG/S-YXG50 and MU128 don't care.)
 			insInf->bank[1] = 0x00;
+			realBnkIgn &= ~BNKMSK_LSB;	// I want to enforce LSB=0 in strict mode
 		}
 	}
-	insInf->bnkIgn |= strictPatch;
+	insInf->bnkIgn |= realBnkIgn;
 	
 	return;
 }
@@ -2400,14 +2411,15 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	if (noact & 0x01)
 		return false;
 	
+	// when ignored by destination device, don't resend Bank MSB/LSB
+	if (chnSt->insSend.bnkIgn & BNKMSK_MSB)
+		oldMSB = chnSt->insState[0];
+	if (chnSt->insSend.bnkIgn & BNKMSK_LSB)
+		oldLSB = chnSt->insState[1];
+	if ((_options.flags & PLROPTS_STRICT) && (chnSt->insSend.bnkIgn & BNKMSK_INS))
+		return true;	// also, in strict mode, suppress instrument change
+	
 	// resend Bank MSB/LSB
-	if (! (_options.flags & PLROPTS_STRICT))
-	{
-		if (chnSt->insSend.bnkIgn & BNKMSK_MSB)
-			oldMSB = chnSt->insState[0];
-		if (chnSt->insSend.bnkIgn & BNKMSK_LSB)
-			oldLSB = chnSt->insState[1];
-	}
 	if (oldMSB != chnSt->insState[0] || oldLSB != chnSt->insState[1])
 	{
 		UINT8 evtType = 0xB0 | chnSt->midChn;
@@ -3184,7 +3196,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			nvChn->_chnMode &= ~0x01;
 			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 			
-			if (chnSt->curIns == 0xFF)
+			if (chnSt->curIns & 0x80)
 				break;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
 			{
 				UINT8 flags = 0x10;	// re-evaluate instrument, but don't print anything
@@ -3659,7 +3671,7 @@ void MidiPlayer::AllInsRefresh(void)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
 		
-		if (chnSt.curIns == 0xFF)
+		if (chnSt.curIns & 0x80)
 			continue;
 		
 		if ((chnSt.flags & 0x80) && chnSt.hadDrumNRPN)
@@ -3756,7 +3768,7 @@ void MidiPlayer::AllChannelRefresh(void)
 		ChannelState& chnSt = _chnStates[curChn];
 		MidiEvent tempEvt;
 		
-		if (chnSt.curIns != 0xFF)
+		if (! (chnSt.curIns & 0x80))
 		{
 			chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;	// enforce resending
 			tempEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
@@ -4100,12 +4112,7 @@ void MidiPlayer::InitializeChannels(void)
 		ChannelState& chnSt = _chnStates[curChn];
 		chnSt.flags = 0x00;
 		chnSt.defInsMap = 0xFF;
-		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
-		chnSt.insOrg.bankPtr = NULL;
-		chnSt.insSend.bank[0] = chnSt.insSend.bank[1] = chnSt.insSend.ins = 0xFF;	// initialize to "not set"
-		chnSt.insSend.bankPtr = NULL;
-		chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;
-		chnSt.curIns = 0xFF;
+		chnSt.curIns = 0x80;
 		chnSt.userInsID = 0xFFFF;
 		chnSt.userInsName = NULL;
 		memset(&chnSt.ctrls[0x00], 0x80, 0x80);	// initialize with (0x80 | 0x00)
@@ -4132,6 +4139,19 @@ void MidiPlayer::InitializeChannels(void)
 		drumChn.flags |= 0x80;	// set drum channel mode
 		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
 			drumChn.ctrls[0x00] = 0x80 | 0x7F;	// default to Drum bank
+	}
+	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+	{
+		ChannelState& chnSt = _chnStates[curChn];
+		
+		HandleIns_GetOriginal(&chnSt, &chnSt.insOrg);
+		HandleIns_GetRemapped(&chnSt, &chnSt.insSend);
+		
+		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
+		chnSt.insOrg.bankPtr = NULL;
+		chnSt.insSend.bank[0] = chnSt.insSend.bank[1] = chnSt.insSend.ins = 0xFF;	// initialize to "not set"
+		chnSt.insSend.bankPtr = NULL;
+		chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;
 	}
 	
 	_noteVis.Reset();
