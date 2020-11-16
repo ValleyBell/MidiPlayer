@@ -665,7 +665,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 		INT64 timeDiff = _tmrStep - curTime;
 		// Note: integer ceil(), as we're subtracting below
 		INT32 tickDiff = (INT32)((timeDiff + (_curTickTime - 1)) / _curTickTime);
-		if (tickDiff > _nextEvtTick)
+		if (tickDiff > (INT32)_nextEvtTick)
 			curTick = (UINT32)-1;	// waiting for the song to begin
 		else
 			curTick = _nextEvtTick - (UINT32)tickDiff;
@@ -2221,27 +2221,29 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	}
 	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
 	{
-		if (bankMSB == 0x3F)
-			chnSt->userInsID = chnSt->curIns;	// QS300 user voices (00..1F only)
-		if (bankMSB >= 0x7E)	// MSB 7E/7F = drum kits
-			chnSt->flags |= 0x80;
-		else
-			chnSt->flags &= ~0x80;
+		UINT8 oldPartMode = chnSt->flags & 0x80;
+		UINT8 newPartMode = (bankMSB >= 0x7E) ? 0x80 : 0x00;	// MSB 7E/7F = drum kits
+		
 		if (_options.flags & PLROPTS_STRICT)
 		{
-			if (chnSt->midChn == 0x09 && ! (chnSt->flags & 0x80))
+			if (chnSt->midChn == 0x09)
 			{
 #if 1
-				if (MMASK_MOD(_options.srcType) == MTXG_MU50)
+				if (MMASK_MOD(_options.srcType) == MTXG_MU50 && (oldPartMode && ! newPartMode))
 				{
-					// for now enforce drum mode on channel 9
-					// TODO: Does S-YXG50 enforce drums on ch9? (Some MIDIs expect drums despite MSB 0.)
-					chnSt->flags |= 0x80;
-					vis_addstr("Keeping drum mode on ch 9!");
+					// S-YXG50 specific behaviour: prevent switch from "drum" to "normal" mode
+					chnSt->ctrls[0x00] = chnSt->insOrg.bank[0];	// It just keeps the previous Bank MSB value (126 or 127)
+					newPartMode = oldPartMode;
+					vis_addstr("Warning: Keeping drum mode on channel 10!");
 				}
 #endif
 			}
 		}
+		
+		if (bankMSB == 0x3F)
+			chnSt->userInsID = chnSt->curIns;	// QS300 user voices (00..1F only)
+		chnSt->flags &= ~0x80;
+		chnSt->flags |= newPartMode;
 		nvChn->_chnMode &= ~0x01;
 		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
 	}
@@ -2375,8 +2377,8 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		
 		oldName = (chnSt->insOrg.bankPtr == NULL) ? "" : chnSt->insOrg.bankPtr->insName;
 		newName = (chnSt->insSend.bankPtr == NULL) ? "" : chnSt->insSend.bankPtr->insName;
-		PrintHexCtrlVal(&bnkNames[ 0], chnSt->ctrls[0x00], '-');
-		PrintHexCtrlVal(&bnkNames[ 3], chnSt->ctrls[0x20], '-');
+		PrintHexCtrlVal(&bnkNames[ 0], bankMSB, '-');
+		PrintHexCtrlVal(&bnkNames[ 3], bankLSB, '-');
 		PrintHexCtrlVal(&bnkNames[ 6], chnSt->curIns, '-');
 		PrintHexCtrlVal(&bnkNames[10], chnSt->insSend.bank[0], '-');
 		PrintHexCtrlVal(&bnkNames[13], chnSt->insSend.bank[1], '-');
@@ -3591,12 +3593,35 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
 				break;
 			
-			if (xData[0x00])
-				chnSt->flags |= 0x80;	// drum mode on
-			else
-				chnSt->flags &= ~0x80;	// drum mode off
-			nvChn->_chnMode &= ~0x01;
-			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
+			{
+				UINT8 oldPartMode = chnSt->flags & 0x80;
+				UINT8 newPartMode = xData[0x00] ? 0x80 : 0x00;	// drum mode on (value 01+) / off (value 00)
+				chnSt->flags &= ~0x80;
+				chnSt->flags |= newPartMode;
+				if (oldPartMode != newPartMode)
+					chnSt->ctrls[0x00] = newPartMode ? 0x7F : 0x00;
+				nvChn->_chnMode &= ~0x01;
+				nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
+				
+				if (chnSt->curIns & 0x80)
+					break;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
+				// reset instrument when changing Part Mode
+				if (oldPartMode != newPartMode && true)	// option: emulate HW instrument reset
+				{
+					UINT8 flags = 0x10;	// re-evaluate instrument, but don't print anything
+					
+					// TODO: investigate details (this is all a rough guess right now)
+					chnSt->ctrls[0x20] = 0x00;
+					chnSt->curIns = 0x00;
+					
+					if (! (_options.flags & PLROPTS_STRICT))
+						flags |= 0x01;	// we don't need to resend anything either
+					
+					MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns & 0x7F, 0x00);
+					HandleInstrumentEvent(chnSt, &insEvt, flags);
+					vis_do_ins_change(portChnID);
+				}
+			}
 			break;
 		case 0x080008:	// Note Shift
 			{
@@ -4207,7 +4232,8 @@ void MidiPlayer::InitializeChannels(void)
 		HandleIns_GetOriginal(&chnSt, &chnSt.insOrg);
 		HandleIns_GetRemapped(&chnSt, &chnSt.insSend);
 		
-		chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
+		// I probably shouldn't reset insOrg. This way I can rely on it for "previously selected instrument" lookups.
+		//chnSt.insOrg.bank[0] = chnSt.insOrg.bank[1] = chnSt.insOrg.ins = 0x00;
 		chnSt.insOrg.bankPtr = NULL;
 		chnSt.insSend.bank[0] = chnSt.insSend.bank[1] = chnSt.insSend.ins = 0xFF;	// initialize to "not set"
 		chnSt.insSend.bankPtr = NULL;
