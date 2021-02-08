@@ -2020,6 +2020,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			isValid = (insID < 0x38) && ((insID & 0x07) == 0x00);
 			isValid |= (insID == 0x01);	// Standard Kit 2
 			isValid |= (insID == 0x19);	// Analog Kit
+			if (MMASK_MOD(devType) >= MTXG_MU100)
+				isValid |= (insID >= 0x7E);	// Standard Kit (MU100 native / MU basic)
 			if (! isValid)
 			{
 				insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-GS drum kits
@@ -2039,6 +2041,17 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 				else
 					gblInsMap = _defDstInsMap;
 				insMap = (chnSt->defInsMap != 0xFF) ? chnSt->defInsMap : gblInsMap;
+				if (true && MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)	// TODO: make optional
+				{
+					if (! (chnSt->flags & 0x80) && insInf->bank[0] == 0x00)
+					{
+						// At this point, insOrg and insInf both have bank[1] set to 0 for unknown instruments.
+						// So we use the original controller value.
+						UINT8 orgBnkLSB = chnSt->ctrls[0x20] & 0x7F;
+						if (orgBnkLSB >= 0x70 && orgBnkLSB <= 0x7D)
+							insMap = 0x01;	// use MU100 native bank for "native voices" of Yamaha keyboards
+					}
+				}
 				
 				insBank = insMap ? 0x7E : 0x7F;	// 7F = MU Basic, 7E = MU100 Native
 				if (insInf->bank[0] == 0x00 && insInf->bank[1] == 0x00)
@@ -2377,8 +2390,8 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		
 		oldName = (chnSt->insOrg.bankPtr == NULL) ? "" : chnSt->insOrg.bankPtr->insName;
 		newName = (chnSt->insSend.bankPtr == NULL) ? "" : chnSt->insSend.bankPtr->insName;
-		PrintHexCtrlVal(&bnkNames[ 0], bankMSB, '-');
-		PrintHexCtrlVal(&bnkNames[ 3], bankLSB, '-');
+		PrintHexCtrlVal(&bnkNames[ 0], bankMSB | (chnSt->ctrls[0x00] & 0x80), '-');
+		PrintHexCtrlVal(&bnkNames[ 3], bankLSB | (chnSt->ctrls[0x20] & 0x80), '-');
 		PrintHexCtrlVal(&bnkNames[ 6], chnSt->curIns, '-');
 		PrintHexCtrlVal(&bnkNames[10], chnSt->insSend.bank[0], '-');
 		PrintHexCtrlVal(&bnkNames[13], chnSt->insSend.bank[1], '-');
@@ -3764,6 +3777,7 @@ void MidiPlayer::AllInsRefresh(void)
 			char portChnStr[4];
 			PrintPortChn(portChnStr, curChn >> 4, curChn & 0x0F);
 			vis_printf("Warning: Channel %s: Drum NRPNs reset due to instrument refresh!", portChnStr);
+			// TODO: vgmusic.com/music/console/nintendo/snes/blyoyo_dragon.mid <-- drums modified via SysEx?
 		}
 		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
 		HandleInstrumentEvent(&chnSt, &insEvt, 0x10);

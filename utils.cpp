@@ -83,7 +83,7 @@ static bool IsAbsolutePath(const char* filePath)
 	{
 		if ((filePath[0] >= 'A' && filePath[0] <= 'Z') ||
 			(filePath[0] >= 'a' && filePath[0] <= 'z'))
-		return true;	// Device Path: C:\path
+			return true;	// Device Path: C:\path
 	}
 	if (! strncmp(filePath, "\\\\", 2))
 		return true;	// Network Path: \\computername\path
