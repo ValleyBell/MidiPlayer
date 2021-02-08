@@ -1328,6 +1328,33 @@ void MidiPlayer::UpdateSongCtrlEvts(void)
 	return;
 }
 
+void MidiPlayer::ForceNoteOff(ChannelState* chnSt, UINT8 note)
+{
+	// forcefully turn off all currently playing instances of the note
+	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
+	std::list<NoteInfo>::iterator ntIt;
+	
+	size_t foundNotes = 0;
+	for (ntIt = chnSt->notes.begin(); ntIt != chnSt->notes.end(); )
+	{
+		if (ntIt->chn == chnSt->midChn && ntIt->note == note)
+		{
+			if (! foundNotes)
+				vis_printf("Turning off overlapping note: %02X %02X %02X\n",
+							0x90 | ntIt->chn, ntIt->note, ntIt->vel);
+			foundNotes ++;
+			
+			ntIt = chnSt->notes.erase(ntIt);
+			nvChn->RemoveNote(note);
+			SendMidiEventS(chnSt->portID, 0x90 | chnSt->midChn, note, 0x00);
+			continue;
+		}
+		++ntIt;
+	}
+	
+	return;
+}
+
 bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	UINT8 evtType = midiEvt->evtType & 0xF0;
@@ -1339,6 +1366,9 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 	
 	if ((evtType & 0x10) && midiEvt->evtValB > 0x00)
 	{
+		if (false)	// TODO: option NoNoteOverlap
+			ForceNoteOff(chnSt, midiEvt->evtValA);
+		
 		// Note On (90 xx 01..7F)
 		NoteInfo nData;
 		nData.chn = evtChn;

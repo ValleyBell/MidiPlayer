@@ -167,6 +167,7 @@ private:
 	void EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 dtMove);
 	void EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove);
 	void UpdateSongCtrlEvts(void);
+	void ForceNoteOff(ChannelState* chnSt, UINT8 note);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);
 	void HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentInfo* insInf, UINT8 devType, const INS_BANK* insBank);
