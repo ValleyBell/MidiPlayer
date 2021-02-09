@@ -1,6 +1,10 @@
 #include <set>
 #include <string.h>	// for memset()
 
+// for outputting all texts
+#include <string>
+#include <list>
+
 #include <stdtype.h>
 #include "MidiLib.hpp"
 #include "MidiInsReader.h"
@@ -584,6 +588,12 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	UINT8 xgDrum;
 	UINT8 spcFeature;
 	
+	UINT8 modTextFlags;
+	
+	std::list<std::string> strList;
+	std::list<std::string>::const_iterator slIt;
+	
+	modTextFlags = 0x00;
 	modChk.gsMaxLSB = 0x00;
 	modChk.MaxDrumKit = 0x00;
 	modChk.MaxDrumMSB = 0x00;
@@ -761,11 +771,42 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 						}
 						break;
 					}
+					if (! evtIt->evtData.empty() && (evtIt->evtValA >= 1 && evtIt->evtValA <= 6))
+					{
+						char cmdStr[0x08];
+						const char* dataPtr = (char*)&evtIt->evtData[0];
+						size_t dataLen = evtIt->evtData.size();
+						const char* nullChr = (const char*)memchr(dataPtr, '\0', dataLen);
+						if (nullChr != NULL)
+							dataLen = nullChr - dataPtr;
+						sprintf(cmdStr, "%02X%02X: ", evtIt->evtType, evtIt->evtValA);
+						strList.push_back(std::string(cmdStr) + std::string(dataPtr, dataPtr + dataLen));
+					}
 					break;
 				}
 				break;
 			}
 		}	// end for (evtIt)
+	}
+	
+	for (slIt = strList.begin(); slIt != strList.end(); ++slIt)
+	{
+		const std::string& str = *slIt;
+		size_t strOfs;
+		
+		if (str.find("SC-55") != std::string::npos || str.find("SC-88") != std::string::npos)
+			modTextFlags |= 0x01;
+		strOfs = str.find("MU");
+		if (strOfs != std::string::npos)
+		{
+			char muNum = str[strOfs + 2];
+			if (muNum >= '0' && muNum <= '9')
+				modTextFlags |= 0x02;
+		}
+		if (str.find("S-YXG") != std::string::npos)
+			modTextFlags |= 0x10;
+		if (str.find("TG300B") != std::string::npos)
+			modTextFlags |= 0x20;
 	}
 	
 	GS_Min = InsMask2ModuleID(modChk.gsimAllMap, 0x00);
@@ -829,6 +870,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		GS_Opt = MT_UNKNOWN;
 	if (XG_Opt > MT_UNKNOWN)
 		XG_Opt = MT_UNKNOWN;
+	//printf("xgDrum %u, DrumMSB %u, DrumIns %u\n", xgDrum, modChk.MaxDrumMSB, modChk.MaxDrumKit);
+	//printf("syxReset 0x%02X, fmGM 0x%X, fmGS 0x%X, fmXG 0x%X\n", sv.syxReset, modChk.fmGM, modChk.fmGS, modChk.fmXG);
 	if (xgDrum && ! (modChk.fmXG & (1 << FMBALL_BAD_INS)))
 	{
 		// enforce XG detection for MIDIs with Bank MSB 127 on drum channels
@@ -856,8 +899,11 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			result->modType = MODULE_TYPE_XG | XG_Opt;
 		else if ((modChk.fmGS & (3 << FMBGS_GS_RESET)) && GS_Opt != MT_UNKNOWN)
 			result->modType = MODULE_TYPE_GS | GS_Opt;	// some SC-55 MIDIs have MT-32 *and* GS reset
+		else if (sv.syxReset == MODULE_GM_1 && (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL2))))
+			result->modType = MODULE_GM_2;
 		else
 			result->modType = sv.syxReset;
+		//printf("Result based on reset: 0x%02X\n", result->modType);
 	}
 	else
 	{
@@ -874,7 +920,10 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			result->modType = MODULE_TYPE_XG | XG_Opt;
 		else
 			result->modType = 0xFF;
+		//printf("Result based on instruments: 0x%02X\n", result->modType);
 	}
+	if (MMASK_TYPE(result->modType) && (modTextFlags & 0x30))
+		result->modType = MODULE_TG300B;
 	
 	return;
 }
