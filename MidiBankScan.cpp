@@ -5,6 +5,10 @@
 #include <string>
 #include <list>
 
+#if CHARSET_DETECTION
+#include <uchardet.h>
+#endif
+
 #include <stdtype.h>
 #include "MidiLib.hpp"
 #include "MidiInsReader.h"
@@ -51,6 +55,7 @@ static const UINT8 PART_ORDER[0x10] =
 static const INS_BANK* insBankGM2 = NULL;
 static const INS_BANK* insBankGS = NULL;
 static const INS_BANK* insBankXG = NULL;
+static std::string tmpCharsetStr;
 
 void SetBankScanInstruments(UINT8 moduleID, const INS_BANK* insBank)
 {
@@ -788,6 +793,46 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			}
 		}	// end for (evtIt)
 	}
+	
+	result->charset = NULL;
+#if CHARSET_DETECTION
+	if (! strList.empty())
+	{
+		std::string allStr;
+		
+		size_t asSize = 0;
+		for (slIt = strList.begin(); slIt != strList.end(); ++slIt)
+			asSize += slIt->length() + 1;
+		allStr.reserve(asSize);
+		for (slIt = strList.begin(); slIt != strList.end(); ++slIt)
+		{
+			allStr += *slIt;
+			allStr += '\n';
+		}
+		
+		uchardet_t ucd = uchardet_new();
+		// For some reason I don't understand, uchardet behaves differently when feeding
+		// it line-by-line compared to all-at-once.
+		// In the case of line-by-line, if often just produced an "ASCII" result.
+		int ret = uchardet_handle_data(ucd, allStr.c_str(), allStr.length());
+		uchardet_data_end(ucd);
+		
+		result->charset = uchardet_get_charset(ucd);
+		// store result into a separate buffer, as the pointer goes out-of-scope when the detector is destroyed
+		tmpCharsetStr = (result->charset != NULL) ? result->charset : "";
+		
+		// do some minor remapping
+		if (tmpCharsetStr == "ASCII")
+			tmpCharsetStr = "";	// ASCII is as good as no detection
+		else if (tmpCharsetStr == "SHIFT_JIS")
+			tmpCharsetStr = "CP932";	// CP932 is a very common variant of ShiftJIS
+		else if (tmpCharsetStr == "EUC-KR")
+			tmpCharsetStr = "CP949";
+		
+		result->charset = tmpCharsetStr.empty() ? NULL : tmpCharsetStr.c_str();
+		uchardet_delete(ucd);
+	}
+#endif
 	
 	for (slIt = strList.begin(); slIt != strList.end(); ++slIt)
 	{

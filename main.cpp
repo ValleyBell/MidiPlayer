@@ -68,6 +68,7 @@ static void Vector_Str2UInt32(const std::vector<std::string>& strList, std::vect
 static UINT16 ParseChnMask(const std::string& maskStr);
 static void ParseChnMaskList(const std::vector<std::string>& maskStrList, std::vector<UINT16>& maskList);
 static UINT8 LoadConfig(const std::string& cfgFile);
+static void SetVisualizationCharsets(const char* preferredCharset);
 static const char* GetStr1or2(const char* str1, const char* str2);
 static const char* GetModuleTypeNameS(UINT8 modType);
 static const char* GetModuleTypeNameL(UINT8 modType);
@@ -110,6 +111,7 @@ static size_t songOptDev;	// optimal device
 extern std::vector<UINT8> optShowMeta;
 extern UINT8 optShowInsChange;
 static std::string defCodepages[2];
+static bool optDetectCP;
 
 static std::vector<std::string> appSearchPaths;
 static std::string cfgBasePath;
@@ -118,7 +120,8 @@ static std::string strmSrv_pidFile;
 static int strmSrv_PIDopt;
 static int strmSrv_curPID;
 
-static iconv_t hCurIConv[2];
+static std::map<std::string, iconv_t> hCpConvs;
+static std::vector<iconv_t> hCurIConv;
 
 static BANKSCAN_RESULT scanRes;
 static size_t modIDOpen;
@@ -195,6 +198,7 @@ int main(int argc, char* argv[])
 	syxFile = "";
 	optShowMeta.resize(9, 1);
 	optShowInsChange = 1;
+	optDetectCP = true;
 	defCodepages[0] = "";
 	defCodepages[1] = "";
 	strmSrv_PIDopt = 0;
@@ -384,12 +388,13 @@ int main(int argc, char* argv[])
 	{
 		// Printing is always done in UTF-8.
 		if (defCodepages[curCP].empty())
-			hCurIConv[curCP] = NULL;
-		else
-			hCurIConv[curCP] = iconv_open("UTF-8", defCodepages[curCP].c_str());
+			continue;
+		iconv_t hIConv = iconv_open("UTF-8", defCodepages[curCP].c_str());
+		if (hIConv != NULL)
+			hCpConvs[defCodepages[curCP]] = hIConv;
 	}
 	vis_init();
-	vis_set_locales(2, hCurIConv);
+	SetVisualizationCharsets(NULL);
 	vis_set_midi_modules(&midiModColl);
 	didSendSyx = false;
 	
@@ -547,10 +552,11 @@ int main(int argc, char* argv[])
 	//if (resVal)
 	//	vis_getch_wait();
 	vis_deinit();
-	for (curCP = 0; curCP < 2; curCP ++)
 	{
-		if (hCurIConv[curCP] != NULL)
-			iconv_close(hCurIConv[curCP]);
+		std::map<std::string, iconv_t>::iterator cpIt;
+		for (cpIt = hCpConvs.begin(); cpIt != hCpConvs.end(); ++cpIt)
+			iconv_close(cpIt->second);
+		hCpConvs.clear();
 	}
 #if ENABLE_ZIP_SUPPORT
 	if (! lastUnzFN.empty())
@@ -887,6 +893,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	optShowMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
 	optShowMeta[0] = iniFile.GetBoolean("Display", "ShowMetaOther", true);
 	
+	optDetectCP = iniFile.GetBoolean("Display", "DetectCodepage", true);
 	defCodepages[0] = iniFile.GetString("Display", "DefaultCodepage", "");
 	defCodepages[1] = iniFile.GetString("Display", "FallbackCodepage", "");
 	
@@ -974,6 +981,33 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	}
 	
 	return 0x00;
+}
+
+static void SetVisualizationCharsets(const char* preferredCharset)
+{
+	UINT8 curCP;
+	std::map<std::string, iconv_t>::const_iterator cpIt;
+	
+	hCurIConv.clear();
+	if (preferredCharset != NULL)
+	{
+		cpIt = hCpConvs.find(preferredCharset);
+		if (cpIt != hCpConvs.end())
+			hCurIConv.push_back(cpIt->second);
+	}
+	
+	for (curCP = 0; curCP < 2; curCP ++)
+	{
+		if (defCodepages[curCP].empty())
+			continue;
+		cpIt = hCpConvs.find(defCodepages[curCP]);
+		if (cpIt != hCpConvs.end())
+			hCurIConv.push_back(cpIt->second);
+	}
+	
+	if (! hCurIConv.empty())
+		vis_set_locales(hCurIConv.size(), &hCurIConv[0]);
+	return;
 }
 
 static const char* GetStr1or2(const char* str1, const char* str2)
@@ -1153,6 +1187,17 @@ void PlayMidi(void)
 	midPlay.SetOptions(plrOpts);
 	midPlay._numLoops = numLoops ? numLoops : defNumLoops;
 	
+	if (optDetectCP)
+	{
+		if (scanRes.charset != NULL && hCpConvs.find(scanRes.charset) != hCpConvs.end())
+		{
+			iconv_t hIConv = iconv_open("UTF-8", scanRes.charset);
+			if (hIConv != NULL)
+				hCpConvs[scanRes.charset] = hIConv;
+		}
+		SetVisualizationCharsets(scanRes.charset);
+	}
+	
 	midPlay.SetMidiFile(&CMidi);
 	if (songList.size() > 1)
 	{
@@ -1321,9 +1366,9 @@ static std::string GetMidiSongTitle(MidiFile* cMidi)
 			std::string evtText = Vector2String(evtIt->evtData);
 			std::string convText;
 			char retVal;
-			UINT8 curCP;
+			size_t curCP;
 			
-			for (curCP = 0; curCP < 2; curCP ++)
+			for (curCP = 0; curCP < hCurIConv.size(); curCP ++)
 			{
 				retVal = StrCharsetConv(hCurIConv[curCP], convText, evtText);
 				if (! (retVal & 0x80))

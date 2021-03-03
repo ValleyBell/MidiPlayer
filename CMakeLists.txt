@@ -77,6 +77,17 @@ elseif(UNIX)
 	set(LIBRARIES ${LIBRARIES} ${ALSA_LIBRARY})
 endif()
 
+# --- character set detection ---
+option(CHARSET_DETECTION "Detect song character charset" OFF)
+if (CHARSET_DETECTION)
+	find_path(UCHARDET_INCLUDE_DIR NAMES uchardet.h PATH_SUFFIXES uchardet)
+	find_library(UCHARDET_LIBRARY_RELEASE NAMES uchardet)
+	set(DEFINES ${DEFINES} CHARSET_DETECTION=1)
+	set(INCLUDES ${INCLUDES} ${UCHARDET_INCLUDE_DIR})
+	set(LIBRARIES ${LIBRARIES} ${UCHARDET_LIBRARY_RELEASE})
+endif()
+
+
 # --- character set conversion and graphical output ---
 find_package(Iconv REQUIRED)
 set(LIBRARIES ${LIBRARIES} Iconv::Iconv)

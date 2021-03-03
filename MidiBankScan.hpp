@@ -62,6 +62,8 @@ typedef struct
 	UINT8 XG_Opt;		// XG module ID: optimal playback
 	
 	MODULE_CHECK details;
+	
+	const char* charset;	// character set of the texts (NULL for detection failure / no detection)
 } BANKSCAN_RESULT;
 
 void SetBankScanInstruments(UINT8 moduleID, const INS_BANK* insBank);
