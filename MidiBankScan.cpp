@@ -20,8 +20,8 @@ struct SCAN_VARS
 	std::set<UINT8> portIDs;
 	UINT16 drumChnMask;	// 16 bits, set = drum, clear = melody channel
 	UINT16 chnUseMask;	// temporary hack, required for MIDIs that set up instruments in a separate track after all notes
-	UINT8 insBankBuf[16][2];
-	UINT8 insBank[16][3];
+	UINT8 insBankBuf[16][2];	// [0] Bank MSB, [1] Bank LSB
+	UINT8 insBank[16][3];	// [0] Bank MSB, [1] Bank LSB, [2] instrument
 	UINT8 lastPortID;
 	UINT8 curPortID;
 	UINT8 syxReset;	// keeps track of the most recent Reset message type
@@ -820,15 +820,6 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 		result->charset = uchardet_get_charset(ucd);
 		// store result into a separate buffer, as the pointer goes out-of-scope when the detector is destroyed
 		tmpCharsetStr = (result->charset != NULL) ? result->charset : "";
-		
-		// do some minor remapping
-		if (tmpCharsetStr == "ASCII")
-			tmpCharsetStr = "";	// ASCII is as good as no detection
-		else if (tmpCharsetStr == "SHIFT_JIS")
-			tmpCharsetStr = "CP932";	// CP932 is a very common variant of ShiftJIS
-		else if (tmpCharsetStr == "EUC-KR")
-			tmpCharsetStr = "CP949";
-		
 		result->charset = tmpCharsetStr.empty() ? NULL : tmpCharsetStr.c_str();
 		uchardet_delete(ucd);
 	}

@@ -1000,6 +1000,8 @@ static void SetVisualizationCharsets(const char* preferredCharset)
 	{
 		if (defCodepages[curCP].empty())
 			continue;
+		if (preferredCharset != NULL && defCodepages[curCP] == preferredCharset)
+			continue;
 		cpIt = hCpConvs.find(defCodepages[curCP]);
 		if (cpIt != hCpConvs.end())
 			hCurIConv.push_back(cpIt->second);
@@ -1189,13 +1191,25 @@ void PlayMidi(void)
 	
 	if (optDetectCP)
 	{
-		if (scanRes.charset != NULL && hCpConvs.find(scanRes.charset) != hCpConvs.end())
+		std::string charSet = (scanRes.charset != NULL) ? scanRes.charset : "";
+		// do some minor remapping
+		if (charSet == "ASCII")
+			charSet = "";	// ASCII is as good as no detection
+		else if (charSet == "WINDOWS-1252")
+			charSet = "CP1252";	// same encoding, different name
+		else if (charSet == "SHIFT_JIS")
+			charSet = "CP932";	// CP932 is a very common variant of ShiftJIS
+		else if (charSet == "EUC-KR")
+			charSet = "CP949";
+		
+		const char* csPtr = charSet.empty() ? NULL : charSet.c_str();
+		if (! charSet.empty() && hCpConvs.find(charSet) == hCpConvs.end())
 		{
-			iconv_t hIConv = iconv_open("UTF-8", scanRes.charset);
+			iconv_t hIConv = iconv_open("UTF-8", csPtr);
 			if (hIConv != NULL)
-				hCpConvs[scanRes.charset] = hIConv;
+				hCpConvs[charSet] = hIConv;
 		}
-		SetVisualizationCharsets(scanRes.charset);
+		SetVisualizationCharsets(csPtr);
 	}
 	
 	midPlay.SetMidiFile(&CMidi);
@@ -1261,6 +1275,8 @@ void PlayMidi(void)
 	}
 	
 	vis_new_song();
+	if (scanRes.charset != NULL)
+		vis_printf("Detected Codepage: %s\n", scanRes.charset);
 	
 	midPlay.Start();
 	if (! syxData.empty() && (! didSendSyx || false))
