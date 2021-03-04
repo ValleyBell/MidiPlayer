@@ -390,7 +390,7 @@ int main(int argc, char* argv[])
 		if (defCodepages[curCP].empty())
 			continue;
 		iconv_t hIConv = iconv_open("UTF-8", defCodepages[curCP].c_str());
-		if (hIConv != NULL)
+		if (hIConv != (iconv_t)-1)
 			hCpConvs[defCodepages[curCP]] = hIConv;
 	}
 	vis_init();
@@ -1206,7 +1206,7 @@ void PlayMidi(void)
 		if (! charSet.empty() && hCpConvs.find(charSet) == hCpConvs.end())
 		{
 			iconv_t hIConv = iconv_open("UTF-8", csPtr);
-			if (hIConv != NULL)
+			if (hIConv != (iconv_t)-1)
 				hCpConvs[charSet] = hIConv;
 		}
 		SetVisualizationCharsets(csPtr);
