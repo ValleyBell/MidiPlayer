@@ -533,6 +533,21 @@ static void HandleSysEx_XG(UINT32 syxLen, const UINT8* syxData, MODULE_CHECK* mo
 			sv->insBank[evtChn][2] = syxData[0x06];
 			MayDoInsCheck(modChk, sv, evtChn, false);
 			break;
+		case 0x080007:	// Part Mode
+			// 00 - normal (melodic)
+			// 01 - drum (auto)
+			// 02..05 - drum S1..S4
+			if (syxData[0x06] == 0x00)	// Normal
+			{
+				sv->drumChnMask &= ~(1 << evtChn);
+			}
+			else
+			{
+				sv->drumChnMask |= (1 << evtChn);
+				if (syxData[0x06] >= 0x04)	// no drum parts 3/4 for MU50 (needs MU80/90 or higher)
+					modChk->fmXG |= 1 << (FMBALL_INSSET + MTXG_MU80);
+			}
+			break;
 		}
 		break;
 	}

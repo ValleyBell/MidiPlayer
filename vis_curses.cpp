@@ -102,6 +102,7 @@ public:
 	UINT16 _chnID;
 	int _posY;
 	int _color;
+	int _noteColor;
 	std::string _insName;
 	INT8 _pan;	// -1 - left, 0 - centre, +1 - right
 	UINT8 _noteFlags;
@@ -1766,6 +1767,7 @@ void ChannelData::Initialize(UINT16 chnID, size_t screenWidth)
 	_chnID = chnID;
 	_posY = _chnID;
 	_color = (_chnID % 6) + 1;
+	_noteColor = _color;
 	_insName = std::string(INS_COL_SIZE, ' ');
 	_pan = 0;
 	
@@ -1914,6 +1916,7 @@ void ChannelData::RefreshNotes(const NoteVisualization* noteVis, const NoteVisua
 	{
 		noteList = chnInfo->GetProcessedNoteList(noteVis->GetAttributes());
 		_noteFlags = chnInfo->_chnMode;
+		_noteColor = (chnInfo->_chnColor == 0xFF) ? 0 : ((chnInfo->_chnColor % 6) + 1);
 	}
 	
 	for (nlIt = noteList.begin(); nlIt != noteList.end(); ++nlIt)
@@ -2018,11 +2021,11 @@ void ChannelData::DrawNoteName(size_t slot)
 	}
 	
 	PadString(noteName, NOTE_NAME_SPACE, ' ', nDisp.subcol);
-	wattron(nvWin, COLOR_PAIR(_color));
+	wattron(nvWin, COLOR_PAIR(_noteColor));
 	if (nDisp.vol >= 2)
 		wattron(nvWin, A_BOLD);
 	mvwaddstr(nvWin, _posY, posX, noteName);
-	wattroff(nvWin, A_BOLD | COLOR_PAIR(_color));
+	wattroff(nvWin, A_BOLD | COLOR_PAIR(_noteColor));
 	
 	return;
 }

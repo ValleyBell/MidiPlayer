@@ -66,6 +66,12 @@ public:
 		UINT8 ctrls[0x80];	// Bit 7 (80) - is still the default value
 		UINT8 idCC[2];	// for SC-8820 CC1/CC2 remapping
 		
+		UINT8 devPartID;	// 00..0F = A01..A16, 10..1F = B01..B16, FF = off
+		UINT8 devPartMode;	// 00 = normal, 80 = drum 1, 81 = drum 2, ..., FF = XG drum auto
+		UINT8 gsPortID;
+		UINT8 gsPartID;
+		UINT8 keyLow;		// minimum key (lowest note) on this channel
+		UINT8 keyHigh;		// maximum key (highest note) on this channel
 		UINT8 rpnCtrl[2];	// [0] = MSB, [1] = LSB, 00..7F = RPN, 80..FF = NRPN
 		bool hadDrumNRPN;
 		INT8 pbRange;
@@ -178,6 +184,7 @@ private:
 	void HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo* insInf);
 	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf);
 	bool HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
+	void DoChangedPartMode(ChannelState* chnSt, UINT8 moduleType);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syxData);
 	bool HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxData);

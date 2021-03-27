@@ -864,8 +864,6 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		
 		if (evtType == 0xB0)
 			vis_do_ctrl_change(portChnID, midiEvt->evtValA);
-		else if (evtType == 0xC0)
-			vis_do_ins_change(portChnID);
 		return;
 	}
 	
@@ -1371,7 +1369,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 {
 	UINT8 evtType = midiEvt->evtType & 0xF0;
 	UINT8 evtChn = midiEvt->evtType & 0x0F;
-	NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
+	size_t visChnID;
 	
 	if ((evtType & 0xE0) != 0x80)
 		return false;	// must be Note On or Note Off
@@ -1397,7 +1395,14 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 			std::advance(ntIt, 0x80 - 0x20);
 			chnSt->notes.erase(chnSt->notes.begin(), ntIt);
 		}
-		nvChn->AddNote(midiEvt->evtValA, midiEvt->evtValB);
+		for (visChnID = 0; visChnID < _chnStates.size(); visChnID ++)
+		{
+			ChannelState& visChnSt = _chnStates[visChnID];
+			if (visChnSt.devPartID != chnSt->devPartID)
+				continue;
+			if (midiEvt->evtValA >= visChnSt.keyLow && midiEvt->evtValA <= visChnSt.keyHigh)
+				_noteVis.GetChannel(visChnID)->AddNote(midiEvt->evtValA, midiEvt->evtValB);
+		}
 	}
 	else
 	{
@@ -1411,7 +1416,14 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 				break;
 			}
 		}
-		nvChn->RemoveNote(midiEvt->evtValA);
+		for (visChnID = 0; visChnID < _chnStates.size(); visChnID ++)
+		{
+			ChannelState& visChnSt = _chnStates[visChnID];
+			if (visChnSt.devPartID != chnSt->devPartID)
+				continue;
+			if (midiEvt->evtValA >= visChnSt.keyLow && midiEvt->evtValA <= visChnSt.keyHigh)
+				_noteVis.GetChannel(visChnID)->RemoveNote(midiEvt->evtValA);
+		}
 	}
 	
 	return false;
@@ -2465,6 +2477,23 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	chnSt->insState[1] = chnSt->insSend.bank[1];
 	chnSt->insState[2] = chnSt->insSend.ins & 0x7F;
 	
+	vis_do_ins_change(chnSt->fullChnID);
+	if ((chnSt->devPartMode & 0x80) && chnSt->devPartMode != 0xFF)
+	{
+		for (size_t drmChnID = 0; drmChnID < _chnStates.size(); drmChnID ++)
+		{
+			ChannelState& drmChnSt = _chnStates[drmChnID];
+			if (drmChnID == chnSt->fullChnID)
+				continue;
+			if (drmChnSt.devPartMode != chnSt->devPartMode)
+				continue;
+			drmChnSt.curIns = chnSt->curIns;
+			drmChnSt.insOrg = chnSt->insOrg;
+			drmChnSt.insSend = chnSt->insSend;
+			vis_do_ins_change(drmChnSt.fullChnID);
+		}
+	}
+	
 	if (noact & 0x01)
 		return false;
 	
@@ -2566,6 +2595,82 @@ static bool CheckRolandChecksum(size_t dataLen, const UINT8* data)
 	sum &= 0x7F;
 	
 	return ! sum;
+}
+
+void MidiPlayer::DoChangedPartMode(ChannelState* chnSt, UINT8 moduleType)
+{
+	// XG "Drum (auto)" has separate drum kits per channel
+	if ((chnSt->devPartMode & 0x80) && chnSt->devPartMode != 0xFF)
+	{
+		ChannelState* drumChnSt = NULL;
+		// For drum parts, search for another channel that uses the same drum part
+		// and copy its settings.
+		// On GS/XG devices, channels that share the same drum part will share
+		// the instrument settings. (and all NRPN stuff etc.)
+		for (size_t chnID = 0; chnID < _chnStates.size(); chnID ++)
+		{
+			if (&_chnStates[chnID] == chnSt)
+				continue;
+			if (_chnStates[chnID].devPartMode == chnSt->devPartMode)
+			{
+				drumChnSt = &_chnStates[chnID];
+				break;
+			}
+		}
+		if (drumChnSt != NULL)
+		{
+			// get drum kit from other channel
+			chnSt->ctrls[0x00] = drumChnSt->ctrls[0x00];
+			chnSt->ctrls[0x20] = drumChnSt->ctrls[0x20];
+			chnSt->curIns = drumChnSt->curIns;
+			if (chnSt->curIns & 0x80)
+				return;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
+			
+			MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt->midChn, chnSt->curIns, 0x00);
+			HandleInstrumentEvent(chnSt, &insEvt, 0x11);
+			return;
+		}
+	}
+	
+	if (chnSt->curIns & 0x80)
+		return;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
+	
+	UINT8 flags = 0x10;	// re-evaluate instrument, but don't print anything
+	if (moduleType == MODULE_TYPE_GS)
+	{
+		if (true)	// option: emulate HW instrument reset
+		{
+			// The message always resets Bank MSB and the instrument to 0.
+			// Due to the way it works, the current Bank LSB value is also applied, even if it was changed
+			// since the last instrument change.
+			chnSt->ctrls[0x00] = 0x00;
+			chnSt->curIns = 0x00;
+			if (! (_options.flags & PLROPTS_STRICT))
+				flags |= 0x01;	// we don't need to resend anything either
+		}
+		
+	}
+	else if (moduleType == MODULE_TYPE_XG)
+	{
+		if (true)	// option: emulate HW instrument reset
+		{
+			// TODO: implement hardware behaviour
+			// This requires separate storage of per-channel "normal" voice + "Drum (auto)" voice,
+			// as well as global storage for "Drum 1..4".
+			chnSt->ctrls[0x20] = 0x00;
+			chnSt->curIns = 0x00;
+			if (! (_options.flags & PLROPTS_STRICT))
+				flags |= 0x01;	// we don't need to resend anything either
+		}
+	}
+	else
+	{
+		return;
+	}
+	MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt->midChn, chnSt->curIns, 0x00);
+	HandleInstrumentEvent(chnSt, &insEvt, flags);
+	
+	return;
 }
 
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
@@ -3090,6 +3195,22 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				evtChn = PART_ORDER[syxData[0x06] & 0x0F];
 				evtPort = syxData[0x06] >> 4;
+				portChnID = FULL_CHN_ID(evtPort, evtChn);
+				if (portChnID < _chnStates.size())
+				{
+					chnSt = &_chnStates[portChnID];
+					nvChn = _noteVis.GetChannel(chnSt->fullChnID);
+					
+					chnSt->notes.clear();
+					nvChn->ClearNotes();
+					
+					chnSt->gsPortID = xData[0x00];
+					if (chnSt->gsPartID >= 0x10 || chnSt->gsPortID == 0xFF)
+						chnSt->devPartID = 0xFF;
+					else
+						chnSt->devPartID = (chnSt->gsPortID << 4) | (chnSt->gsPartID << 0);
+					nvChn->_chnColor = chnSt->devPartID;
+				}
 				// Note: Receiving this on Port B does NOT invert the port.
 				// (unlike addresses 40xxxx/50xxxx, for which the port correction is
 				// even mentioned by the manual)
@@ -3258,14 +3379,22 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 				HandleInstrumentEvent(chnSt, &insEvt, 0x11);
-				vis_do_ins_change(portChnID);
 			}
 			break;
 		case 0x401002:	// Receive Channel
+			chnSt->notes.clear();
+			nvChn->ClearNotes();
+			
+			chnSt->gsPartID = xData[0x00];
+			if (chnSt->gsPartID >= 0x10 || chnSt->gsPortID == 0xFF)
+				chnSt->devPartID = 0xFF;
+			else
+				chnSt->devPartID = (chnSt->gsPortID << 4) | (chnSt->gsPartID << 0);
+			nvChn->_chnColor = chnSt->devPartID;
 			if (xData[0x00] >= 0x10)
 				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %s", portChnStr, "--");
 			else
-				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + xData[0x00]);
+				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + chnSt->gsPartID);
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
 			if (! xData[0x00])
@@ -3275,32 +3404,19 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				break;
 			
-			if (xData[0x00])
-				chnSt->flags |= 0x80;	// drum mode on
-			else
-				chnSt->flags &= ~0x80;	// drum mode off
-			nvChn->_chnMode &= ~0x01;
-			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
-			
-			if (chnSt->curIns & 0x80)
-				break;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
+			if (! xData[0x00])
 			{
-				UINT8 flags = 0x10;	// re-evaluate instrument, but don't print anything
-				if (true)	// option: emulate HW instrument reset
-				{
-					// The message always resets Bank MSB and the instrument to 0.
-					// Due to the way it works, the current Bank LSB value is also applied, even if it was changed
-					// since the last instrument change.
-					chnSt->ctrls[0x00] = 0x00;
-					chnSt->curIns = 0x00;
-					if (! (_options.flags & PLROPTS_STRICT))
-						flags |= 0x01;	// we don't need to resend anything either
-				}
-				
-				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
-				HandleInstrumentEvent(chnSt, &insEvt, flags);
-				vis_do_ins_change(portChnID);
+				chnSt->devPartMode = 0x00;
+				chnSt->flags &= ~0x80;	// drum mode off
+				nvChn->_chnMode &= ~0x01;
 			}
+			else
+			{
+				chnSt->devPartMode = 0x80 | (xData[0x00] - 0x01);
+				chnSt->flags |= 0x80;	// drum mode on
+				nvChn->_chnMode |= 0x01;
+			}
+			DoChangedPartMode(chnSt, MODULE_TYPE_GS);
 			break;
 		case 0x401016:	// Pitch Key Shift
 			{
@@ -3337,6 +3453,12 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			chnSt->ctrls[0x0A] = xData[0x00];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 			vis_do_ctrl_change(portChnID, 0x0A);
+			break;
+		case 0x40101D:	// Keyboard Range Low
+			chnSt->keyLow = xData[0x00];
+			break;
+		case 0x40101E:	// Keyboard Range High
+			chnSt->keyHigh = xData[0x00];
 			break;
 		case 0x40101F:	// CC1 Controller Number
 		case 0x401020:	// CC2 Controller Number
@@ -3625,16 +3747,20 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			{
 				MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns, 0x00);
 				HandleInstrumentEvent(chnSt, &insEvt, 0x11);
-				vis_do_ins_change(portChnID);
 			}
 			break;
 		case 0x080004:	// Receive Channel
+			chnSt->notes.clear();
+			nvChn->ClearNotes();
+			
 			{
 				char recvPCStr[4];
-				if (xData[0x00] == 0x7F)
+				chnSt->devPartID = (xData[0x00] == 0x7F) ? 0xFF : xData[0x00];
+				nvChn->_chnColor = chnSt->devPartID;
+				if (chnSt->devPartID == 0xFF)
 					PrintPortChn(recvPCStr, 0xFF, 0xFF);
 				else
-					PrintPortChn(recvPCStr, xData[0x00] >> 4, xData[0x00] & 0x0F);
+					PrintPortChn(recvPCStr, chnSt->devPartID >> 4, chnSt->devPartID & 0x0F);
 				vis_printf("SysEx XG Chn %s: Receive from MIDI channel %s", portChnStr, recvPCStr);
 			}
 			break;
@@ -3649,33 +3775,30 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				break;
 			
 			{
-				UINT8 oldPartMode = chnSt->flags & 0x80;
-				UINT8 newPartMode = xData[0x00] ? 0x80 : 0x00;	// drum mode on (value 01+) / off (value 00)
-				chnSt->flags &= ~0x80;
-				chnSt->flags |= newPartMode;
-				if (oldPartMode != newPartMode)
-					chnSt->ctrls[0x00] = newPartMode ? 0x7F : 0x00;
-				nvChn->_chnMode &= ~0x01;
-				nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
-				
-				if (chnSt->curIns & 0x80)
-					break;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
-				// reset instrument when changing Part Mode
-				if (oldPartMode != newPartMode && true)	// option: emulate HW instrument reset
+				UINT8 oldPartMode = chnSt->devPartMode;
+				if (xData[0x00] == 0x00)
 				{
-					UINT8 flags = 0x10;	// re-evaluate instrument, but don't print anything
-					
-					// TODO: investigate details (this is all a rough guess right now)
-					chnSt->ctrls[0x20] = 0x00;
-					chnSt->curIns = 0x00;
-					
-					if (! (_options.flags & PLROPTS_STRICT))
-						flags |= 0x01;	// we don't need to resend anything either
-					
-					MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | evtChn, chnSt->curIns & 0x7F, 0x00);
-					HandleInstrumentEvent(chnSt, &insEvt, flags);
-					vis_do_ins_change(portChnID);
+					chnSt->devPartMode = 0x00;
+					chnSt->flags &= ~0x80;	// drum mode off
+					nvChn->_chnMode &= ~0x01;
 				}
+				else
+				{
+					if (xData[0x00] == 0x01)
+						chnSt->devPartMode = 0x80 | 0x7F;
+					else
+						chnSt->devPartMode = 0x80 | (xData[0x00] - 0x02);
+					chnSt->flags |= 0x80;	// drum mode on
+					nvChn->_chnMode |= 0x01;
+				}
+				if (oldPartMode != chnSt->devPartMode)
+					chnSt->ctrls[0x00] = chnSt->devPartMode ? 0x7F : 0x00;
+				
+				// Note: The HW actually keeps the instrument for "normal" and "drum" modes saved separately.
+				// Switching [Normal] -> [Drum] -> [Normal] actually restores the melody instrument.
+				// (That is unlike Roland, whose devices will reset the instrument.)
+				if (oldPartMode != chnSt->devPartMode)
+					DoChangedPartMode(chnSt, MODULE_TYPE_XG);
 			}
 			break;
 		case 0x080008:	// Note Shift
@@ -3709,6 +3832,12 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			chnSt->ctrls[0x0A] = xData[0x00];
 			nvChn->_attr.pan = (INT8)chnSt->ctrls[0x0A] - 0x40;
 			vis_do_ctrl_change(portChnID, 0x0A);
+			break;
+		case 0x08000F:	// Note Limit Low
+			chnSt->keyLow = xData[0x00];
+			break;
+		case 0x080010:	// Note Limit High
+			chnSt->keyHigh = xData[0x00];
 			break;
 		case 0x080011:	// Dry Level
 			break;
@@ -3823,7 +3952,6 @@ void MidiPlayer::AllInsRefresh(void)
 		}
 		MidiEvent insEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
 		HandleInstrumentEvent(&chnSt, &insEvt, 0x10);
-		vis_do_ins_change(curChn);
 	}
 	
 	return;
@@ -3914,7 +4042,6 @@ void MidiPlayer::AllChannelRefresh(void)
 			chnSt.insState[0] = chnSt.insState[1] = chnSt.insState[2] = 0xFF;	// enforce resending
 			tempEvt = MidiTrack::CreateEvent_Std(0xC0 | chnSt.midChn, chnSt.curIns, 0x00);
 			HandleInstrumentEvent(&chnSt, &tempEvt, 0x10);
-			vis_do_ins_change(curChn);
 		}
 		// Main Volume (7) and Pan (10) may be patched
 		// TODO: don't remove "default" flag in chnSt.ctrls during event processing
@@ -4263,6 +4390,12 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.ctrls[0x5B] = 0x80 | 40;
 		chnSt.idCC[0] = chnSt.idCC[1] = 0xFF;
 		
+		chnSt.devPartID = curChn;
+		chnSt.devPartMode = 0x00;
+		chnSt.gsPortID = curChn >> 4;
+		chnSt.gsPartID = curChn & 0x0F;
+		chnSt.keyLow = 0x00;
+		chnSt.keyHigh = 0x7F;
 		chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0x7F;
 		chnSt.hadDrumNRPN = false;
 		chnSt.pbRangeUnscl = _defPbRange;
@@ -4278,8 +4411,16 @@ void MidiPlayer::InitializeChannels(void)
 	{
 		ChannelState& drumChn = _chnStates[curChn | 0x09];
 		drumChn.flags |= 0x80;	// set drum channel mode
+		// GS: channel 10 defaults to Drum 1, there is a set of 2 drum parts per port
+		// XG: A10: Drum 1, B10: Drum 3, C10/D10: Drum (auto)
+		// Thus, we initialize with (port ID * 2).
+		drumChn.devPartMode = 0x80 | (drumChn.portID * 2);
 		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
-			drumChn.ctrls[0x00] = 0x80 | 0x7F;	// default to Drum bank
+		{
+			if (drumChn.portID >= 2)
+				drumChn.devPartMode = 0x80 | 0x7F;	// default to Drum (auto)
+			drumChn.ctrls[0x00] = 0x80 | 0x7F;	// default to Bank MSB 7F (drum bank)
+		}
 	}
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{

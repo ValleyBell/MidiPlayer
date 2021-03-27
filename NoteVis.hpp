@@ -28,7 +28,9 @@ public:
 	struct ChnInfo
 	{
 		// --- general settings ---
+		UINT8 _chnID;
 		UINT8 _chnMode;	// 00 - normal, 01 - drum
+		UINT8 _chnColor;
 		
 		// --- settings via MIDI controllers ---
 		MidiModifiers _attr;	// attributes
@@ -37,7 +39,7 @@ public:
 		INT8 _transpose;	// RPN coarse tuning (-0x40 .. 0x00 .. +0x3F)
 		INT8 _detune;		// RPN fine tuning (-0x40 .. 0x00 .. +0x3F)
 		
-		void Initialize(void);
+		void Initialize(UINT8 chnID);
 		NoteInfo* AddNote(UINT8 note, UINT8 vel);
 		void RemoveNote(UINT8 note);
 		void ClearNotes(void);

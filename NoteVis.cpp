@@ -56,7 +56,7 @@ void NoteVisualization::Initialize(UINT8 chnGroups)
 	for (curChn = 0; curChn < _chnList.size(); curChn  ++)
 	{
 		ChnInfo& chn = _chnList[curChn];
-		chn.Initialize();
+		chn.Initialize((UINT8)curChn);
 		if ((curChn & 0x0F) == 0x09)
 			chn._chnMode = 0x01;	// drum channel
 	}
@@ -106,9 +106,11 @@ void NoteVisualization::AdvanceAge(UINT32 time)
 }
 
 
-void NoteVisualization::ChnInfo::Initialize(void)
+void NoteVisualization::ChnInfo::Initialize(UINT8 chnID)
 {
+	_chnID = chnID;
 	_chnMode = 0x00;
+	_chnColor = _chnID;
 	_attr.volume = 100;
 	_attr.expression = 0x7F;
 	_attr.pan = 0x00;
