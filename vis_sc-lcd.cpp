@@ -451,6 +451,8 @@ void LCDDisplay::DrawTitleText(void)
 		wprintw(_hWin, "%s", _tempText);
 		break;
 	case TTMODE_SHOW2:
+		wmove(_hWin, 1, MATRIX_BASE_X);	wclrtoeol(_hWin);
+		
 		wmove(_hWin, 0, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - 16) / 2);
 		wprintw(_hWin, "%.16s", &_tempText[0x00]);
 		wmove(_hWin, 1, MATRIX_BASE_X + (16 * MATRIX_COL_SIZE - 16) / 2);
@@ -514,11 +516,6 @@ void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode, UINT32 dispTim
 			_ttScrollEnd = textLen + 18;
 			_ttTimeout = 300;
 		}
-	}
-	else if (_ttMode == TTMODE_SHOW2)
-	{
-		if (textLen <= 16)
-			_ttMode = TTMODE_SHOW1;
 	}
 	
 	DrawTitleText();

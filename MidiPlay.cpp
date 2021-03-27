@@ -637,7 +637,7 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 	UINT64 curTime = Timer_GetTime();
 	
 	// calculate in-song time of _tmrStep (time of next event)
-	UINT64 tmrTick = _tempoPos->tmrTick + (_nextEvtTick - _tempoPos->tick) * _curTickTime;
+	UINT64 tmrTick = _tempoPos->tmrTick + ((INT32)_nextEvtTick - _tempoPos->tick) * _curTickTime;
 	if (curTime > _tmrStep && ! allowOverflow)
 		curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
 	if (curTime <= _tmrStep && tmrTick <= _tmrStep - curTime)
@@ -645,7 +645,15 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 	
 	// current in-song time = [in-song time of next event] - ([clock time of next event] - [current clock time])
 	tmrTick -= (_tmrStep - curTime);
-	return U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
+	double secTime = U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
+#if 1	// for debugging time overflow
+	if (secTime > 6000.0)
+		vis_printf("Showing large time: %.3f sec (curTime = %f, tmrStep = %f, tempoTick = %u, nextEvtTick = %u)\n",
+					secTime, curTime / (double)_tmrFreq, _tmrStep / (double)_tmrFreq, _tempoPos->tick, _nextEvtTick);
+	if (secTime > 60000.0)
+		return 0.0f;	// TODO: fix looping
+#endif
+	return secTime;
 }
 
 void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
@@ -683,6 +691,10 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	else
 	{
 		CalcMeasureTime(*_timeSigPos, _cMidi->GetMidiResolution() * 4, curTick, bar, beat, tick);
+#if 1	// for debugging bar overflow
+		if (*bar > 1000)
+			vis_printf("Showing large tick %u = bar %0*u:%0*u.%0*u\n", curTick, 2, 1 + *bar, 2, 1 + *beat, 3, *tick);
+#endif
 	}
 	
 	return;
@@ -3077,7 +3089,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x000100:	// Channel Message Receive Port
 			{
 				evtChn = PART_ORDER[syxData[0x06] & 0x0F];
-				evtPort = portID;
+				evtPort = syxData[0x06] >> 4;
 				// Note: Receiving this on Port B does NOT invert the port.
 				// (unlike addresses 40xxxx/50xxxx, for which the port correction is
 				// even mentioned by the manual)
@@ -4383,6 +4395,14 @@ void MidiPlayer::InitializeChannels_Post(void)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
 		
+		if (false)	// TODO: make this an option
+		{
+			// Note: SoundBlaster AWE seems to initialize RPN with 0,0 (??!)
+			// see vgmusic.com/music/console/sega/genesis/tf4-b4.mid
+			chnSt.rpnCtrl[0] = chnSt.rpnCtrl[1] = 0x00;
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, chnSt.rpnCtrl[0]);
+			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, chnSt.rpnCtrl[1]);
+		}
 		if (_options.flags & PLROPTS_STRICT)
 		{
 			if (chnSt.pbRange != defDstPbRange)
@@ -4392,8 +4412,14 @@ void MidiPlayer::InitializeChannels_Post(void)
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x00);
 				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
 				// reset RPN selection
-				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, 0x7F);
-				SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x7F);
+				if (chnSt.rpnCtrl[0] & 0x80)
+					SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x63, chnSt.rpnCtrl[0] & 0x7F);
+				else
+					SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x65, chnSt.rpnCtrl[0]);
+				if (chnSt.rpnCtrl[1] & 0x80)
+					SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, chnSt.rpnCtrl[1] & 0x7F);
+				else
+					SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x62, chnSt.rpnCtrl[1]);
 			}
 		}
 	}
@@ -4406,6 +4432,9 @@ void MidiPlayer::SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk)
 	size_t curTrk;
 	
 	lp.tick = _nextEvtTick;
+	lp.tempoPos = _tempoPos;
+	lp.timeSigPos = _timeSigPos;
+	lp.keySigPos = _keySigPos;
 	lp.trkEvtPos.resize(_trkStates.size());
 	for (curTrk = 0; curTrk < lp.trkEvtPos.size(); curTrk ++)
 	{
@@ -4427,7 +4456,11 @@ void MidiPlayer::RestoreLoopState(const LoopPoint& lp)
 	
 	AllNotesStop();	// prevent hanging notes
 	
+	_curEvtTick -= (_nextEvtTick - lp.tick);
 	_nextEvtTick = lp.tick;
+	_tempoPos = lp.tempoPos;
+	_timeSigPos = lp.timeSigPos;
+	_keySigPos = lp.keySigPos;
 	for (curTrk = 0; curTrk < _loopPt.trkEvtPos.size(); curTrk ++)
 		_trkStates[curTrk].evtPos = _loopPt.trkEvtPos[curTrk];
 	

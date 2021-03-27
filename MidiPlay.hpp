@@ -105,6 +105,9 @@ private:
 	{
 		bool used;
 		UINT32 tick;
+		std::list<TempoChg>::const_iterator tempoPos;
+		std::list<TimeSigChg>::const_iterator timeSigPos;
+		std::list<KeySigChg>::const_iterator keySigPos;
 		std::vector<midevt_const_it> trkEvtPos;	// evtPos of each track
 	};
 	
