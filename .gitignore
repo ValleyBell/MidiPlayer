@@ -11,10 +11,8 @@
 *.sln.docstates
 
 # Build results
-[Dd]ebug/
-[Dd]ebug_VC6/
-[Rr]elease/
-[Rr]elease_VC6/
+[Dd]ebug*/
+[Rr]elease*/
 x64/
 build/
 [Bb]in/

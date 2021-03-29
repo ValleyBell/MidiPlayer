@@ -1,6 +1,10 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug ScreenRec|Win32">
+      <Configuration>Debug ScreenRec</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Debug|Win32">
       <Configuration>Debug</Configuration>
       <Platform>Win32</Platform>
@@ -21,6 +25,11 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug ScreenRec|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
@@ -33,6 +42,9 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug ScreenRec|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -42,10 +54,15 @@
     <IncludePath>$(ProjectDir)\libs\pdcurses\include;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir)\libs\iconv\include;$(ProjectDir)\libs\uchardet\include;$(ProjectDir)\libs\zlib;$(ProjectDir);$(IncludePath)</IncludePath>
     <LibraryPath>$(ProjectDir)\libs\pdcurses\lib;$(ProjectDir)\libs\iconv\lib;$(ProjectDir)\libs\uchardet\lib;$(ProjectDir)\libs\zlib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug ScreenRec|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+    <IncludePath>$(ProjectDir)\libs\pdcurses\include;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir)\libs\iconv\include;$(ProjectDir)\libs\uchardet\include;$(ProjectDir)\libs\zlib;$(ProjectDir);D:\VStudio-Programme\VC2010\libs\ffmpeg-4.3.1-win32-shared\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)\libs\pdcurses\lib;$(ProjectDir)\libs\iconv\lib;$(ProjectDir)\libs\uchardet\lib;$(ProjectDir)\libs\zlib;D:\VStudio-Programme\VC2010\libs\ffmpeg-4.3.1-win32-shared\lib;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(ProjectDir)\libs\pdcurses\include;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir)\libs\iconv\include;$(ProjectDir)\libs\uchardet\include;$(ProjectDir)\libs\zlib;$(ProjectDir);$(IncludePath)</IncludePath>
-    <LibraryPath>$(ProjectDir)\libs\pdcurses\lib;$(ProjectDir)\libs\iconv\lib;$(ProjectDir)\libs\uchardet\lib;$(ProjectDir)\libs\zlib;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(ProjectDir)\libs\pdcurses\include;$(ProjectDir)\libs\inih;$(ProjectDir)\libs\inih\cpp;$(ProjectDir)\libs\iconv\include;$(ProjectDir)\libs\uchardet\include;$(ProjectDir)\libs\zlib;$(ProjectDir);D:\VStudio-Programme\VC2010\libs\ffmpeg-4.3.1\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)\libs\pdcurses\lib;$(ProjectDir)\libs\iconv\lib;$(ProjectDir)\libs\uchardet\lib;$(ProjectDir)\libs\zlib;D:\VStudio-Programme\VC2010\libs\ffmpeg-4.3.1\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -59,6 +76,20 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>pdcurses_VC2010d.lib;libiconv.lib;uchardet.lib;zlib.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug ScreenRec|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>ENABLE_ZIP_SUPPORT=1;CHARSET_DETECTION=1;ENABLE_SCREEN_REC=1;_CRT_SECURE_NO_WARNINGS;PDC_WIDE;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>pdcurses_VC2010d.lib;libiconv.lib;uchardet.lib;zlib.lib;kernel32.lib;user32.lib;advapi32.lib;winmm.lib;gdi32.lib;avcodec.lib;avformat.lib;avutil.lib;swscale.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -94,6 +125,14 @@
     <ClCompile Include="NoteVis.cpp" />
     <ClCompile Include="OSTimer_Win.c" />
     <ClCompile Include="RCPLoader.cpp" />
+    <ClCompile Include="scr-record_main.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="scr-record_Win.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="unzip.c" />
     <ClCompile Include="utils.cpp" />
     <ClCompile Include="vis_curses.cpp" />
@@ -113,6 +152,7 @@
     <ClInclude Include="NoteVis.hpp" />
     <ClInclude Include="OSTimer.h" />
     <ClInclude Include="RCPLoader.hpp" />
+    <ClInclude Include="scr-record.h" />
     <ClInclude Include="unzip.h" />
     <ClInclude Include="utils.hpp" />
     <ClInclude Include="vis.hpp" />

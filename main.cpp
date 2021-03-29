@@ -47,6 +47,15 @@
 #include "utils.hpp"
 #include "m3uargparse.hpp"
 #include "RCPLoader.hpp"
+#if ENABLE_SCREEN_REC
+#include "scr-record.h"
+#endif
+
+#ifdef _WIN32
+#define TMP_DIR	"R:\\"
+#else
+#define TMP_DIR	"/tmp/"
+#endif
 
 
 struct InstrumentSetCfg
@@ -85,6 +94,8 @@ static MidiFile CMidi;
 static MidiPlayer midPlay;
 
 static bool dummyOutput;
+static bool screenRecordMode;
+static UINT32 videoFrameRate;
 static UINT32 numLoops;
 static UINT32 defNumLoops;
 static double fadeTime;
@@ -119,6 +130,13 @@ static std::string strmSrv_metaFile;
 static std::string strmSrv_pidFile;
 static int strmSrv_PIDopt;
 static int strmSrv_curPID;
+#ifdef _WIN32
+#ifndef _DEBUG
+static int pbThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
+#else
+static int pbThreadPriority = THREAD_PRIORITY_HIGHEST;
+#endif
+#endif
 
 static std::map<std::string, iconv_t> hCpConvs;
 static std::vector<iconv_t> hCurIConv;
@@ -172,6 +190,9 @@ int main(int argc, char* argv[])
 		printf("    -x   - send .syx file to all ports before playing the MIDI\n");
 		printf("    -l n - play looping songs n times (default: 2) \n");
 		printf("    -S n - begin playing at the n-th file\n");
+#if ENABLE_SCREEN_REC
+		printf("    -R   - screen recording mode\n");
+#endif
 #ifndef _WIN32
 		printf("    -I   - Ices2 PID (for Metadata refresh)\n");
 #endif
@@ -188,6 +209,8 @@ int main(int argc, char* argv[])
 	}
 #endif
 	
+	screenRecordMode = false;
+	videoFrameRate = 30;
 	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
 	plrLoopText[0] = "loopStart";
 	plrLoopText[1] = "loopEnd";
@@ -286,6 +309,12 @@ int main(int argc, char* argv[])
 		{
 			dummyOutput = true;
 		}
+#if ENABLE_SCREEN_REC
+		else if (optChr == 'R')
+		{
+			screenRecordMode = true;
+		}
+#endif
 		else
 		{
 			break;
@@ -382,6 +411,16 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
+#if ENABLE_SCREEN_REC
+	if (screenRecordMode)
+	{
+		ScrRec_InitCapture();
+		ScrRec_GetWindowCoords();
+		ScrRec_InitVideo();
+		ScrRec_TestVideoRec();
+	}
+#endif
+	
 	if (defCodepages[0].empty())
 		defCodepages[0] = "CP1252";
 	for (curCP = 0; curCP < 2; curCP ++)
@@ -425,6 +464,7 @@ int main(int argc, char* argv[])
 #if ENABLE_ZIP_SUPPORT
 		std::string zippedFName;
 #endif
+		std::string videoFName;
 		std::vector<std::string> initFiles;
 		
 		midFileName = songList[curSong].fileName;
@@ -531,7 +571,26 @@ int main(int argc, char* argv[])
 			}
 		}
 		
+#if ENABLE_SCREEN_REC
+		if (screenRecordMode)
+		{
+			const char* fTitle = GetFileTitle(midFileName.c_str());
+			const char* fExt = GetFileExtension(fTitle);
+			if (fExt != NULL)
+				fExt --;	// move pinter to '.'
+			else
+				fExt = fTitle + strlen(fTitle);
+			videoFName = TMP_DIR + std::string(fTitle, fExt) + ".m4v";
+			ScrRec_StartVideoRec(videoFName.c_str(), videoFrameRate);
+		}
+#endif
+		
 		PlayMidi();
+		
+#if ENABLE_SCREEN_REC
+		if (screenRecordMode)
+			ScrRec_StopVideoRec();
+#endif
 		
 		// done in PlayMidi
 		//CMidi.ClearAll();
@@ -564,6 +623,14 @@ int main(int argc, char* argv[])
 #endif
 	if (! strmSrv_metaFile.empty())
 		remove(strmSrv_metaFile.c_str());
+	
+#if ENABLE_SCREEN_REC
+	if (screenRecordMode)
+	{
+		ScrRec_DeinitVideo();
+		ScrRec_DeinitCapture();
+	}
+#endif
 	
 	for (curInsBnk = 0; curInsBnk < insBanks.size(); curInsBnk ++)
 		FreeInstrumentBank(&insBanks[curInsBnk]);
@@ -1166,6 +1233,12 @@ void PlayMidi(void)
 	}
 	vis_update();
 	
+	if (screenRecordMode)
+	{
+		midPlay.AdvanceManualTiming(1, -1);
+		midPlay.AdvanceManualTiming(0, 0);
+	}
+	
 	plrOpts.srcType = scanRes.modType;
 	plrOpts.dstType = mMod->modType;
 	plrOpts.flags = playerCfgFlags;
@@ -1278,34 +1351,112 @@ void PlayMidi(void)
 	if (scanRes.charset != NULL)
 		vis_printf("Detected Codepage: %s\n", scanRes.charset);
 	
+	UINT32 curFrame = 0;
 	midPlay.Start();
-	if (! syxData.empty() && (! didSendSyx || false))
+	//if (! syxData.empty() && (! didSendSyx || false))
+	if (! syxData.empty() && (! didSendSyx || screenRecordMode))
 	{
 		vis_addstr("Sending SYX data ...");
 		vis_update();
+#if ENABLE_SCREEN_REC
+		if (screenRecordMode)
+		{
+			ScrRec_TakeAndSave();
+			curFrame ++;
+		}
+#endif
 		midPlay.Pause();	// do pause/resume to fix initial timing
 		if (mopList != NULL)
 			SendSyxData(mopList->mOuts, syxData);
+		else
+			SendSyxData(std::vector<MIDIOUT_PORT*>(), syxData);
 		didSendSyx = true;
 		midPlay.Resume();
 	}
 	vis_update();
+#if ENABLE_SCREEN_REC
+	if (screenRecordMode)
+	{
+		// make the initial screen stay for 0.5 seconds
+		for (; curFrame < videoFrameRate / 2; curFrame ++)
+			ScrRec_TakeAndSave();
+	}
+#endif
 	
+	if (! screenRecordMode)
+	{
 #ifdef _WIN32
-#ifndef _DEBUG
-	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+		SetThreadPriority(GetCurrentThread(), pbThreadPriority);
+		controlVal = vis_main();
+		SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
 #else
-	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+		controlVal = vis_main();
 #endif
+	}
+	else
+	{
+		UINT32 updateRate = videoFrameRate / 2;
+		if (updateRate == 0)
+			updateRate = 1;
+		bool doPause = false;
+		curFrame = 0;
+		while(midPlay.GetState() & 0x01)
+		{
+			if (! doPause)
+			{
+				UINT64 time = (UINT64)curFrame * 1000000000 / videoFrameRate;
+				
+				midPlay.AdvanceManualTiming(time, 0);
+				midPlay.DoPlaybackStep();
+				if (! (midPlay.GetState() & 0x01))
+					break;	// exit when reaching EOF and don't consume a frame
+				vis_update();
+#if ENABLE_SCREEN_REC
+				ScrRec_TakeAndSave();
 #endif
-	controlVal = vis_main();
-#ifdef _WIN32
-	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
-#endif
+				curFrame ++;
+			}
+			
+			if ((curFrame % updateRate) == 1 || doPause)
+			{
+				int inkey = vis_getch();
+				if (inkey < 0x100 && isalpha(inkey))
+					inkey = toupper(inkey);
+				if (inkey == 0x1B || inkey == 'Q')
+				{
+					controlVal = 9;
+					break;
+				}
+				else if (inkey == ' ')
+				{
+					doPause = ! doPause;
+				}
+			}
+			if (doPause)
+				Sleep(10);
+		}
+	}
 	midPlay.Stop();
 	
 	vis_addstr("Finished.");
 	vis_update();
+#if ENABLE_SCREEN_REC
+	if (screenRecordMode && controlVal != 9)
+	{
+		// when the song ended normally, render an additional second
+		UINT32 frmTrail;
+		for (frmTrail = 0; frmTrail < videoFrameRate; frmTrail ++)
+		{
+			UINT64 time = (UINT64)curFrame * 1000000000 / videoFrameRate;
+			
+			midPlay.AdvanceManualTiming(time, 0);
+			midPlay.DoPlaybackStep();
+			vis_update();
+			ScrRec_TakeAndSave();
+			curFrame ++;
+		}
+	}
+#endif
 	
 	CMidi.ClearAll();
 	midPlay.FlushEvents();

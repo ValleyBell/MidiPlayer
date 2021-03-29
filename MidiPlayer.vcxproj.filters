@@ -72,6 +72,12 @@
     <ClCompile Include="unzip.c">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="scr-record_Win.c">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="scr-record_main.c">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MidiLib.hpp">
@@ -123,6 +129,9 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="unzip.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="scr-record.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

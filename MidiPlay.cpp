@@ -84,6 +84,7 @@ static const UINT8 CM32P_DEF_INS[0x40] =
 };
 
 extern UINT8 optShowInsChange;
+static bool tmpSyxIgnore = false;
 
 static inline UINT32 ReadBE24(const UINT8* data)
 {
@@ -486,6 +487,8 @@ UINT8 MidiPlayer::Start(void)
 	InitializeChannels_Post();
 	ProcessEventQueue(true);
 	
+	if (initDelay && _useManualTiming)
+		initDelay = 0;
 	_tmrMinStart += initDelay * _tmrFreq / 1000;
 	_playing = true;
 	_paused = false;
@@ -809,8 +812,10 @@ void MidiPlayer::HandleRawEvent(size_t dataLen, const UINT8* data)
 		return;
 	}
 	_tmrStep = Timer_GetTime();
+	tmpSyxIgnore = true;
 	DoEvent(&_trkStates[0], &midiEvt);
 	ProcessEventQueue();
+	tmpSyxIgnore = false;
 	
 	return;
 }
@@ -1621,13 +1626,15 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		{
 			if (! _loopPt.used)
 			{
-				vis_addstr("RPG Maker Loop Point found.");
+				if (! _useManualTiming)
+					vis_addstr("RPG Maker Loop Point found.");
 				SaveLoopState(_loopPt, trkSt);
 			}
 		}
 		else
 		{
-			vis_printf("Ctrl 111, value %u.", chnSt->ctrls[ctrlID]);
+			if (! _useManualTiming)
+				vis_printf("Ctrl 111, value %u.", chnSt->ctrls[ctrlID]);
 		}
 		break;
 	case 0x79:	// Reset All Controllers
@@ -2941,6 +2948,8 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 	case 0x030000:	// Patch Temporary Area
 		if ((addr & 0x0F) > 0x00)
 			break;	// Right now we can only handle bulk writes.
+		if (tmpSyxIgnore && true)
+			break;	// ignore during initialization
 		if (addr < 0x030100)
 		{
 			UINT8 evtChn;
@@ -3890,7 +3899,8 @@ void MidiPlayer::AllNotesStop(void)
 	size_t curChn;
 	std::list<NoteInfo>::iterator ntIt;
 	
-	_tmrStep = Timer_GetTime();	// properly time the following events
+	if (! _useManualTiming)
+		_tmrStep = Timer_GetTime();	// properly time the following events
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];
@@ -3912,7 +3922,8 @@ void MidiPlayer::AllNotesRestart(void)
 	size_t curChn;
 	std::list<NoteInfo>::iterator ntIt;
 	
-	_tmrStep = Timer_GetTime();	// properly time the following events
+	if (! _useManualTiming)
+		_tmrStep = Timer_GetTime();	// properly time the following events
 	for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
 	{
 		ChannelState& chnSt = _chnStates[curChn];

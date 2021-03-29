@@ -5,10 +5,13 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MidiPlayer", "MidiPlayer.vc
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug ScreenRec|Win32 = Debug ScreenRec|Win32
 		Debug|Win32 = Debug|Win32
 		Release|Win32 = Release|Win32
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6ABEBC89-8B92-42A9-809E-1FEE2D3DF33F}.Debug ScreenRec|Win32.ActiveCfg = Debug ScreenRec|Win32
+		{6ABEBC89-8B92-42A9-809E-1FEE2D3DF33F}.Debug ScreenRec|Win32.Build.0 = Debug ScreenRec|Win32
 		{6ABEBC89-8B92-42A9-809E-1FEE2D3DF33F}.Debug|Win32.ActiveCfg = Debug|Win32
 		{6ABEBC89-8B92-42A9-809E-1FEE2D3DF33F}.Debug|Win32.Build.0 = Debug|Win32
 		{6ABEBC89-8B92-42A9-809E-1FEE2D3DF33F}.Release|Win32.ActiveCfg = Release|Win32
