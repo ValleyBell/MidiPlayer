@@ -210,7 +210,7 @@ int main(int argc, char* argv[])
 #endif
 	
 	screenRecordMode = false;
-	videoFrameRate = 30;
+	videoFrameRate = 60;
 	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
 	plrLoopText[0] = "loopStart";
 	plrLoopText[1] = "loopEnd";
@@ -1292,6 +1292,11 @@ void PlayMidi(void)
 		vis_set_track_count(songList.size());
 	}
 	vis_set_midi_file(midFileName.c_str(), &CMidi);
+	if (screenRecordMode)
+	{
+		vis_set_midi_file(GetFileTitle(midFileName.c_str()), &CMidi);
+		vis_set_track_count(0);
+	}
 	vis_set_midi_player(&midPlay);
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
@@ -1348,7 +1353,7 @@ void PlayMidi(void)
 	}
 	
 	vis_new_song();
-	if (scanRes.charset != NULL)
+	if (optDetectCP && scanRes.charset != NULL && ! screenRecordMode)
 		vis_printf("Detected Codepage: %s\n", scanRes.charset);
 	
 	UINT32 curFrame = 0;
@@ -1399,7 +1404,9 @@ void PlayMidi(void)
 		if (updateRate == 0)
 			updateRate = 1;
 		bool doPause = false;
+		UINT32 preFrames = curFrame;
 		curFrame = 0;
+		int notesPlaying = 0;
 		while(midPlay.GetState() & 0x01)
 		{
 			if (! doPause)
@@ -1414,6 +1421,33 @@ void PlayMidi(void)
 #if ENABLE_SCREEN_REC
 				ScrRec_TakeAndSave();
 #endif
+				if (notesPlaying == 0)
+				{
+					auto nVis = midPlay.GetNoteVis();
+					for (UINT16 chn = 0; chn < nVis->GetChnGroupCount() * 0x10; chn ++)
+					{
+						if (! nVis->GetChannel(chn)->GetNoteList().empty())
+						{
+							notesPlaying = 1;
+							break;
+						}
+					}
+					if (notesPlaying)
+					{
+						UINT32 frms = preFrames + curFrame;
+						int min = frms / videoFrameRate / 60;
+						int sec = (frms / videoFrameRate) % 60;
+						int secFrm = frms % videoFrameRate;
+						int msec = 1000 * secFrm / videoFrameRate;
+						FILE* hFile = fopen("/tmp/midStart.log", "at");
+						if (hFile != NULL)
+						{
+							fprintf(hFile, "%d/%d\t%02d:%02d:%03d\t%s\n", frms, videoFrameRate, min, sec, msec,
+									midFileName.c_str());
+							fclose(hFile);
+						}
+					}
+				}
 				curFrame ++;
 			}
 			

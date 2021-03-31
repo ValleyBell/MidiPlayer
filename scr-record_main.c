@@ -150,6 +150,7 @@ UINT8 ScrRec_GetWindowCoords(void)
 	calibColor = ScrWin_GetScreenPixel(srCapture, termRect.x, termRect.y);
 	
 	endwin();
+	Sleep(50);
 	
 	ScrWin_FreeImage(&calibImgs[0]);
 	ScrWin_FreeImage(&calibImgs[1]);
