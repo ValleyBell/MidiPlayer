@@ -353,16 +353,16 @@ void LCDDisplay::FullRedraw(void)
 
 void LCDDisplay::DrawLayout(void)
 {
-	mvwprintw(_hWin, 0, 0, "Part");
-	mvwprintw(_hWin, 1, 0, "Ins");
-	mvwprintw(_hWin, 2, 0, "Level");
-	mvwprintw(_hWin, 3, 0, "Pan");
-	mvwprintw(_hWin, 4, 0, "Expr");
-	mvwprintw(_hWin, 5, 0, "Reverb");
-	mvwprintw(_hWin, 6, 0, "Chorus");
-	mvwprintw(_hWin, 7, 0, "Delay");
-	mvwprintw(_hWin, 8, 0, "K.Shift");
-	mvwprintw(_hWin, 9, 0, "MIDI CH");
+	mvwprintw(_hWin, 0, 1, "Part");
+	mvwprintw(_hWin, 1, 1, "Ins");
+	mvwprintw(_hWin, 2, 1, "Level");
+	mvwprintw(_hWin, 3, 1, "Pan");
+	mvwprintw(_hWin, 4, 1, "Expr");
+	mvwprintw(_hWin, 5, 1, "Reverb");
+	mvwprintw(_hWin, 6, 1, "Chorus");
+	mvwprintw(_hWin, 7, 1, "Delay");
+	mvwprintw(_hWin, 8, 1, "K.Shift");
+	mvwprintw(_hWin, 9, 1, "MIDI Ch");
 	
 	if (liveVisMode != LVMODE_OFF)
 	{
@@ -389,13 +389,14 @@ void LCDDisplay::DrawPage(const LCDPage& page)
 	wattron(_hWin, A_BOLD);
 	if (_pageMode == PAGEMODE_ALL)
 	{
-		mvwprintw(_hWin, 0, 8, "ALL");
-		mvwprintw(_hWin, 9, 8, "%3u", page.chnID);
+		mvwprintw(_hWin, 0, 10, "ALL");
+		//mvwprintw(_hWin, 9, 10, "%3u", page.chnID);
+		mvwprintw(_hWin, 9, 10, " --");
 	}
 	else //if (_pageMode == PAGEMODE_CHN)
 	{
-		mvwprintw(_hWin, 0, 8, "%c%02u", 'A' + (page.partID >> 4), 1 + (page.partID & 0x0F));
-		mvwprintw(_hWin, 9, 8, "%c%02u", 'A' + (page.chnID >> 4), 1 + (page.chnID & 0x0F));
+		mvwprintw(_hWin, 0, 10, "%c%02u", 'A' + (page.partID >> 4), 1 + (page.partID & 0x0F));
+		mvwprintw(_hWin, 9, 10, "%c%02u", 'A' + (page.chnID >> 4), 1 + (page.chnID & 0x0F));
 	}
 	if (_ttMode == TTMODE_NONE)
 	{
@@ -406,33 +407,34 @@ void LCDDisplay::DrawPage(const LCDPage& page)
 	
 	if (page.insID == 0xFF)
 	{
-		mvwprintw(_hWin, 1, 8, "---");
+		mvwprintw(_hWin, 1, 10, "---");
 	}
 	else
 	{
-		mvwprintw(_hWin, 1, 8, "%03u", 1 + page.insID);
+		mvwprintw(_hWin, 1, 10, "%03u", 1 + page.insID);
 	}
-	mvwprintw(_hWin, 2, 8, "%3u", page.vol);
+	mvwprintw(_hWin, 2, 10, "%3u", page.vol);
 	if (page.pan == -0x40)
-		mvwprintw(_hWin, 3, 8, "Rnd");
+		mvwprintw(_hWin, 3, 10, "Rnd");
 	else if (page.pan < 0x00)
-		mvwprintw(_hWin, 3, 8, "L%2u", -page.pan);
+		mvwprintw(_hWin, 3, 10, "L%2u", -page.pan);
 	else if (page.pan == 0x00)
-		mvwprintw(_hWin, 3, 8, " %2u", page.pan);
+		mvwprintw(_hWin, 3, 10, " %2u", page.pan);
+		//mvwprintw(_hWin, 3, 10, " %c ", 'C');
 	else if (page.pan > 0x00)
-		mvwprintw(_hWin, 3, 8, "R%2u", page.pan);
-	mvwprintw(_hWin, 4, 8, "%3u", page.expr);
-	mvwprintw(_hWin, 5, 8, "%3u", page.reverb);
-	mvwprintw(_hWin, 6, 8, "%3u", page.chorus);
-	mvwprintw(_hWin, 7, 8, "%3u", page.delay);
+		mvwprintw(_hWin, 3, 10, "R%2u", page.pan);
+	mvwprintw(_hWin, 4, 10, "%3u", page.expr);
+	mvwprintw(_hWin, 5, 10, "%3u", page.reverb);
+	mvwprintw(_hWin, 6, 10, "%3u", page.chorus);
+	mvwprintw(_hWin, 7, 10, "%3u", page.delay);
 	if (page.transp < 0)
-		mvwprintw(_hWin, 8, 8, "-%2d", -page.transp);
+		mvwprintw(_hWin, 8, 10, "-%2d", -page.transp);
 	else if (page.transp > 0)
-		mvwprintw(_hWin, 8, 8, "+%2d", page.transp);
+		mvwprintw(_hWin, 8, 10, "+%2d", page.transp);
 	else
 	{
-		mvwaddch(_hWin, 8, 8, ACS_PLMINUS);
-		mvwprintw(_hWin, 8, 9, "%2d", page.transp);
+		mvwaddch(_hWin, 8, 10, ACS_PLMINUS);
+		wprintw(_hWin, "%2d", page.transp);
 	}
 	wattroff(_hWin, A_BOLD);
 	
