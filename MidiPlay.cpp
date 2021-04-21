@@ -1403,10 +1403,18 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 			std::advance(ntIt, 0x80 - 0x20);
 			chnSt->notes.erase(chnSt->notes.begin(), ntIt);
 		}
+		// show note when:
+		//	- the Part is muted (devPartID == 0xFF)
+		//	- the Part on the module is assigned to this channel
+		if (chnSt->devPartID == 0xFF)
+		{
+			if (midiEvt->evtValA >= chnSt->keyLow && midiEvt->evtValA <= chnSt->keyHigh)
+				_noteVis.GetChannel(chnSt->fullChnID)->AddNote(midiEvt->evtValA, midiEvt->evtValB);
+		}
 		for (visChnID = 0; visChnID < _chnStates.size(); visChnID ++)
 		{
 			ChannelState& visChnSt = _chnStates[visChnID];
-			if (visChnSt.devPartID != chnSt->devPartID)
+			if (visChnSt.devPartID != chnSt->fullChnID)
 				continue;
 			if (midiEvt->evtValA >= visChnSt.keyLow && midiEvt->evtValA <= visChnSt.keyHigh)
 				_noteVis.GetChannel(visChnID)->AddNote(midiEvt->evtValA, midiEvt->evtValB);
@@ -1424,10 +1432,15 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 				break;
 			}
 		}
+		if (chnSt->devPartID == 0xFF)
+		{
+			if (midiEvt->evtValA >= chnSt->keyLow && midiEvt->evtValA <= chnSt->keyHigh)
+				_noteVis.GetChannel(chnSt->fullChnID)->RemoveNote(midiEvt->evtValA);
+		}
 		for (visChnID = 0; visChnID < _chnStates.size(); visChnID ++)
 		{
 			ChannelState& visChnSt = _chnStates[visChnID];
-			if (visChnSt.devPartID != chnSt->devPartID)
+			if (visChnSt.devPartID != chnSt->fullChnID)
 				continue;
 			if (midiEvt->evtValA >= visChnSt.keyLow && midiEvt->evtValA <= visChnSt.keyHigh)
 				_noteVis.GetChannel(visChnID)->RemoveNote(midiEvt->evtValA);
@@ -3210,26 +3223,29 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				evtChn = PART_ORDER[syxData[0x06] & 0x0F];
 				evtPort = syxData[0x06] >> 4;
 				portChnID = FULL_CHN_ID(evtPort, evtChn);
-				if (portChnID < _chnStates.size())
-				{
-					chnSt = &_chnStates[portChnID];
-					nvChn = _noteVis.GetChannel(chnSt->fullChnID);
-					
-					chnSt->notes.clear();
-					nvChn->ClearNotes();
-					
-					chnSt->gsPortID = xData[0x00];
-					if (chnSt->gsPartID >= 0x10 || chnSt->gsPortID == 0xFF)
-						chnSt->devPartID = 0xFF;
-					else
-						chnSt->devPartID = (chnSt->gsPortID << 4) | (chnSt->gsPartID << 0);
-					nvChn->_chnColor = chnSt->devPartID;
-				}
 				// Note: Receiving this on Port B does NOT invert the port.
 				// (unlike addresses 40xxxx/50xxxx, for which the port correction is
 				// even mentioned by the manual)
 				PrintPortChn(portChnStr, evtPort, evtChn);
 				vis_printf("SysEx GS Chn %s: Receive from Port %c", portChnStr, 'A' + xData[0x00]);
+				
+				if (portChnID >= _chnStates.size())
+					break;
+				chnSt = &_chnStates[portChnID];
+				nvChn = _noteVis.GetChannel(chnSt->fullChnID);
+				
+				chnSt->notes.clear();
+				nvChn->ClearNotes();
+				
+				chnSt->gsPortID = xData[0x00];
+				if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+					break;
+				
+				if (chnSt->gsPartID >= 0x10 || chnSt->gsPortID == 0xFF)
+					chnSt->devPartID = 0xFF;
+				else
+					chnSt->devPartID = (chnSt->gsPortID << 4) | (chnSt->gsPartID << 0);
+				nvChn->_chnColor = chnSt->devPartID;
 			}
 			break;
 		}
@@ -3432,15 +3448,18 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			nvChn->ClearNotes();
 			
 			chnSt->gsPartID = xData[0x00];
+			if (xData[0x00] >= 0x10)
+				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %s", portChnStr, "--");
+			else
+				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + chnSt->gsPartID);
+			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
+				break;
+			
 			if (chnSt->gsPartID >= 0x10 || chnSt->gsPortID == 0xFF)
 				chnSt->devPartID = 0xFF;
 			else
 				chnSt->devPartID = (chnSt->gsPortID << 4) | (chnSt->gsPartID << 0);
 			nvChn->_chnColor = chnSt->devPartID;
-			if (xData[0x00] >= 0x10)
-				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %s", portChnStr, "--");
-			else
-				vis_printf("SysEx GS Chn %s: Receive from MIDI channel %02u", portChnStr, 1 + chnSt->gsPartID);
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
 			if (! xData[0x00])
@@ -3801,13 +3820,17 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			
 			{
 				char recvPCStr[4];
-				chnSt->devPartID = (xData[0x00] == 0x7F) ? 0xFF : xData[0x00];
-				nvChn->_chnColor = chnSt->devPartID;
-				if (chnSt->devPartID == 0xFF)
+				UINT8 partID = (xData[0x00] == 0x7F) ? 0xFF : xData[0x00];
+				if (partID == 0xFF)
 					PrintPortChn(recvPCStr, 0xFF, 0xFF);
 				else
-					PrintPortChn(recvPCStr, chnSt->devPartID >> 4, chnSt->devPartID & 0x0F);
+					PrintPortChn(recvPCStr, partID >> 4, partID & 0x0F);
 				vis_printf("SysEx XG Chn %s: Receive from MIDI channel %s", portChnStr, recvPCStr);
+				if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
+					break;
+				
+				chnSt->devPartID = partID;
+				nvChn->_chnColor = chnSt->devPartID;
 			}
 			break;
 		case 0x080007:	// Part Mode
