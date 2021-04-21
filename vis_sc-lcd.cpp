@@ -102,7 +102,7 @@ void LCDDisplay::GetSize(int* sizeX, int* sizeY) const
 	if (sizeX != NULL)
 		*sizeX = MATRIX_BASE_X + 16 * 3;
 	if (sizeY != NULL)
-		*sizeY = 10;
+		*sizeY = 11;
 	
 	return;
 }

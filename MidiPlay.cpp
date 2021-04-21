@@ -165,9 +165,12 @@ void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, cons
 	}
 	else
 	{
+		bool hardBak = _hardReset;
 		_chnStates.resize(portCnt * 0x10);
 		_noteVis.Initialize(portCnt);
+		_hardReset = false;	// we don't want to do a "hard" reset here - we want to do it when starting the song instead
 		InitializeChannels();	// reinitialize all channels to ensure all channel/port info is correct
+		_hardReset = hardBak;
 	}
 	
 	return;
@@ -2275,6 +2278,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	chnSt->curIns = midiEvt->evtValA;
 	chnSt->userInsID = 0xFFFF;
 	chnSt->userInsName = NULL;
+	chnSt->userInsRef = NULL;
 	
 	// handle user instruments and channel mode changes
 	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
@@ -2290,6 +2294,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 			else if (bankMSB == 0x40 || bankMSB == 0x41)	// user instrument
 			{
 				chnSt->userInsID = ((bankMSB & 0x01) << 7) | chnSt->curIns;
+				chnSt->userInsRef = &_sc88usrIns[chnSt->userInsID];
 			}
 		}
 	}
@@ -3229,7 +3234,39 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		}
 		break;
-	case 0x210000:	// User Drum-Set
+	case 0x200000:	// User Instrument
+		vis_printf("SysEx SC-88: Set User Ins: Bank %X, Ins %02X, Param %X = %02X",
+				(addr & 0x007000) >> 12, (addr & 0x00007F) >> 0, (addr & 0x000F00) >> 8,
+				xData[0x00]);
+		evtChn = ((addr & 0x001000) >> 5) | ((addr & 0x00007F) >> 0);
+		addr &= ~0x00F0FF;	// remove bank number (bits 12-15) and instrument ID (bits 0-7)
+		switch(addr)
+		{
+		case 0x200000:	// source tone map (Bank LSB)
+			vis_printf("SysEx SC-88: Set User Ins %01X/%02X Source Map = %02X",
+					evtChn >> 7, evtChn & 0x7F, xData[0x00]);
+			_sc88usrIns[evtChn].bank[1] = xData[0x00];
+			break;
+		case 0x200001:	// variation bank (Bank MSB)
+			vis_printf("SysEx SC-88: Set User Ins %01X/%02X Source Variation = %02X",
+					evtChn >> 7, evtChn & 0x7F, xData[0x00]);
+			_sc88usrIns[evtChn].bank[0] = xData[0x00];
+			break;
+		case 0x200002:	// program number
+			_sc88usrIns[evtChn].ins = xData[0x00];
+			{
+				UINT8 mapModType;
+				MidiPlayer::InstrumentInfo* insInf = &_sc88usrIns[evtChn];
+				const INS_BANK* insBank = SelectInsMap(_options.srcType, &mapModType);
+				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				vis_printf("SysEx SC-88: Set User Ins %01X/%02X Source Program = %02X: %s",
+						evtChn >> 7, evtChn & 0x7F, insInf->ins,
+						(insInf->bankPtr != NULL) ? insInf->bankPtr->insName : "??");
+			}
+			break;
+		}
+		break;
+	case 0x210000:	// User Drum Set
 		evtChn = (addr & 0x001000) >> 12;
 		addr &= ~0x00F0FF;	// remove drum set ID (bits 12-15) and note number (bits 0-7)
 		switch(addr)
@@ -4369,11 +4406,33 @@ void MidiPlayer::InitializeChannels(void)
 		}
 		for (curIns = 0x00; curIns < 0x80; curIns ++)
 		{
+			// initialize SC-88/88Pro user instruments
+			// Note: Even on the 88Pro, the first 128 user instrument default to the SC-88 non-Pro map.
+			_sc88usrIns[0x00 | curIns].bank[0] = 0x00;
+			_sc88usrIns[0x00 | curIns].bank[1] = 0x02;	// default: SC-88 map (confirmed on SC-88 and SC-88Pro)
+			_sc88usrIns[0x00 | curIns].ins = curIns;
+			_sc88usrIns[0x00 | curIns].bnkIgn = BNKMSK_NONE;
+			_sc88usrIns[0x00 | curIns].bankPtr = NULL;
+			_sc88usrIns[0x80 | curIns] = _sc88usrIns[0x00 | curIns];
+			_sc88usrIns[0x80 | curIns].bank[1] = 0x01;	// default: SC-55 map (confirmed on SC-88 and SC-88Pro)
+			{
+				UINT8 mapModType;
+				const INS_BANK* insBank = SelectInsMap(_options.srcType, &mapModType);
+				if (insBank != NULL)
+				{
+					MidiPlayer::InstrumentInfo* insInf = &_sc88usrIns[0x00 | curIns];
+					insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+					insInf = &_sc88usrIns[0x80 | curIns];
+					insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				}
+			}
+			// initialize default MT-32 patch assignment
 			_mt32PatchTGrp[curIns] = (curIns >> 6) & 0x03;
 			_mt32PatchTNum[curIns] = (curIns >> 0) & 0x3F;
 		}
 		for (curIns = 0x00; curIns < 0x40; curIns ++)
 		{
+			// initialize default CM-32P patch assignment
 			_cm32pPatchTMedia[0x00 | curIns] = 0x00;	// internal PCM sounds
 			_cm32pPatchTNum[0x00 | curIns] = CM32P_DEF_INS[curIns];	// set default instrument -> sound map
 			_cm32pPatchTMedia[0x40 | curIns] = 0x01;	// external PCM card

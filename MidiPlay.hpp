@@ -80,6 +80,7 @@ public:
 		INT16 tuneFine;		// stored as 8.8 fixed point
 		
 		const char* userInsName;
+		const InstrumentInfo* userInsRef;
 		std::list<NoteInfo> notes;	// currently running notes
 	};
 private:
@@ -253,6 +254,7 @@ private:
 	UINT8 _mstVolFade;		// master volume, after applying FadeOut value
 	
 	UINT8 _pixelPageMem[10][0x40];
+	InstrumentInfo _sc88usrIns[0x100];
 	std::string _sc88UsrDrmNames[2];
 	std::string _mt32TimbreNames[0x40];
 	UINT8 _mt32PatchTGrp[0x80];	// 0x00 - preset A, 0x01 - preset B, 0x02 - internal?, 0x03 - rhythm?

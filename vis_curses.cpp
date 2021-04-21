@@ -804,6 +804,10 @@ void vis_do_ins_change(UINT16 chn)
 	{
 		insName = chnSt->userInsName;
 	}
+	else if (chnSt->userInsRef != NULL && chnSt->userInsRef->bankPtr != NULL)
+	{
+		insName = chnSt->userInsRef->bankPtr->insName;
+	}
 	else if (chnSt->userInsID != 0xFFFF)
 	{
 		if (chnSt->userInsID & 0x8000)
@@ -829,7 +833,18 @@ void vis_do_ins_change(UINT16 chn)
 		else
 			insName[0] = ' ';
 		isDefMap = (bankLSB == 0x00);
-		if (chnSt->flags & 0x80)
+		if (chnSt->userInsRef != NULL)
+		{
+			if (chnSt->userInsRef->bank[1] >= 0x01 && chnSt->userInsRef->bank[1] <= 0x04)
+			{
+				// for user instruments, take the *original* tone map
+				insName[0] = SC_MAP_SYMBOLS[chnSt->userInsRef->bank[1] - 0x01];
+				isDefMap = false;
+			}
+		}
+		if (chnSt->userInsID != 0xFFFF)
+			insName[1] = '~';	// user instrument
+		else if (chnSt->flags & 0x80)
 			insName[1] = '*';	// drum channel
 		else if (insInf->bank[0] >= 0x7E)
 			insName[1] = '#';	// CM-64 sound
@@ -850,10 +865,14 @@ void vis_do_ins_change(UINT16 chn)
 			insName[0] = ' ';	// GM drums
 		else if (insInf->bank[0] == 0x00 && insInf->bank[1] == 0x00)
 			insName[0] = ' ';	// GM instrument
+		else if (insInf->bank[0] == 0x3F)
+			insName[0] = '~';	// QS300 user voice
+		else if (insInf->bank[0] == 0x10)
+			insName[0] = '~';	// MU2000 sampling voice
+		else if (insInf->bankPtr != NULL && (insInf->bankPtr->moduleID & 0x80))
+			insName[0] = '*';	// PLG board sound
 		else if (insInf->bankPtr != NULL && insInf->bankPtr->moduleID < 6)
 			insName[0] = MU_MAP_SYMBOLS[insInf->bankPtr->moduleID];
-		else if (insInf->bankPtr != NULL && (insInf->bankPtr->moduleID & 0x80))
-			insName[0] = '*';
 		if ((chnSt->flags & 0x80) || insInf->bank[0] >= 0x7E)
 			insName[1] = '#';	// drum bank
 		else if (insInf->bank[0] == 0x40)
@@ -878,7 +897,7 @@ void vis_do_ins_change(UINT16 chn)
 			else if (chnSt->userInsID < 0xC0)
 				insName[0] = '+';	// timbre group I
 			else
-				insName[0] = '#';	// timbre group R
+				insName[0] = '*';	// timbre group R
 		}
 		else
 		{
