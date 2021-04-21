@@ -2403,11 +2403,15 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 				{
 					// MT-32/CM-32L: timbre group R
 					// TODO: I need drum names for this one.
+					sprintf(&chnSt->insNameBuf[0], "Rhythm Snd %u", insInf.ins & 0x3F);
+					chnSt->userInsName = chnSt->insNameBuf.c_str();
 				}
 			}
 			else
 			{
 				// CM-32P: card group
+				sprintf(&chnSt->insNameBuf[0], "Card Tone %u", insInf.ins & 0x7F);
+				chnSt->userInsName = chnSt->insNameBuf.c_str();
 			}
 		}
 	}
@@ -4496,6 +4500,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.tuneCoarse = 0;
 		chnSt.tuneFine = 0;
 		
+		chnSt.insNameBuf.resize(20);
 		chnSt.notes.clear();
 		
 		vis_do_channel_event(curChn, 0x00, 0x00);

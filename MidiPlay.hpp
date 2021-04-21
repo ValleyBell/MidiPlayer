@@ -81,6 +81,7 @@ public:
 		
 		const char* userInsName;
 		const InstrumentInfo* userInsRef;
+		std::string insNameBuf;
 		std::list<NoteInfo> notes;	// currently running notes
 	};
 private:

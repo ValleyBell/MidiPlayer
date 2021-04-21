@@ -528,6 +528,8 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 		}
 		if (cmdType < 0x80)
 		{
+			if (cmdType == 0)
+				cmdDurat = 0;	// required by DQ5_64.RCP
 			cmdType = (cmdType + transp) & 0x7F;
 			// duration == 0 -> no note
 			for (curPN = 0; curPN < playNotes.size(); curPN ++)
