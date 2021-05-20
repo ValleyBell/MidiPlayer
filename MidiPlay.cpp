@@ -4627,6 +4627,27 @@ void MidiPlayer::InitializeChannels_Post(void)
 				SendMidiEventS(drumChn.portID, 0xB0 | drumChn.midChn, 0x20, drumChn.insState[1]);
 				SendMidiEventS(drumChn.portID, 0xC0 | drumChn.midChn, drumChn.insState[2], 0x00);
 			}
+			else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+			{
+				drumChn.insState[0] = 0x7F;	// Bank MSB 127 (drum bank)
+				drumChn.insState[1] = 0x00;
+				if (MMASK_MOD(_options.dstType) >= MTXG_MU100)
+				{
+					UINT8 gblInsMap;
+					if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+						gblInsMap = _defSrcInsMap & 0x7F;
+					else
+						gblInsMap = _defDstInsMap;
+					drumChn.insState[2] = gblInsMap ? 0x7E : 0x7F;	// 7F = MU Basic, 7E = MU100 Native
+				}
+				else
+				{
+					drumChn.insState[2] = 0x00;
+				}
+				SendMidiEventS(drumChn.portID, 0xB0 | drumChn.midChn, 0x00, drumChn.insState[0]);
+				SendMidiEventS(drumChn.portID, 0xB0 | drumChn.midChn, 0x20, drumChn.insState[1]);
+				SendMidiEventS(drumChn.portID, 0xC0 | drumChn.midChn, drumChn.insState[2], 0x00);
+			}
 		}
 	}
 	

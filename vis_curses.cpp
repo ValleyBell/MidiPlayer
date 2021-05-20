@@ -1262,6 +1262,19 @@ static int vis_keyhandler_normal(void)
 	switch(inkey)
 	{
 	case 0x1B:	// ESC
+		inkey = vis_getch();
+		if (inkey == '[')
+		{
+			std::string escSeqStr = "\\x1B";
+			while(inkey != 0)
+			{
+				escSeqStr += (char)inkey;
+				inkey = vis_getch();
+			}
+			vis_printf("Ignored ESC sequence: %s\n", escSeqStr.c_str());
+			break;	// escape code sequence - ignore
+		}
+		return 9;	// quit
 	case 'Q':
 		return 9;	// quit
 	case ' ':
