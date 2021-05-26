@@ -343,7 +343,7 @@ const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule) 
 	else if (MMASK_TYPE(moduleType) == MODULE_TYPE_XG)
 		return _insBankXG;
 	
-	return NULL;
+	return _insBankGM1;
 }
 
 UINT8 MidiPlayer::Start(void)
@@ -484,6 +484,26 @@ UINT8 MidiPlayer::Start(void)
 			}
 			_hardReset = true;	// due to XG All Parameter Reset
 			initDelay += 400;	// XG modules take a bit to fully reset
+		}
+		else
+		{
+			// soft reset all channels
+			vis_printf("Sending Device Reset (%s) ...", "MIDI CC");
+			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+			{
+				size_t curChn;
+				for (curChn = 0; curChn < 0x10; curChn ++)
+				{
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x7B, 0x00);	// All Notes Off
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x79, 0x00);	// Reset All Controllers
+					SendMidiEventS(curPort, 0xE0 | curChn, 0x00, 0x40);	// Pitch Bend
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x07, 100);	// Main Volume
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x0A, 0x40);	// Pan
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x0B, 0x7F);	// Expression
+					SendMidiEventS(curPort, 0xB0 | curChn, 0x40, 0x00);	// Sustain Pedal
+				}
+			}
+			initDelay += 200;
 		}
 	}
 	InitializeChannels();
@@ -1664,8 +1684,9 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		chnSt->ctrls[0x43] = 0x80 | 0x00;	// Soft Pedal
 		chnSt->rpnCtrl[0] = 0x7F;	// reset RPN state
 		chnSt->rpnCtrl[1] = 0x7F;
-		chnSt->pbRangeUnscl = _defPbRange;
-		chnSt->pbRange = _defPbRange;
+		// does NOT reset pitch bend range on Roland SoundCanvas devices
+		//chnSt->pbRangeUnscl = _defPbRange;
+		//chnSt->pbRange = _defPbRange;
 		nvChn->_attr.volume = chnSt->ctrls[0x07] & 0x7F;
 		nvChn->_attr.pan = (INT8)(chnSt->ctrls[0x0A] & 0x7F) - 0x40;
 		nvChn->_attr.expression = chnSt->ctrls[0x0B] & 0x7F;
@@ -1969,7 +1990,12 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	
 	HandleIns_CommonPatches(chnSt, insInf, devType, insBank);
 	realBnkIgn = insInf->bnkIgn;
-	if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
+	if (MMASK_TYPE(devType) == MODULE_TYPE_GM)
+	{
+		// nothing to do here for GM Level 1
+		// maybe in the future do something for GM Level 2?
+	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 	{
 		if (_options.srcType == MODULE_MT32)
 		{
@@ -2157,6 +2183,12 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		realBnkIgn = BNKMSK_ALLBNK;
 		strictPatch = ~insInf->bnkIgn & BNKMSK_ALLBNK;	// mark for undo when not strict
 	}
+	else
+	{
+		// fallback for unknown devices
+		strictPatch = 0x80 | realBnkIgn;	// enforce "non-strict" mode
+		realBnkIgn = 0x00;
+	}
 	
 	insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
 	if (insInf->bankPtr == NULL && insBank != NULL)
@@ -2238,7 +2270,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		}
 	}
 	
-	if (! (_options.flags & PLROPTS_STRICT))
+	if (! (_options.flags & PLROPTS_STRICT) || (strictPatch & 0x80))
 	{
 		if (strictPatch & BNKMSK_MSB)
 			insInf->bank[0] = insIOld.bank[0];
@@ -2246,6 +2278,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			insInf->bank[1] = insIOld.bank[1];
 		if (strictPatch & BNKMSK_INS)
 			insInf->ins = insIOld.ins;
+		if (strictPatch & 0x80)
+			insInf->bnkIgn &= ~(strictPatch & ~0x80);
 	}
 	else //if (_options.flags & PLROPTS_STRICT)
 	{
