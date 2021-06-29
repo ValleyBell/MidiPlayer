@@ -40,6 +40,7 @@ typedef struct
 #define MODULE_TYPE_GM	0x00
 #define MODULE_TYPE_GS	0x10
 #define MODULE_TYPE_XG	0x20
+#define MODULE_TYPE_K5	0x30	// Korg 5s-Series
 #define MODULE_TYPE_OT	0x70	// other non-GM modules
 
 #define MT_UNKNOWN		0x08
@@ -60,6 +61,11 @@ typedef struct
 #define MTXG_MU128		0x04
 #define MTXG_MU1000		0x05
 
+#define MTK5_05RW		0x01
+#define MTK5_X5DR		0x02
+#define MTK5_NS5R		0x03
+#define MTK5_GMB		0x00	// Korg GM-b map
+
 #define MTOT_MT32		0x00
 
 
@@ -78,6 +84,11 @@ typedef struct
 #define MODULE_MU100	(MODULE_TYPE_XG | MTXG_MU100)
 #define MODULE_MU128	(MODULE_TYPE_XG | MTXG_MU128)
 #define MODULE_MU1000	(MODULE_TYPE_XG | MTXG_MU1000)
+
+#define MODULE_05RW		(MODULE_TYPE_K5 | MTK5_05RW)
+#define MODULE_X5DR		(MODULE_TYPE_K5 | MTK5_X5DR)
+#define MODULE_NS5R		(MODULE_TYPE_K5 | MTK5_NS5R)
+#define MODULE_KGMB		(MODULE_TYPE_K5 | MTK5_GMB)
 
 #define MODULE_MT32		(MODULE_TYPE_OT | MTOT_MT32)
 

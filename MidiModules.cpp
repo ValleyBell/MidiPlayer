@@ -38,6 +38,10 @@ ModuleNames::ModuleNames()
 	shortIDName[MODULE_MU100    ] = "MU100";
 	shortIDName[MODULE_MU128    ] = "MU128";
 	shortIDName[MODULE_MU1000   ] = "MU1000";
+	shortIDName[MODULE_05RW     ] = "05R/W";
+	shortIDName[MODULE_X5DR     ] = "X5DR";
+	shortIDName[MODULE_NS5R     ] = "NS5R";
+	shortIDName[MODULE_KGMB     ] = "K-GMb";
 	shortIDName[MODULE_MT32     ] = "MT-32";
 	
 	longIDName = shortIDName;

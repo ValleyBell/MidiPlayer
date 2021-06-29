@@ -887,6 +887,30 @@ void vis_do_ins_change(UINT16 chn)
 		if (insName[1] == ' ')	// make [bank] optional, as XG names can be pretty long
 			insName = insName[0] + insName.substr(2);
 	}
+	else if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_K5)
+	{
+		insName = "  " + insName;
+		if (insInf->bank[0] == 0x38)
+			insName[0] = '.';	// GM-b
+		else if (insInf->bank[0] == 0x3D)
+			insName[0] = '*';	// kDrm
+		else if (insInf->bank[0] == 0x50)
+			insName[0] = '~';	// Program User
+		else if (insInf->bank[0] == 0x58)
+			insName[0] = '~';	// Combination User
+		else if (insInf->bankPtr != NULL && insInf->bankPtr->moduleID > 0 && insInf->bankPtr->moduleID <= 3)
+			insName[0] = SC_MAP_SYMBOLS[insInf->bankPtr->moduleID - 1];
+		//if ((chnSt->flags & 0x80) || insInf->bank[0] >= 0x7E)
+		//	insName[1] = '#';	// drum bank
+		//else if (insInf->bank[0] == 0x40)
+		//	insName[1] = '+';	// SFX bank
+		//else
+		//	insName[1] = ' ';
+		if (chnSt->flags & 0x80)
+			isDefMap = (insID == 0x00);
+		else
+			isDefMap = (bankMSB == 0x00 && bankLSB == 0x00);
+	}
 	else if (midPlay->GetModuleType() == MODULE_MT32)
 	{
 		insName = " " + insName;

@@ -103,7 +103,7 @@ static inline UINT32 ReadBE21(const UINT8* data)	// 3 bytes, 7 bits per byte
 
 MidiPlayer::MidiPlayer() :
 	_useManualTiming(false), _cMidi(NULL), _songLength(0),
-	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankMT32(NULL),
+	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankKorg(NULL), _insBankMT32(NULL),
 	_hardReset(true), _manTimeTick(0)
 {
 	_osTimer = OSTimer_Init();
@@ -247,6 +247,9 @@ void MidiPlayer::SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank)
 		case MODULE_TYPE_XG:
 			_insBankXG = insBank;
 			return;
+		case MODULE_TYPE_K5:
+			_insBankKorg = insBank;
+			return;
 		}
 	}
 	
@@ -342,6 +345,8 @@ const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule) 
 		return _insBankGS;
 	else if (MMASK_TYPE(moduleType) == MODULE_TYPE_XG)
 		return _insBankXG;
+	else if (MMASK_TYPE(moduleType) == MODULE_TYPE_K5)
+		return _insBankKorg;
 	
 	return _insBankGM1;
 }
@@ -484,6 +489,14 @@ UINT8 MidiPlayer::Start(void)
 			}
 			_hardReset = true;	// due to XG All Parameter Reset
 			initDelay += 400;	// XG modules take a bit to fully reset
+		}
+		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_K5)
+		{
+			// send GM reset
+			vis_printf("Sending Device Reset (%s) ...", "GM");
+			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+				SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
+			initDelay += 500;	// Korg modules take extra long, because is also updates the display
 		}
 		else
 		{
@@ -1771,6 +1784,11 @@ void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentIn
 		if ((chnSt->flags & 0x80) || insInf->bank[0] == 0x40)
 			insInf->bnkIgn |= BNKMSK_LSB;	// ignore LSB on drum channels and SFX banks
 	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_K5)
+	{
+		if (chnSt->flags & 0x80)
+			insInf->bnkIgn |= BNKMSK_LSB;	// ignore LSB on drum channels
+	}
 	else if (devType == MODULE_MT32)
 	{
 		if (insBank != NULL && insBank->maxBankMSB >= 0x01)
@@ -1875,6 +1893,42 @@ void MidiPlayer::HandleIns_DoFallback(const ChannelState* chnSt, InstrumentInfo*
 		// for all unused/invalid Bank MSB, it results in silence
 		insInf->bank[1] = 0x00;
 	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_K5)
+	{
+		if (insInf->bank[1] > 0x00)
+		{
+			// fall back to LSB 0
+			insInf->bank[1] = 0x00;
+			if (insBank != NULL)
+			{
+				const INS_PRG_LST* insPrg = &insBank->prg[insInf->ins];
+				if (GetInsMapData(insPrg, insInf->bank[0], insInf->bank[1], maxModuleID) != NULL)
+					return;
+			}
+		}
+		if (! (chnSt->flags & 0x80))
+		{
+			// melody mode: fall back to GM sound
+			insInf->bank[0] = 0x00;
+		}
+		else
+		{
+			// drum mode: try SC-55-style drum fallback first
+			// Note: On the Korg NS5R, fallback only works with the kDrm bank.
+			UINT8 newIns;
+			if ((insInf->ins & 0x7F) < 0x48)
+				newIns = insInf->ins & ~0x07;
+			else
+				newIns &= 0x80;
+			if (GetInsMapData(&insBank->prg[newIns], insInf->bank[0], 0xFF, maxModuleID) != NULL)
+			{
+				insInf->ins = newIns;
+				return;
+			}
+			// for all remaining instruments, fall back to GM Kit
+			insInf->ins &= 0x80;
+		}
+	}
 	else
 	{
 		// generic fallback code
@@ -1936,6 +1990,26 @@ void MidiPlayer::HandleIns_GetOriginal(const ChannelState* chnSt, InstrumentInfo
 			else if (insInf->bank[0] == 0x7F && insInf->ins == (0x80|0x00))
 				insInf->ins = 0x80 | insBank;
 		}
+	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_K5)
+	{
+		if (MMASK_MOD(devType) == MTK5_GMB)
+			mapModType = 0x01;
+		if (insInf->bank[0] == 0x00)
+		{
+			if (MMASK_MOD(devType) == MTK5_05RW)
+				insInf->bank[0] = 0x51;	// Program A
+			else if (MMASK_MOD(devType) == MTK5_X5DR)
+				insInf->bank[0] = 0x52;	// Program B
+			else if (MMASK_MOD(devType) == MTK5_GMB)
+				insInf->bank[0] = (chnSt->flags & 0x80) ? 0x3E : 0x38;
+		}
+		else if (insInf->bank[0] == 0x78)
+		{
+			insInf->bank[0] = 0x3E;
+		}
+		if (insInf->bank[0] > 0x00)
+			insInf->bnkIgn |= BNKMSK_LSB;
 	}
 	
 	insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
@@ -2178,6 +2252,56 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			insInf->bnkIgn |= BNKMSK_LSB;
 		}
 	}
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_K5)
+	{
+		if (MMASK_MOD(devType) == MTK5_GMB)
+			mapModType = 0x01;
+		if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_K5 && MMASK_MOD(_options.srcType) != MTK5_GMB)
+		{
+			if (insInf->bank[0] == 0x00)
+			{
+				if (MMASK_MOD(_options.srcType) == MTK5_05RW)
+					insInf->bank[0] = 0x51;	// Program A
+				else if (MMASK_MOD(_options.srcType) == MTK5_X5DR)
+					insInf->bank[0] = 0x52;	// Program B
+				else if (MMASK_MOD(_options.srcType) == MTK5_GMB)
+					insInf->bank[0] = (chnSt->flags & 0x80) ? 0x3E : 0x38;
+			}
+			else if (insInf->bank[0] == 0x78 && (_options.flags & PLROPTS_STRICT))
+			{
+				insInf->bank[0] = 0x3E;
+				strictPatch |= BNKMSK_MSB;
+			}
+			if (insInf->bank[0] > 0x00)
+				insInf->bnkIgn |= BNKMSK_LSB;
+		}
+		else
+		{
+			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GM || _options.srcType == MODULE_KGMB)
+			{
+				if (chnSt->flags & 0x80)
+					insInf->bank[0] = 0x3E;
+				else if (MMASK_MOD(devType) < MTK5_NS5R || _options.srcType == MODULE_KGMB)
+					insInf->bank[0] = 0x38;
+				else
+					insInf->bank[0] = 0x00;
+				insInf->bnkIgn |= BNKMSK_LSB;
+			}
+			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+			{
+				if (chnSt->flags & 0x80)
+					insInf->bank[0] = 0x3D;
+				else if (insInf->bank[0] == 0x7F)
+					insInf->bank[0] = 0x7D;
+				insInf->bnkIgn |= BNKMSK_LSB;
+			}
+			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+			{
+				if (insInf->bank[0] > 0x00)
+					insInf->bnkIgn |= BNKMSK_LSB;
+			}
+		}
+	}
 	else if (devType == MODULE_MT32)
 	{
 		realBnkIgn = BNKMSK_ALLBNK;
@@ -2243,6 +2367,27 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 					{
 						insInf->bank[0] = 0x00;
 						insInf->bnkIgn |= BNKMSK_LSB;
+					}
+					insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				}
+			}
+			else if (MMASK_TYPE(devType) == MODULE_TYPE_K5)
+			{
+				HandleIns_DoFallback(chnSt, insInf, devType, mapModType, insBank);
+				insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
+				
+				if (insInf->bankPtr == NULL)
+				{
+					// GM fallback while keeping melody/drum mode intact
+					if (chnSt->flags & 0x80)
+					{
+						insInf->bank[0] = 0x3E;
+						insInf->bnkIgn |= BNKMSK_LSB | BNKMSK_INS;
+					}
+					else
+					{
+						insInf->bank[0] = 0x00;
+						insInf->bnkIgn |= BNKMSK_ALLBNK;
 					}
 					insInf->bankPtr = GetExactInstrument(insBank, insInf, mapModType);
 				}
@@ -2328,7 +2473,16 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	chnSt->userInsRef = NULL;
 	
 	// handle user instruments and channel mode changes
-	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+	if (_options.srcType == MODULE_GM_1 || _options.srcType == MODULE_KGMB)
+	{
+		if (chnSt->midChn == 0x09)	// drum channel
+			chnSt->flags |= 0x80;
+		else
+			chnSt->flags &= ~0x80;
+		nvChn->_chnMode &= ~0x01;
+		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
+	}
+	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 	{
 		if (MMASK_MOD(_options.srcType) >= MTGS_SC88 && MMASK_MOD(_options.srcType) != MTGS_TG300B)
 		{
@@ -2372,6 +2526,23 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		chnSt->flags |= newPartMode;
 		nvChn->_chnMode &= ~0x01;
 		nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
+	}
+	else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_K5)
+	{
+		if (bankMSB == 0x50 || bankMSB == 0x58)	// user banks
+			chnSt->userInsID = ((bankMSB & 0x08) << 4) | chnSt->curIns;
+		else if (bankMSB == 0x3E && (chnSt->curIns == 0x48 || chnSt->curIns == 0x49))
+			chnSt->userInsID = 0x8000 | (chnSt->curIns & 0x01);
+		
+		if (_options.srcType != MODULE_KGMB)
+		{
+			if (bankMSB == 0x3D || bankMSB == 0x3E || bankMSB == 0x78 || bankMSB == 0x7E || bankMSB == 0x7F)
+				chnSt->flags |= 0x80;
+			else
+				chnSt->flags &= ~0x80;
+			nvChn->_chnMode &= ~0x01;
+			nvChn->_chnMode |= (chnSt->flags & 0x80) >> 7;
+		}
 	}
 	else if (_options.srcType == MODULE_GM_2)
 	{
@@ -2492,6 +2663,15 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 				else if (bankMSB == 0x7F && chnSt->curIns == 0x00 && didPatch == BNKMSK_INS)
 					hide = true;
 				if (hide)
+				{
+					didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
+					showOrgIns = true;
+				}
+			}
+			else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_K5)
+			{
+				// TODO: handle MODULE_TYPE_K5 better?
+				if (bankMSB == 0x00 && didPatch == BNKMSK_MSB)
 				{
 					didPatch = BNKMSK_NONE;	// hide patching default instrument map in strict mode
 					showOrgIns = true;
@@ -2713,7 +2893,7 @@ void MidiPlayer::DoChangedPartMode(ChannelState* chnSt, UINT8 moduleType)
 		}
 		
 	}
-	else if (moduleType == MODULE_TYPE_XG)
+	else if (moduleType == MODULE_TYPE_XG || moduleType == MODULE_NS5R)
 	{
 		if (true)	// option: emulate HW instrument reset
 		{

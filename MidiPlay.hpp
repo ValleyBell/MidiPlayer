@@ -217,6 +217,7 @@ private:
 	const INS_BANK* _insBankGS;
 	const INS_BANK* _insBankXG;
 	const INS_BANK* _insBankYGS;	// Yamaha GS (TG300B mode)
+	const INS_BANK* _insBankKorg;
 	const INS_BANK* _insBankMT32;
 	
 	PlayerOpts _options;
