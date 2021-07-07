@@ -150,6 +150,7 @@ static void vis_resize(void);
 //void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text);
 //void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data);
 static bool char_is_cr(const char c);
+static void str_cr2lf(std::string& text);
 static void str_remove_cr(std::string& text);
 static void str_locale_conv(std::string& text);
 static void str_prepare_print(std::string& text);
@@ -1018,6 +1019,29 @@ static bool char_is_cr(const char c)
 	return (c == '\r');
 }
 
+static void str_cr2lf(std::string& text)
+{
+	// convert single '\r' to '\n'
+	size_t curChr;
+	for (curChr = 0; curChr < text.length(); curChr ++)
+	{
+		if (text[curChr] == '\r')
+		{
+			// AB\rCD -> AB\nCD
+			// AB\r\nCD is kept
+			if (curChr + 1 < text.length() && text[curChr + 1] != '\n')
+				text[curChr] = '\n';
+		}
+		else if (text[curChr] == '\n')
+		{
+			// for AB\n\rCD, skip the \r as well
+			if (curChr + 1 < text.length() && text[curChr + 1] == '\n')
+				curChr ++;
+		}
+	}
+	return;
+}
+
 static void str_remove_cr(std::string& text)
 {
 	// In Curses, a '\n' clears the rest of the line before moving the cursor.
@@ -1047,6 +1071,7 @@ static void str_locale_conv(std::string& text)
 
 static void str_prepare_print(std::string& text)
 {
+	str_cr2lf(text);
 	str_remove_cr(text);
 	str_locale_conv(text);
 #ifdef _WIN32	// PDCurses vwprintw() bug workaround (it allocates a 512 byte buffer on the stack)
