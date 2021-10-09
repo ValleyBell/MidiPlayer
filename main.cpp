@@ -1509,8 +1509,19 @@ static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_
 	portIt = outPorts.begin();
 	if (portIt != outPorts.end())	// HandleRawEvent already sends it to the first port
 	{
-		for (++portIt; portIt != outPorts.end(); ++portIt)
-			MidiOutPort_SendLongMsg(*portIt, dataLen, data);
+		if (data[0] < 0xF0)
+		{
+			UINT8 evtData[3] = {0, 0, 0};
+			for (size_t pos = 0; pos < dataLen && pos < 3; pos ++)
+				evtData[pos] = data[pos];
+			for (++portIt; portIt != outPorts.end(); ++portIt)
+				MidiOutPort_SendShortMsg(*portIt, evtData[0], evtData[1], evtData[2]);
+		}
+		else
+		{
+			for (++portIt; portIt != outPorts.end(); ++portIt)
+				MidiOutPort_SendLongMsg(*portIt, dataLen, data);
+		}
 	}
 	
 	// wait for data to be transferred (3125 bytes per second)
@@ -1542,6 +1553,15 @@ static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::v
 			if (syxStart != (size_t)-1)
 				SendSyxDataToPorts(outPorts, curPos + 1 - syxStart, &syxData[syxStart]);
 			syxStart = (size_t)-1;
+		}
+		else if (syxData[curPos] >= 0x80 && syxData[curPos] < 0xF0 && syxStart == (size_t)-1)
+		{
+			syxStart = (size_t)-1;
+			size_t dlen = (syxData[curPos] & 0xE0) == 0xC0 ? 2 : 3;
+			if (curPos + dlen > syxData.size())
+				break;
+			SendSyxDataToPorts(outPorts, dlen, &syxData[curPos]);
+			curPos += (dlen - 1);
 		}
 	}
 	if (syxStart != (size_t)-1)
