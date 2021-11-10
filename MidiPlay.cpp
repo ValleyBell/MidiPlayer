@@ -4694,6 +4694,7 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.curIns = 0x80;
 		chnSt.userInsID = 0xFFFF;
 		chnSt.userInsName = NULL;
+		chnSt.userInsRef = NULL;
 		memset(&chnSt.ctrls[0x00], 0x80, 0x80);	// initialize with (0x80 | 0x00)
 		chnSt.ctrls[0x07] = 0x80 | 100;
 		chnSt.ctrls[0x0A] = 0x80 | 0x40;

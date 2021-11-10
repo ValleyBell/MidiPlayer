@@ -2,8 +2,14 @@ This folder contains instrument list files.
 Most of them were copied from MIDI Sequencer Cherry version 1.4.3 and thus use its format.
 
 I fixed a few mistakes in some of them.
-In gs.ins I fixed a few instruments that were incorrectly assigned to the wrong Sound Canvas model.
-I also removed the MT-32/CM-64 instruments from SC88/88Pro/8850 maps, because they are only present in when the SC-55 map is selected.
-In xg.ins I fixed a few SFX voices that were incorrectly assigned to MU80 instead of XG.
 
-mt32.ins was made using the MT-32/CM-64 instruments from gs.ins.
+gs.ins:
+- I fixed a few instruments that were incorrectly assigned to the wrong Sound Canvas model.
+- MT-32/CM-64 instruments are NOT available on a non-Pro SC-88 in the SC-88 map. (Only in the SC-55 map.)
+  SC-88Pro and later have them available in all instrument maps.
+- Spelling of SC-55 instrument names was fixed based on the SC-55 mkII ROM.
+  Originally SC-88Pro names were used, which were sometimes slightly shortened.
+- Spelilng of SC-88 and SC-88Pro instrument names was fixed+verified based on the results of a "dump instrument names" SysEx command sent an SC-88VL and an SC-88Pro.
+
+xg.ins:
+- I fixed a few SFX voices that were incorrectly assigned to MU80 instead of XG.
