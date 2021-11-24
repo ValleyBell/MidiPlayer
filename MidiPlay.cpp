@@ -331,7 +331,7 @@ const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule) 
 		if (_insBankYGS != NULL)
 		{
 			if (insMapModule != NULL)
-				*insMapModule = 0x00;
+				*insMapModule = 0x07;
 			return _insBankYGS;
 		}
 		// TG300B instrument map is very similar to the SC-88 one
@@ -731,7 +731,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	{
 		CalcMeasureTime(*_timeSigPos, _cMidi->GetMidiResolution() * 4, curTick, bar, beat, tick);
 #if 1	// for debugging bar overflow
-		if (*bar > 1000)
+		if (*bar > 10000)
 			vis_printf("Showing large tick %u = bar %0*u:%0*u.%0*u\n", curTick, 2, 1 + *bar, 2, 1 + *beat, 3, *tick);
 #endif
 	}
@@ -1018,11 +1018,12 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		case 0x06:	// Marker
 			{
 				std::string text = Vector2String(midiEvt->evtData);
-				//printf("Marker: %s\n", text.c_str());
+				// print now, so that the marker value is shown *before* any loop info.
+				vis_print_meta(trkState->trkID, midiEvt->evtValA, text.length(), text.data());
 				if (text == _options.loopStartText)
 				{
-					vis_addstr("loopStart found.");
 					SaveLoopState(_loopPt, trkState);
+					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
 				}
 				else if (text == _options.loopEndText)
 				{
@@ -1038,7 +1039,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 					}
 				}
 			}
-			break;
+			return;	// We already printed the Marker text.
 		//case 0x07:	// Cue Point
 		//case 0x08:	// Program Name
 		//case 0x09:	// Port Name
@@ -1649,6 +1650,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		{
 			vis_addstr("NRPN Loop Start found.");
 			SaveLoopState(_loopPt, trkSt);
+			vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
 		}
 		else if (chnSt->ctrls[ctrlID] == 30)
 		{
@@ -1678,6 +1680,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				if (! _useManualTiming)
 					vis_addstr("RPG Maker Loop Point found.");
 				SaveLoopState(_loopPt, trkSt);
+				if (_numLoops > 1)
+					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
 			}
 		}
 		else
@@ -3565,7 +3569,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x400004:	// Master Volume
-			vis_printf("SysEx GS: Master Volume = %u", xData[0x00]);
+			if (! tmpSyxIgnore)
+				vis_printf("SysEx GS: Master Volume = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
 				break;
 			_mstVol = xData[0x00];
@@ -3603,7 +3608,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x40007F:	// GS reset
 			if (xLen < 0x01)
 				break;	// when there is no parameter, the message has no effect
-			vis_addstr("SysEx: GS Reset\n");
+			if (! tmpSyxIgnore)
+				vis_addstr("SysEx: GS Reset\n");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
 			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)

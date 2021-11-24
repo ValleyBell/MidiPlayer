@@ -194,7 +194,10 @@ void NoteVisualization::ChnInfo::RemoveNote(UINT8 note)
 	{
 		if (nIt->height == note && ! nIt->maxAge)
 		{
-			_notes.erase(nIt);	// remove first match
+			if (nIt->curAge < 50)
+				nIt->maxAge = 50;	// super-short note: show for at least 2-3 frames
+			else
+				_notes.erase(nIt);	// remove first match
 			return;
 		}
 	}

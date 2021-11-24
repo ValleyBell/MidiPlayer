@@ -829,8 +829,11 @@ void vis_do_ins_change(UINT16 chn)
 	{
 		// The order on actual Roland Sound Canvas modules would be [bank] [map] [name].
 		insName = "  " + insName;
-		if (insInf->bank[1] >= 0x01 && insInf->bank[1] <= 0x04)
-			insName[0] = SC_MAP_SYMBOLS[insInf->bank[1] - 0x01];
+		if (midPlay->GetModuleType() == MODULE_TG300B &&
+			insInf->bankPtr != NULL && insInf->bankPtr->moduleID < 4)
+			insName[0] = SC_MAP_SYMBOLS[insInf->bankPtr->moduleID];
+		else if (insInf->bank[1] >= 1 && insInf->bank[1] <= 4)
+			insName[0] = SC_MAP_SYMBOLS[insInf->bank[1] - 1];
 		else
 			insName[0] = ' ';
 		isDefMap = (bankLSB == 0x00);
@@ -853,9 +856,11 @@ void vis_do_ins_change(UINT16 chn)
 			insName[1] = '+';	// variation sound
 		else
 			insName[1] = ' ';	// capital sound
-		if (midPlay->GetModuleType() == MODULE_TG300B)
+		if (false && midPlay->GetModuleType() == MODULE_TG300B)
 		{
-			insName = insName.substr(1);	// TG300B mode has only 1 map
+			// remove "map" indicator for TG300B mode, because it has only 1 map (Bank LSB)
+			// Note: There are still multiple variants: MU50, MU80, MU128
+			insName = insName.substr(1);
 			isDefMap = false;	// set false, because we removed the "map" indicator
 		}
 	}
