@@ -673,7 +673,7 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 	if (! _tmrStep)
 		return 0.0;	// the song isn't playing
 	
-	UINT64 curTime = Timer_GetTime();
+	UINT64 curTime = Timer_GetTime() + _curTickTime / 4;	// rounding here, for nicer tick display
 	
 	// calculate in-song time of _tmrStep (time of next event)
 	UINT64 tmrTick = _tempoPos->tmrTick + ((INT32)_nextEvtTick - _tempoPos->tick) * _curTickTime;
@@ -705,7 +705,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	}
 	else
 	{
-		UINT64 curTime = Timer_GetTime();
+		UINT64 curTime = Timer_GetTime() + _curTickTime / 4;	// rounding here, for nicer tick display
 		if (curTime > _tmrStep)
 			curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
 		
@@ -1286,7 +1286,7 @@ void MidiPlayer::DoPlaybackStep(void)
 		if (_fadeVol == 0x00)
 			Stop();
 	}
-	if (curTime < _tmrStep)
+	if (curTime + _curTickTime / 4 < _tmrStep)	// rounding here, for nicer tick display at 120 BPM/192 TpQ
 		return;
 	
 	while(_playing)
@@ -1327,7 +1327,7 @@ void MidiPlayer::DoPlaybackStep(void)
 			_nextEvtTick = minNextTick;
 		}
 		
-		if (curTime < _tmrStep)
+		if (curTime + _curTickTime / 4 < _tmrStep)
 			break;	// exit the loop when going beyond "current time"
 		if (_tmrStep + _tmrFreq * 1 < curTime)
 			_tmrStep = curTime;	// reset time when lagging behind >= 1 second

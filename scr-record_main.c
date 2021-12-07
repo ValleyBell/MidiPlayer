@@ -258,16 +258,17 @@ static SCRREC_RECT DetectTerminalEdge(SCRREC_IMAGE calibImgs[2], SCRREC_CAPTURE*
 static void WaitForSync(SCRREC_CAPTURE* sc, int x, int y, SCRREC_PIX syncColor, UINT8 match)
 {
 	SCRREC_PIX pixColor;
-	unsigned int syncTime;
+	unsigned int syncTime = 16;
 	
-	for (syncTime = 0; syncTime < 1000; syncTime ++)
+	Sleep(syncTime);
+	for (; syncTime < 1000; syncTime += 4)
 	{
 		pixColor = ScrWin_GetScreenPixel(sc, x, y);
 		if (match && pixColor.u32 == syncColor.u32)
 			break;	// leave loop when expected color appeared
 		else if (! match && pixColor.u32 != syncColor.u32)
 			break;	// leave loop when expected color disappeared
-		Sleep(1);
+		Sleep(5);
 	}
 	
 	return;
