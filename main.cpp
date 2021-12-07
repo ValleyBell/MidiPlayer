@@ -66,6 +66,7 @@ struct InstrumentSetCfg
 
 
 //int main(int argc, char* argv[]);
+static UINT8 LoadSyxData(const std::string& filePath, std::vector<UINT8>& buffer);
 static char* GetAppFilePath(void);
 #if ENABLE_ZIP_SUPPORT
 static std::string DecompressFromZIP(const std::string& path);
@@ -95,6 +96,7 @@ static MidiPlayer midPlay;
 
 static bool dummyOutput;
 static bool screenRecordMode;
+static bool loadSongSyx;
 static UINT32 videoFrameRate;
 static UINT32 numLoops;
 static UINT32 defNumLoops;
@@ -108,8 +110,9 @@ static MidiPortAliases midiPortAliases;
 static MidiModuleCollection midiModColl;
 static std::vector<INS_BANK> insBanks;
 static std::string syxFile;
-static std::vector<UINT8> syxData;
-static bool didSendSyx;
+static std::vector<UINT8> gblSyxData;
+static std::vector<UINT8> songSyxData;
+static UINT8 didSendSyx;
 static UINT8 tempSrcType;
 
 static std::vector<SongFileList> songList;
@@ -435,26 +438,10 @@ int main(int argc, char* argv[])
 	vis_init();
 	SetVisualizationCharsets(NULL);
 	vis_set_midi_modules(&midiModColl);
-	didSendSyx = false;
+	didSendSyx = 0;
 	
 	if (! syxFile.empty())
-	{
-		FILE* hFile = fopen(syxFile.c_str(), "rb");
-		if (hFile != NULL)
-		{
-			size_t readBytes;
-			
-			fseek(hFile, 0, SEEK_END);
-			syxData.resize(ftell(hFile));
-			rewind(hFile);
-			
-			readBytes = 0;
-			if (syxData.size() > 0)
-				readBytes = fread(&syxData[0], 0x01, syxData.size(), hFile);
-			syxData.resize(readBytes);
-			fclose(hFile);
-		}
-	}
+		LoadSyxData(syxFile, gblSyxData);
 	
 	resVal = 0;
 	controlVal = +1;	// default: next song
@@ -530,6 +517,7 @@ int main(int argc, char* argv[])
 		//printf("File loaded.\n");
 		tempSrcType = 0xFF;
 		
+		songSyxData.clear();
 		if (! initFiles.empty())
 		{
 			bool hadError = false;
@@ -542,23 +530,19 @@ int main(int argc, char* argv[])
 				const char* endPtr = GetFileTitle(basePtr);
 				std::string initFPath = std::string(basePtr, endPtr) + initFiles[0];
 				
-				iRetVal = Cm62Syx(initFPath.c_str(), syxData);
+				iRetVal = Cm62Syx(initFPath.c_str(), songSyxData);
 				if (! iRetVal)
 				{
 					tempSrcType = MODULE_MT32;
 				}
 				else
 				{
-					iRetVal = Gsd2Syx(initFPath.c_str(), syxData);
+					iRetVal = Gsd2Syx(initFPath.c_str(), songSyxData);
 					if (! iRetVal)
 						tempSrcType = MODULE_SC55;
 				}
 					
-				if (! iRetVal)
-				{
-					didSendSyx = false;
-				}
-				else
+				if (iRetVal)
 				{
 					vis_printf("Error 0x%02X opening %s\n", retVal, initFPath.c_str());
 					hadError = true;
@@ -569,6 +553,19 @@ int main(int argc, char* argv[])
 				vis_update();
 				vis_getch_wait();
 			}
+		}
+		else if (loadSongSyx)
+		{
+			const char* midFN = midFileName.c_str();
+			const char* fExt = GetFileExtension(midFN);
+			if (fExt != NULL)
+				fExt --;	// move pinter to '.'
+			else
+				fExt = midFN + strlen(midFN);
+			std::string baseName(midFN, fExt);
+			retVal = LoadSyxData(baseName + ".SYX", songSyxData);
+			if (retVal & 0x80)
+				retVal = LoadSyxData(baseName + ".syx", songSyxData);
 		}
 		
 #if ENABLE_SCREEN_REC
@@ -637,6 +634,32 @@ int main(int argc, char* argv[])
 	insBanks.clear();
 	
 	return 0;
+}
+
+static UINT8 LoadSyxData(const std::string& filePath, std::vector<UINT8>& buffer)
+{
+	FILE* hFile = fopen(filePath.c_str(), "rb");
+	if (hFile == NULL)
+		return 0xFF;
+	
+	size_t fileSize;
+	size_t readBytes;
+	
+	fseek(hFile, 0, SEEK_END);
+	fileSize = ftell(hFile);
+	buffer.resize(fileSize);
+	rewind(hFile);
+	
+	readBytes = 0;
+	if (buffer.size() > 0)
+		readBytes = fread(&buffer[0], 0x01, buffer.size(), hFile);
+	buffer.resize(readBytes);
+	fclose(hFile);
+	
+	if (readBytes != fileSize)
+		return (readBytes == 0) ? 0x80 : 0x01;	// 80 - nothing read, 01 - incomplete read
+	else
+		return 0x00;	// everything OK
 }
 
 static char* GetAppFilePath(void)
@@ -950,8 +973,9 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
 	defNumLoops = iniFile.GetInteger("General", "LoopCount", 2);
 	fadeTime = iniFile.GetFloat("General", "FadeTime", 5.0);
-	plrLoopText[0] = iniFile.GetString("General", "Maker_LoopStart", plrLoopText[0]);
-	plrLoopText[1] = iniFile.GetString("General", "Maker_LoopEnd", plrLoopText[1]);
+	plrLoopText[0] = iniFile.GetString("General", "Marker_LoopStart", plrLoopText[0]);
+	plrLoopText[1] = iniFile.GetString("General", "Marker_LoopEnd", plrLoopText[1]);
+	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", false);
 	
 	strmSrv_pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
 	strmSrv_metaFile = iniFile.GetString("StreamServer", "MetadataFile", "");
@@ -1359,9 +1383,19 @@ void PlayMidi(void)
 	
 	UINT32 curFrame = 0;
 	midPlay.Start();
-	//if (! syxData.empty() && (! didSendSyx || false))
-	if (! syxData.empty() && (! didSendSyx || screenRecordMode))
+	
+	UINT8 syxType;
+	if (! songSyxData.empty())
+		syxType =  2;
+	else if (! gblSyxData.empty())
+		syxType = 1;
+	else
+		syxType = 0;
+	if ((plrOpts.flags & PLROPTS_RESET) || screenRecordMode || syxType == 2)
+		didSendSyx = 0;
+	if (syxType != 0 && didSendSyx != syxType)
 	{
+		const std::vector<UINT8>& syxData = (syxType == 2) ? songSyxData : gblSyxData;
 		vis_addstr("Sending SYX data ...");
 		vis_update();
 #if ENABLE_SCREEN_REC
@@ -1376,7 +1410,7 @@ void PlayMidi(void)
 			SendSyxData(mopList->mOuts, syxData);
 		else
 			SendSyxData(std::vector<MIDIOUT_PORT*>(), syxData);
-		didSendSyx = true;
+		didSendSyx = syxType;
 		midPlay.Resume();
 	}
 	vis_update();
