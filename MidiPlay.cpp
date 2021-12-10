@@ -236,6 +236,7 @@ void MidiPlayer::SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank)
 		_insBankYGS = insBank;
 		return;
 	case MODULE_MT32:
+	case MODULE_CM64:
 		_insBankMT32 = insBank;
 		return;
 	default:
@@ -337,6 +338,7 @@ const INS_BANK* MidiPlayer::SelectInsMap(UINT8 moduleType, UINT8* insMapModule) 
 		// TG300B instrument map is very similar to the SC-88 one
 		return SelectInsMap(MODULE_SC88, insMapModule);
 	case MODULE_MT32:
+	case MODULE_CM64:
 		if (insMapModule != NULL)
 			*insMapModule = 0x00;
 		return _insBankMT32;
@@ -414,7 +416,7 @@ UINT8 MidiPlayer::Start(void)
 	if (_options.flags & PLROPTS_RESET)
 	{
 		size_t curPort;
-		if (_options.dstType == MODULE_MT32)
+		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_LA)
 		{
 			// MT-32 mode - soft reset all channels
 			vis_printf("Sending Device Reset (%s) ...", "MT-32");
@@ -1537,7 +1539,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			UINT8 panVal = chnSt->ctrls[ctrlID];
 			bool didPatch = false;
 			
-			if (_options.srcType == MODULE_MT32)
+			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_LA)
 			{
 				panVal ^= 0x7F;	// MT-32 uses 0x7F (left) .. 0x3F (center) .. 0x00 (right)
 				didPatch = true;
@@ -1793,7 +1795,7 @@ void MidiPlayer::HandleIns_CommonPatches(const ChannelState* chnSt, InstrumentIn
 		if (chnSt->flags & 0x80)
 			insInf->bnkIgn |= BNKMSK_LSB;	// ignore LSB on drum channels
 	}
-	else if (devType == MODULE_MT32)
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_LA)
 	{
 		if (insBank != NULL && insBank->maxBankMSB >= 0x01)
 		{
@@ -2075,7 +2077,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	}
 	else if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 	{
-		if (_options.srcType == MODULE_MT32)
+		if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_LA)
 		{
 			// [conversion] use MT-32 instruments on GS device
 			insInf->bank[1] = 0x01 + MTGS_SC55;
@@ -2306,7 +2308,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			}
 		}
 	}
-	else if (devType == MODULE_MT32)
+	else if (MMASK_TYPE(devType) == MODULE_TYPE_LA)
 	{
 		realBnkIgn = BNKMSK_ALLBNK;
 		strictPatch = ~insInf->bnkIgn & BNKMSK_ALLBNK;	// mark for undo when not strict
@@ -2432,7 +2434,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 	}
 	else //if (_options.flags & PLROPTS_STRICT)
 	{
-		if (devType == MODULE_MT32)
+		if (MMASK_TYPE(devType) == MODULE_TYPE_LA)
 		{
 			// I use hardcoded bank settings (MSB 0 for MT-32/CM-32L and MSB 1 for CM-32P),
 			// so I need to reset those back to 0 as it should be.
@@ -2560,7 +2562,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 	
 	HandleIns_GetOriginal(chnSt, &chnSt->insOrg);
 	HandleIns_GetRemapped(chnSt, &chnSt->insSend);
-	if (_options.dstType == MODULE_MT32 && ! (chnSt->flags & 0x80))
+	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_LA && ! (chnSt->flags & 0x80))
 	{
 		// On the MT-32, you can remap the patch set to other timbres.
 		InstrumentInfo insInf;
@@ -3298,7 +3300,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		case 0x0016:	// Master Volume
 			// Note: Unlike GM/GS/XG, MT-32 volume is 0..100.
 			vis_printf("SysEx MT-32: Master Volume = %u", xData[0x00]);
-			if (_options.dstType != MODULE_MT32)
+			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
@@ -3364,7 +3366,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		case 0x0010:	// Master Volume
 			// Note: Like MT-32/CM-32L, CM-32P volume is 0..100.
 			vis_printf("SysEx CM-32P: Master Volume = %u", xData[0x00]);
-			if (_options.dstType != MODULE_MT32)
+			if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
@@ -3382,7 +3384,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 		break;
 	case 0x7F0000:	// All Parameters Reset (applies to MT-32/CM-32L *and* CM-32P)
 		vis_addstr("SysEx: MT-32 Reset\n");
-		if (_options.dstType != MODULE_MT32)
+		if (MMASK_TYPE(_options.dstType) != MODULE_TYPE_LA)
 			break;
 		_hardReset = true;	// reset custom instruments and assignments
 		InitializeChannels();
@@ -3404,11 +3406,11 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
-	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
+	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) >= MODULE_TYPE_LA)
 	{
 		// I've seen MT-32 MIDIs with stray GS messages. Ignore most of them.
 		// (fixes MT-32/CM-64 MIDIs from Steam-Heart's)
-		vis_addstr("Ignoring stray GS SysEx message!");
+		//vis_addstr("Ignoring stray GS SysEx message!");
 		return true;
 	}
 	
@@ -3429,7 +3431,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			vis_printf("SysEx: SC-88 System Mode %u\n", 1 + xData[0x00]);
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_hardReset = true;
 			InitializeChannels();	// it completely resets the device
@@ -3551,7 +3553,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x400000:	// Master Tune
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			{
 				INT16 tune;
@@ -3571,7 +3573,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		case 0x400004:	// Master Volume
 			if (! tmpSyxIgnore)
 				vis_printf("SysEx GS: Master Volume = %u", xData[0x00]);
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
@@ -3584,7 +3586,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x400005:	// Master Key-Shift
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			{
 				INT8 transp = (INT8)xData[0x00] - 0x40;
@@ -3596,7 +3598,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x400006:	// Master Pan
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			{
 				UINT8 panVal = xData[0x00];
@@ -3612,7 +3614,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				vis_addstr("SysEx: GS Reset\n");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_GS)
 				return true;	// prevent GS reset on other devices
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			InitializeChannels();
 			break;
@@ -3859,7 +3861,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 	ChannelState* chnSt = NULL;
 	NoteVisualization::ChnInfo* nvChn = NULL;
 	
-	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) == MODULE_TYPE_OT)
+	if ((_options.flags & PLROPTS_STRICT) && MMASK_TYPE(_options.srcType) >= MODULE_TYPE_LA)
 	{
 		if (syxData[0x03] == 0x00)	// ignore system block
 		{
@@ -3877,7 +3879,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 		switch(addr)
 		{
 		case 0x000000:	// Master Tune
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			{
 				INT16 tune;
@@ -3896,7 +3898,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x000004:	// Master Volume
 			vis_printf("SysEx XG: Master Volume = %u", xData[0x00]);
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
 			if (_filteredVol & (1 << FILTVOL_GMSYX))
@@ -3910,12 +3912,12 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x000005:	// Master Attenuator
 			vis_printf("SysEx XG: Master Attenuator = %u", xData[0x00]);
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_noteVis.GetAttributes().expression = 0x7F - xData[0x00];
 			break;
 		case 0x000006:	// Master Transpose
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			{
 				INT8 transp = (INT8)xData[0x00] - 0x40;
@@ -3933,13 +3935,13 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			vis_addstr("SysEx: XG Reset");
 			if ((_options.flags & PLROPTS_RESET) && MMASK_TYPE(_options.dstType) != MODULE_TYPE_XG)
 				return true;	// prevent XG reset on other devices
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			InitializeChannels();
 			break;
 		case 0x00007F:	// All Parameters Reset
 			vis_addstr("SysEx XG: All Parameters Reset");
-			if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_OT)
+			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_defSrcInsMap = 0xFF;	// Yes, this one is reset with this SysEx message.
 			RefreshSrcDevSettings();
@@ -4322,7 +4324,7 @@ void MidiPlayer::AllChannelRefresh(void)
 	UINT8 defDstPbRange;
 	
 	_tmrStep = Timer_GetTime();	// properly time the following events
-	if (_options.dstType == MODULE_MT32)
+	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_LA)
 		defDstPbRange = 12;
 	else
 		defDstPbRange = 2;
@@ -4588,7 +4590,7 @@ void MidiPlayer::RefreshSrcDevSettings(void)
 		}
 		_defSrcInsMap |= 0x80;
 	}
-	if (_options.srcType == MODULE_MT32)
+	if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_LA)
 		_defPbRange = 12;
 	else
 		_defPbRange = 2;
@@ -4803,7 +4805,7 @@ void MidiPlayer::InitializeChannels_Post(void)
 				_defDstInsMap = 0x00;	// MU basic sounds better with GM
 		}
 	}
-	if (_options.dstType == MODULE_MT32)
+	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_LA)
 		defDstPbRange = 12;
 	else
 		defDstPbRange = 2;
@@ -4834,7 +4836,7 @@ void MidiPlayer::InitializeChannels_Post(void)
 				}
 				drumChn.insState[2] = 0x00;	// Instrument: Standard Kit 1
 				
-				if (_options.srcType == MODULE_MT32)
+				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_LA)
 				{
 					drumChn.insState[1] = 0x01;	// SC-55 map
 					drumChn.insState[2] = 0x7F;	// select MT-32 drum kit

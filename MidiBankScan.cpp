@@ -628,6 +628,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 	
 	sv.drumChnMask = (1 << 9);
 	sv.chnUseMask = 0x0000;
+	modChk.chnUseMask = 0x0000;
 	memset(sv.insBank, 0x00, 16 * 3);
 	sv.portIDs.clear();
 	sv.syxReset = SYX_RESET_UNDEF;
@@ -657,6 +658,7 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 					sv.portIDs.insert(sv.curPortID);
 				}
 				sv.chnUseMask |= (1 << evtChn);
+				modChk.chnUseMask |= (1 << evtChn);
 				MayDoInsCheck(&modChk, &sv, evtChn, true);
 				break;
 			case 0xB0:	// Control Change
@@ -948,6 +950,8 @@ void MidiBankScan(MidiFile* cMidi, bool ignoreEmptyChns, BANKSCAN_RESULT* result
 			result->modType = MODULE_TYPE_GS | GS_Opt;
 		else if (sv.syxReset == MODULE_MU50)
 			result->modType = MODULE_TYPE_XG | XG_Opt;
+		else if (sv.syxReset == MODULE_MT32)
+			result->modType = (modChk.chnUseMask & 0xFC00) ? MODULE_CM64 : MODULE_MT32;
 		else if ((modChk.fmGS & (3 << FMBGS_GS_RESET)) && GS_Opt != MT_UNKNOWN)
 			result->modType = MODULE_TYPE_GS | GS_Opt;	// some SC-55 MIDIs have MT-32 *and* GS reset
 		else if (sv.syxReset == MODULE_GM_1 && (modChk.fmGM & (1 << (FMBALL_INSSET + MTGM_LVL2))))

@@ -43,6 +43,7 @@ ModuleNames::ModuleNames()
 	shortIDName[MODULE_NS5R     ] = "NS5R";
 	shortIDName[MODULE_KGMB     ] = "K-GMb";
 	shortIDName[MODULE_MT32     ] = "MT-32";
+	shortIDName[MODULE_CM64     ] = "CM-64";
 	
 	longIDName = shortIDName;
 	longIDName[ MODULE_GM_2     ] = "GM Level 2";

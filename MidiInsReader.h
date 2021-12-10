@@ -41,6 +41,7 @@ typedef struct
 #define MODULE_TYPE_GS	0x10
 #define MODULE_TYPE_XG	0x20
 #define MODULE_TYPE_K5	0x30	// Korg 5s-Series
+#define MODULE_TYPE_LA	0x70	// MT-32 (LA synth) / CM-64
 #define MODULE_TYPE_OT	0x70	// other non-GM modules
 
 #define MT_UNKNOWN		0x08
@@ -66,7 +67,8 @@ typedef struct
 #define MTK5_NS5R		0x03
 #define MTK5_GMB		0x00	// Korg GM-b map
 
-#define MTOT_MT32		0x00
+#define MTLA_MT32		0x00
+#define MTLA_CM64		0x01
 
 
 #define MODULE_GM_1		(MODULE_TYPE_GM | MTGM_LVL1)
@@ -90,7 +92,8 @@ typedef struct
 #define MODULE_NS5R		(MODULE_TYPE_K5 | MTK5_NS5R)
 #define MODULE_KGMB		(MODULE_TYPE_K5 | MTK5_GMB)
 
-#define MODULE_MT32		(MODULE_TYPE_OT | MTOT_MT32)
+#define MODULE_MT32		(MODULE_TYPE_LA | MTLA_MT32)
+#define MODULE_CM64		(MODULE_TYPE_LA | MTLA_CM64)
 
 
 UINT8 LoadInstrumentList(const char* fileName, INS_BANK* insBank);

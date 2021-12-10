@@ -1225,7 +1225,12 @@ void PlayMidi(void)
 	// try to detect the instrument set used by the MIDI
 	MidiBankScan(&CMidi, true, &scanRes);
 	if (tempSrcType != 0xFF)
-		scanRes.modType = tempSrcType;
+	{
+		if (tempSrcType == MODULE_MT32)
+			scanRes.modType = (scanRes.details.chnUseMask & 0xFC00) ? MODULE_CM64 : MODULE_MT32;
+		else
+			scanRes.modType = tempSrcType;
+	}
 	if (forceSrcType != 0xFF)
 		scanRes.modType = forceSrcType;
 	songInsMap = scanRes.modType;
@@ -1391,7 +1396,7 @@ void PlayMidi(void)
 		syxType = 1;
 	else
 		syxType = 0;
-	if ((plrOpts.flags & PLROPTS_RESET) && MMASK_TYPE(mMod->modType) != MODULE_TYPE_OT)	// for the MT-32, we only do a soft reset
+	if ((plrOpts.flags & PLROPTS_RESET) && MMASK_TYPE(mMod->modType) != MODULE_TYPE_LA)	// for the MT-32, we only do a soft reset
 		didSendSyx = 0;
 	if (screenRecordMode || syxType == 2)
 		didSendSyx = 0;

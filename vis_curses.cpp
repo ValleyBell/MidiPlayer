@@ -917,7 +917,7 @@ void vis_do_ins_change(UINT16 chn)
 		else
 			isDefMap = (bankMSB == 0x00 && bankLSB == 0x00);
 	}
-	else if (midPlay->GetModuleType() == MODULE_MT32)
+	else if (MMASK_TYPE(midPlay->GetModuleType()) == MODULE_TYPE_LA)
 	{
 		insName = " " + insName;
 		if (chnSt->midChn <= 0x09)

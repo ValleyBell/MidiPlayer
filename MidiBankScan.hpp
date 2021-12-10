@@ -50,6 +50,7 @@ typedef struct
 	UINT8 gsimNot;		// GS module: instrument mask for "not allowed" modules
 	UINT8 gsMaxLSB;		// GS module: maximum Bank LSB (instrument map)
 	UINT8 xgMapSel;		// XG module: MU basic/MU 100 voice map selection (0xFF = unset)
+	UINT16 chnUseMask;
 } MODULE_CHECK;
 typedef struct
 {
