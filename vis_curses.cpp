@@ -1163,12 +1163,12 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	case 0x04:	// Instrument Name
 		//if (! optShowMeta[4])
 		//	break;
-		if (lastMeta04 == text)
-			break;
+		//if (lastMeta04 == text)
+		//	break;
 		lastMeta04 = text;
 		
 		str_prepare_print(text);
-		wprintw(logWin, "Instrument Name: %s", text.c_str());
+		wprintw(logWin, "Track %u Instrument: %s", trk, text.c_str());
 		curYline ++;
 		break;
 	case 0x05:	// Lyric
@@ -1182,7 +1182,10 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		if (! optShowMeta[6])
 			break;
 		str_prepare_print(text);
-		wprintw(logWin, "Marker: %s", text.c_str());
+		if (trk == 0 || midFile->GetMidiFormat() == 2)
+			wprintw(logWin, "Marker: %s", text.c_str());
+		else
+			wprintw(logWin, "Track %u Marker: %s", trk, text.c_str());
 		curYline ++;
 		break;
 	case 0x51:	// Tempo

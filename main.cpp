@@ -1391,7 +1391,9 @@ void PlayMidi(void)
 		syxType = 1;
 	else
 		syxType = 0;
-	if ((plrOpts.flags & PLROPTS_RESET) || screenRecordMode || syxType == 2)
+	if ((plrOpts.flags & PLROPTS_RESET) && MMASK_TYPE(mMod->modType) != MODULE_TYPE_OT)	// for the MT-32, we only do a soft reset
+		didSendSyx = 0;
+	if (screenRecordMode || syxType == 2)
 		didSendSyx = 0;
 	if (syxType != 0 && didSendSyx != syxType)
 	{
@@ -1560,7 +1562,7 @@ static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_
 	
 	// wait for data to be transferred (3125 bytes per second)
 	// (31250 bits per second transfer rate, 1 byte of payload = 10 bits: 1 start bit, 8 data bits, 1 stop bit)
-	//Sleep(dataLen * 1000 / 3125);
+	Sleep(dataLen * 1000 / 3125);
 	
 	return;
 }
