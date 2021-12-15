@@ -176,7 +176,7 @@ private:
 	void DoEvent(TrackState* trkState, const MidiEvent* midiEvt);
 	void ProcessEventQueue(bool flush = false);
 	void EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 dtMove);
-	void EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove);
+	void EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove, UINT64 limitMinTime);
 	void UpdateSongCtrlEvts(void);
 	void ForceNoteOff(ChannelState* chnSt, UINT8 note);
 	bool HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, const MidiEvent* midiEvt);

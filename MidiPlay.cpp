@@ -1094,7 +1094,8 @@ void MidiPlayer::ProcessEventQueue(bool flush)
 	{
 		// move patch changes 50 ms ahead, as they take veeery long on the Roland U-110
 		// (I measured about 10 ms for loading a single patch.)
-		INT64 dtMove = -50 * (INT64)_tmrFreq / 1000;
+		//INT64 dtMove = -50 * (INT64)_tmrFreq / 1000;
+		INT64 dtMove = -100 * (INT64)_tmrFreq / 1000;	// up to 100 ms, just to be safe
 		_meqDoSort = false;
 		
 		for (curPort = 0; curPort < _midiEvtQueue.size(); curPort ++)
@@ -1138,10 +1139,16 @@ void MidiPlayer::EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 
 	UINT64 minTime;
 	UINT64 maxTime;
 	
+	minTime = 0;
 	while(! meq.empty())
 	{
 		MidiQueueEvt& evt = meq.front();
 		curChn = evt.data[0] & 0x0F;
+		if (evt.data[0] >= 0xF0)
+		{
+			curChn = 0;
+			minTime = evt.time;
+		}
 		tmpMEQ[curChn].push_back(evt);
 		meq.pop();
 	}
@@ -1150,7 +1157,7 @@ void MidiPlayer::EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 
 	for (curChn = 0x00; curChn < 0x10; curChn ++)
 	{
 		std::vector<MidiQueueEvt>& meqList = tmpMEQ[curChn];
-		EvtQueue_OptimizeChnEvts(meqList, dtMove);
+		EvtQueue_OptimizeChnEvts(meqList, dtMove, minTime);
 		
 		if (! meqList.empty() && maxTime < meqList[meqList.size() - 1].time)
 			maxTime = meqList[meqList.size() - 1].time;
@@ -1182,7 +1189,7 @@ void MidiPlayer::EvtQueue_OptimizePortEvts(std::queue<MidiQueueEvt>& meq, INT64 
 	return;
 }
 
-void MidiPlayer::EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove)
+void MidiPlayer::EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT64 dtMove, UINT64 limitMinTime)
 {
 	size_t curEvt;
 	
@@ -1192,7 +1199,7 @@ void MidiPlayer::EvtQueue_OptimizeChnEvts(std::vector<MidiQueueEvt>& meList, INT
 		size_t moveSt = 0;
 		size_t moveEnd = 0;
 		size_t moveEvt;
-		UINT64 minTime = 0;
+		UINT64 minTime = limitMinTime;
 		UINT64 maxTime = 0;
 		UINT64 moveTime = 0;
 		

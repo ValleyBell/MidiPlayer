@@ -43,6 +43,7 @@ ModuleNames::ModuleNames()
 	shortIDName[MODULE_NS5R     ] = "NS5R";
 	shortIDName[MODULE_KGMB     ] = "K-GMb";
 	shortIDName[MODULE_MT32     ] = "MT-32";
+//	shortIDName[MODULE_CM32P    ] = "CM-32P";
 	shortIDName[MODULE_CM64     ] = "CM-64";
 	
 	longIDName = shortIDName;
@@ -51,6 +52,7 @@ ModuleNames::ModuleNames()
 	longIDName[ MODULE_MU1000   ] = "MU1000/2000";
 	longIDName[ MODULE_TYPE_GS | MT_UNKNOWN] = "GS/unknown";
 	longIDName[ MODULE_TYPE_XG | MT_UNKNOWN] = "XG/unknown";
+	longIDName[ MODULE_MT32     ] = "MT-32/CM-32L";
 	
 	for (curID = 0x00; curID < shortIDName.size(); curID ++)
 		shortNameID[shortIDName[curID]] = curID;

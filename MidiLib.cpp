@@ -256,7 +256,7 @@ midevt_iterator MidiTrack::GetEventFromTick(UINT32 tick)
 {
 	midevt_iterator evtIt;
 	
-	if (tick >= GetTickCount())
+	if (tick > GetTickCount())	//tick >= GetTickCount()
 		return _events.end();
 	
 	for (evtIt = _events.begin(); evtIt != _events.end(); ++evtIt)
