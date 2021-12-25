@@ -1025,7 +1025,8 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 				if (text == _options.loopStartText)
 				{
 					SaveLoopState(_loopPt, trkState);
-					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+					if (_numLoops > 1)
+						vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
 				}
 				else if (text == _options.loopEndText)
 				{
@@ -1616,7 +1617,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				chnSt->tuneFine &= ~0xFF00;
 				chnSt->tuneFine |= ((INT16)chnSt->ctrls[ctrlID] - 0x40) << 8;
 				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 2);
 				break;
 			case 0x02:	// Coarse Tuning
 				chnSt->tuneCoarse = (INT8)chnSt->ctrls[ctrlID] - 0x40;
@@ -1625,7 +1626,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				else if (chnSt->tuneCoarse > +24)
 					chnSt->tuneCoarse = +24;
 				nvChn->_transpose = chnSt->tuneCoarse;
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 2);
 				break;
 			}
 		}
@@ -1643,7 +1644,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				chnSt->tuneFine &= ~0x00FF;
 				chnSt->tuneFine |= chnSt->ctrls[ctrlID] << 1;
 				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 2);
 				break;
 			}
 		}
@@ -1659,7 +1660,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		{
 			vis_addstr("NRPN Loop Start found.");
 			SaveLoopState(_loopPt, trkSt);
-			vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+			if (_numLoops > 1)
+				vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
 		}
 		else if (chnSt->ctrls[ctrlID] == 30)
 		{
@@ -3724,19 +3726,19 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				else if (chnSt->tuneCoarse > +24)
 					chnSt->tuneCoarse = +24;
 				nvChn->_transpose = chnSt->tuneCoarse;
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 2);
 			}
 			break;
 		case 0x401017:	// Pitch Offset Fine
 			{
 				UINT8 offset = ((xData[0x00] & 0x0F) << 4) | ((xData[0x01] & 0x0F) << 0);
-				chnSt->tuneFine = (offset - 0x80) << 7;
+				chnSt->tuneFine = (offset - 0x80) << 8;
 				if (chnSt->tuneFine < -0x3C00)
 					chnSt->tuneFine = -0x3C00;
 				else if (chnSt->tuneFine > +0x3C00)
 					chnSt->tuneFine = +0x3C00;
 				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 2);
 			}
 			break;
 		case 0x401019:	// Part Level
@@ -4111,15 +4113,15 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				else if (chnSt->tuneCoarse > +24)
 					chnSt->tuneCoarse = +24;
 				nvChn->_transpose = chnSt->tuneCoarse;
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 2);
 			}
 			break;
 		case 0x080017:	// Detune
 			{
 				UINT8 offset = ((xData[0x00] & 0x0F) << 4) | ((xData[0x01] & 0x0F) << 0);
-				chnSt->tuneFine = (offset - 0x80) << 7;
+				chnSt->tuneFine = (offset - 0x80) << 8;
 				nvChn->_detune = (INT8)(chnSt->tuneFine >> 8);
-				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 0);
+				nvChn->_attr.detune[1] = (nvChn->_transpose << 8) + (nvChn->_detune << 2);
 			}
 			break;
 		case 0x08000B:	// Volume

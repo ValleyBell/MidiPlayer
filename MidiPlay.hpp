@@ -77,7 +77,7 @@ public:
 		INT8 pbRange;
 		INT8 pbRangeUnscl;	// unscaled PB range set via RPN (used for MIDIs that expect non-standard PB ranges)
 		INT8 tuneCoarse;
-		INT16 tuneFine;		// stored as 8.8 fixed point
+		INT16 tuneFine;		// stored as 8.8 fixed point (-0x4000 = -1 semitone .. 0 = centre .. +0x3FFF = +1 semitone)
 		
 		const char* userInsName;
 		const InstrumentInfo* userInsRef;
