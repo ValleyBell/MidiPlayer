@@ -675,7 +675,7 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 	if (! _tmrStep)
 		return 0.0;	// the song isn't playing
 	
-	UINT64 curTime = Timer_GetTime() + _curTickTime / 4;	// rounding here, for nicer tick display
+	UINT64 curTime = Timer_GetTime();
 	
 	// calculate in-song time of _tmrStep (time of next event)
 	UINT64 tmrTick = _tempoPos->tmrTick + ((INT32)_nextEvtTick - _tempoPos->tick) * _curTickTime;
@@ -707,7 +707,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	}
 	else
 	{
-		UINT64 curTime = Timer_GetTime() + _curTickTime / 4;	// rounding here, for nicer tick display
+		UINT64 curTime = Timer_GetTime() + _curTickTime / 16;	// rounding here, for nicer tick display
 		if (curTime > _tmrStep)
 			curTime = _tmrStep;	// song is paused - clip to time of _nextEvtTick
 		
@@ -1296,7 +1296,7 @@ void MidiPlayer::DoPlaybackStep(void)
 		if (_fadeVol == 0x00)
 			Stop();
 	}
-	if (curTime + _curTickTime / 4 < _tmrStep)	// rounding here, for nicer tick display at 120 BPM/192 TpQ
+	if (curTime + _curTickTime / 16 < _tmrStep)	// rounding here, for nicer tick display at 120 BPM/192 TpQ
 		return;
 	
 	while(_playing)
@@ -3282,7 +3282,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			UINT8 timID = (addr & 0x007E00) >> 9;
 			UINT16 timAddr = addr & 0x0001FF;
 			
-			if (timAddr >= 0x00 && timAddr <= 0x0A)
+			if (timAddr >= 0x00 && timAddr < 0x0A)
 			{
 				size_t copyLen;
 				std::string timName = Vector2String(xData, 0x00, xLen);
@@ -3577,6 +3577,8 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				else if (tune > +0x3E8)
 					tune = +0x3E8;
 				_noteVis.GetAttributes().detune[0] = tune >> 2;
+				if (! tmpSyxIgnore)
+					vis_printf("SysEx GS: Master Tune = %+.1f cent", tune / 10.0);
 			}
 			break;
 		case 0x400004:	// Master Volume
@@ -3695,6 +3697,27 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			else
 				chnSt->devPartID = (chnSt->gsPortID << 4) | (chnSt->gsPartID << 0);
 			nvChn->_chnColor = chnSt->devPartID;
+			break;
+		case 0x401014:	// Assign Mode
+			// Note: When receiving the command on a drum channel, the SC-55mkII reloads the drum kit, resetting all NRPNs.
+			// This doesn't happen on SC-88 and later.
+			{
+				const char* modeText;
+				if (xData[0x00] == 0x00)
+					modeText = "Single";
+				else if (xData[0x00] == 0x01)
+					modeText = "Limited-Multi";
+				else if (xData[0x00] == 0x02)
+					modeText = "Full-Multi";
+				else
+					modeText = "invalid";
+				//vis_printf("SysEx GS Chn %s: Assign Mode: %s", portChnStr, modeText);
+				if (chnSt->hadDrumNRPN && _options.dstType == MODULE_SC55)
+				{
+					vis_printf("Warning: Channel %s: Drum NRPNs reset due Assign Mode message", portChnStr);
+					chnSt->hadDrumNRPN = false;
+				}
+			}
 			break;
 		case 0x401015:	// use Rhythm Part (-> drum channel)
 			if (! xData[0x00])
@@ -3903,10 +3926,13 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 				else if (tune > +0x3FF)
 					tune = +0x3FF;
 				_noteVis.GetAttributes().detune[0] = tune >> 2;
+				if (! tmpSyxIgnore)
+					vis_printf("SysEx XG: Master Tune = %+.1f cent", tune / 10.0);
 			}
 			break;
 		case 0x000004:	// Master Volume
-			vis_printf("SysEx XG: Master Volume = %u", xData[0x00]);
+			if (! tmpSyxIgnore)
+					vis_printf("SysEx XG: Master Volume = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
@@ -3920,7 +3946,8 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			}
 			break;
 		case 0x000005:	// Master Attenuator
-			vis_printf("SysEx XG: Master Attenuator = %u", xData[0x00]);
+			if (! tmpSyxIgnore)
+					vis_printf("SysEx XG: Master Attenuator = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_noteVis.GetAttributes().expression = 0x7F - xData[0x00];

@@ -832,7 +832,8 @@ void vis_do_ins_change(UINT16 chn)
 		if (midPlay->GetModuleType() == MODULE_TG300B &&
 			insInf->bankPtr != NULL && insInf->bankPtr->moduleID < 4)
 			insName[0] = SC_MAP_SYMBOLS[insInf->bankPtr->moduleID];
-		else if (insInf->bank[1] >= 1 && insInf->bank[1] <= 4)
+		else if (insInf->bank[1] >= 1 && insInf->bank[1] <= 4 &&
+			(insInf->bank[1] - 1) <= MMASK_MOD(midPlay->GetModuleType()))
 			insName[0] = SC_MAP_SYMBOLS[insInf->bank[1] - 1];
 		else
 			insName[0] = ' ';
@@ -1149,10 +1150,10 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 			wattroff(logWin, A_BOLD);
 			curYline ++;
 		}
-		else if (true)
+		else
 		{
-			//if (! optShowMeta[3])
-			//	break;
+			if (! optShowMeta[3])
+				break;
 			if (string_is_empty(text))
 				break;
 			str_prepare_print(text);
@@ -1161,8 +1162,8 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		}
 		break;
 	case 0x04:	// Instrument Name
-		//if (! optShowMeta[4])
-		//	break;
+		if (! optShowMeta[4])
+			break;
 		//if (lastMeta04 == text)
 		//	break;
 		lastMeta04 = text;

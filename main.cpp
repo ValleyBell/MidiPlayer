@@ -733,10 +733,7 @@ static std::string DecompressFromZIP(const std::string& path)
 			pathSepPos = std::string::npos;
 	}
 	if (hFileZip == NULL)
-	{
-		vis_printf("No ZIP found!\n");
-		return std::string();
-	}
+		return std::string();	// no ZIP file is part of the path
 	if (lastUnzFN != zipPath)
 	{
 		if (! lastUnzFN.empty())
@@ -984,6 +981,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	optShowMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
 	optShowMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
 	optShowMeta[0] = iniFile.GetBoolean("Display", "ShowMetaOther", true);
+	optShowMeta[4] = iniFile.GetBoolean("Display", "ShowMetaInsName", true);
+	optShowMeta[3] = iniFile.GetBoolean("Display", "ShowMetaTrkName", true);
 	
 	optDetectCP = iniFile.GetBoolean("Display", "DetectCodepage", true);
 	defCodepages[0] = iniFile.GetString("Display", "DefaultCodepage", "");
@@ -1418,6 +1417,8 @@ void PlayMidi(void)
 		else
 			SendSyxData(std::vector<MIDIOUT_PORT*>(), syxData);
 		didSendSyx = syxType;
+		plrOpts.flags &= ~PLROPTS_RESET;	// remove "reset" flag, so that restarting the song doesn't nullify the sent SYX commands
+		midPlay.SetOptions(plrOpts);
 		midPlay.Resume();
 	}
 	vis_update();
