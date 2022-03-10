@@ -184,7 +184,7 @@ static size_t SearchSigRev(FILE* hFile, const void* signature, size_t highPos, s
 	
 	memset(buffer, 0x00, sizeof(buffer));
 	filePos = highPos;
-	while(1)
+	do
 	{
 		memcpy(&buffer[BUFSIZE_SEARCH], &buffer[0], 3);	// for overlap scan
 		if (filePos >= BUFSIZE_SEARCH)
@@ -195,6 +195,8 @@ static size_t SearchSigRev(FILE* hFile, const void* signature, size_t highPos, s
 		
 		fseek(hFile, filePos, SEEK_SET);
 		bufRead = fread(buffer, 1, bufRead, hFile);
+		if (bufRead == 0)
+			break;
 		
 		bufPos = BUFSIZE_SEARCH;
 		while(bufPos > 0)
@@ -203,7 +205,7 @@ static size_t SearchSigRev(FILE* hFile, const void* signature, size_t highPos, s
 			if (! memcmp(&buffer[bufPos], signature, 4))
 				return filePos + bufPos;
 		}
-	}
+	} while(filePos > 0);
 	
 	return (size_t)-1;
 }
@@ -393,6 +395,8 @@ static UINT8 ReadEndOfCentralDir(FILE* hFile, ZIP_EOCD* eocd)
 	
 	fseek(hFile, 0, SEEK_END);
 	fileLen = ftell(hFile);
+	if (fileLen < 0x16)
+		return ZERR_NO_ZIP;	// file too short to even attempt searching for the EOCD
 	sigMinPos = 0x10016;	// search window: 0x16 bytes EOCD size + up to 65535 bytes comment
 	if (fileLen <= sigMinPos)
 		sigMinPos = 0;

@@ -743,7 +743,8 @@ static std::string DecompressFromZIP(const std::string& path)
 		{
 			fclose(hFileZip);
 			lastUnzFN.clear();
-			vis_printf("Error reading ZIP file: %s\n", zipPath.c_str());
+			if (retVal != ZERR_NO_ZIP)	// hide error message when it is not a ZIP file
+				vis_printf("Error reading ZIP file: %s\n", zipPath.c_str());
 			return std::string();
 		}
 		lastUnzFN = zipPath;

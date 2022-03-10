@@ -93,6 +93,7 @@ UINT8 ZIP_ExtractToBuffer(FILE* hFileZip, const ZIP_DIR_ENTRY* zde, size_t bufLe
 #define ZERR_BAD_COMPR	0x80	// unsupported compression method
 #define ZERR_NO_MEMORY	0xF0	// memory allocation error
 #define ZERR_API_ERR	0xC0	// API call error (for e.g. zlib calls)
+#define ZERR_NO_ZIP		ZERR_NO_EOCD	// no valid ZIP file (EOCD not found)
 #define ZERR_FAIL		0xFF	// general error code
 
 #ifdef __cplusplus
