@@ -47,6 +47,8 @@ UINT8 main_GetSongInsMap(void);
 size_t main_GetSongOptDevice(void);
 UINT8* main_GetForcedInsMap(void);
 UINT8* main_GetForcedModule(void);
+UINT8 main_CanQuitAfterSong(void);
+int main_CheckRemoteCommand(void);
 
 
 static const char* notes[12] =
@@ -136,6 +138,7 @@ static int vis_keyhandler_global(int key);
 //int vis_getch_wait(void);
 //void vis_addstr(const char* text);
 //void vis_printf(const char* format, ...);
+//void vis_set_opts(UINT32 option, int value);
 //void vis_set_locales(size_t numLocales, void* localeArrPtr);
 //void vis_set_track_number(UINT32 trkNo);
 //void vis_set_track_count(UINT32 trkCnt);
@@ -251,6 +254,11 @@ static int mdsDefaultSel;
 static int mdsForcedDevice;
 static int mdsCount;
 
+// Remote Control Log
+static WINDOW* rcWin = NULL;
+static PANEL* rcPan = NULL;
+static bool rcEnable = true;
+
 static UINT8 count_digits(UINT32 value)
 {
 	UINT8 digits = 0;
@@ -341,6 +349,9 @@ void vis_init(void)
 	logWin = newwin(sizeY, COLS, posY, 0);
 	logPan = new_panel(logWin);
 	
+	rcWin = NULL;
+	rcPan = NULL;
+	
 	lcdDisp.GetSize(&posX, &sizeY);
 	posX = COLS - posX;
 	if (posY + sizeY > LINES)
@@ -395,6 +406,10 @@ void vis_deinit(void)
 	mvcur(0, 0, getbegy(logWin) + curYline, 0);
 	
 	vis_clear_all_menus();
+	if (rcPan != NULL)
+	{
+		del_panel(rcPan);	delwin(rcWin);
+	}
 	del_panel(nvPan);	delwin(nvWin);
 	del_panel(logPan);	delwin(logWin);
 	del_panel(lcdPan);	lcdDisp.Deinit();
@@ -463,6 +478,30 @@ void vis_printf(const char* format, ...)
 	refresh_cursor_y();
 	wmove(logWin, curYline, 0);	wclrtoeol(logWin);
 	
+	return;
+}
+
+void vis_rcl_printf(const char* format, ...)
+{
+	va_list args;
+	
+	if (rcWin == NULL)
+		return;
+	va_start(args, format);
+	vw_printw(rcWin, format, args);
+	va_end(args);
+	
+	return;
+}
+
+void vis_set_opts(UINT32 option, int value)
+{
+	switch(option)
+	{
+	case 0x5243544C:	// 'RCTL' - Remote Control Log
+		rcEnable = !!value;
+		break;
+	}
 	return;
 }
 
@@ -560,6 +599,14 @@ static void vis_resize(void)
 		posX = (COLS - sizeX) / 2;	posY = (LINES - sizeY) / 2;	// center of the screen
 		move_panel(mdsPan, posY, posX);
 	}
+	if (rcPan != NULL)
+	{
+		lcdDisp.GetSize(NULL, &sizeY);
+		posY = getbegy(lcdDisp.GetWindow()) + sizeY + 1;	// log window starts below the LCD display
+		posX = COLS / 2;
+		wresize(rcWin, LINES - posY, COLS - posX);
+		move_panel(rcPan, posY, posX);
+	}
 	
 	// finally, redraw the screen
 	update_panels();
@@ -605,6 +652,29 @@ void vis_new_song(void)
 	if (posY + sizeY > LINES)
 		posY = LINES - sizeY;
 	move_panel(lcdPan, posY, posX);
+	
+	if (rcEnable)
+	{
+		lcdDisp.GetSize(NULL, &sizeY);
+		posY = getbegy(lcdDisp.GetWindow()) + sizeY + 1;	// log window starts below the LCD display
+		posX = COLS / 2;
+		if (rcPan != NULL)
+		{
+			wresize(rcWin, LINES - posY, COLS - posX);
+			move_panel(rcPan, posY, posX);
+		}
+		else
+		{
+			rcWin = newwin(LINES - posY, COLS - posX, posY, posX);
+			rcPan = new_panel(rcWin);
+			scrollok(rcWin, TRUE);	// enable automatic scrolling
+		}
+	}
+	else if (rcPan != NULL)
+	{
+		del_panel(rcPan);	rcPan = NULL;
+		delwin(rcWin);	rcWin = NULL;
+	}
 	
 	midOpts = (midPlay != NULL) ? &midPlay->GetOptions() : NULL;
 	mMod = midiModColl->GetModule(main_GetOpenedModule());
@@ -1300,6 +1370,7 @@ void vis_update(void)
 		else
 			printw("%0*u:%0*u.%0*u", trkTickDigs[0], 1 + posBar, trkTickDigs[1], 1 + posBeat, trkTickDigs[2], posTick);
 	}
+	
 	update_panels();
 	refresh();
 	
@@ -1354,10 +1425,10 @@ static int vis_keyhandler_normal(void)
 		midPlay->Start();
 		break;
 	case KEY_CTRL('R'):
+		midPlay->StopAllNotes();
 		vis_addstr("Stopping all notes ...");
 		update_panels();
 		refresh();
-		midPlay->StopAllNotes();
 		break;
 	case 'M':
 		restartSong = false;
@@ -1416,18 +1487,37 @@ int vis_main(void)
 			vis_update();
 		
 		retval = currentKeyHandler.back()();
+		if (retval == 0)
+		{
+			retval = main_CheckRemoteCommand();
+			if (retval != 0)
+			{
+				vis_update();
+				// A new song was added and we're in "paused after end" state?
+				if (retval == -8 && ((midPlay->GetState() & 0x03) == 0x02))
+					midPlay->Resume();	// yes - continue with next song
+				if (retval < -1)
+					retval = 0;
+			}
+		}
 		if (retval != 0)
 		{
 			result = retval;
 			break;
 		}
-		if (pauseAfterSong)
+		
+		if ((midPlay->GetState() & 0x03) == 0x00)	// song ended?
 		{
-			UINT8 state = midPlay->GetState();
-			if ((state & 0x03) == 0x00)
+			if (pauseAfterSong)
 			{
 				midPlay->Pause();
 				pauseAfterSong = false;
+				vis_update();
+			}
+			else if (! main_CanQuitAfterSong())
+			{
+				midPlay->Pause();
+				midPlay->StopAllNotes();
 				vis_update();
 			}
 		}

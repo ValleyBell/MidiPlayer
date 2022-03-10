@@ -13,6 +13,8 @@ int vis_getch(void);
 int vis_getch_wait(void);
 void vis_addstr(const char* text);
 void vis_printf(const char* format, ...);
+void vis_rcl_printf(const char* format, ...);
+void vis_set_opts(UINT32 option, int value);
 void vis_set_locales(size_t numLocales, void* localeArrPtr);
 void vis_set_track_number(UINT32 trkNo);
 void vis_set_track_count(UINT32 trkCnt);

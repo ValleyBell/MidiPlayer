@@ -26,6 +26,9 @@
 #define Sleep(x)	usleep(x * 1000)
 #include <limits.h>	// for PATH_MAX
 #include <signal.h>	// for kill()
+
+#include <sys/stat.h>	// for mkfifo()
+#include <fcntl.h>	// for open()
 #endif
 #include <iconv.h>
 
@@ -140,6 +143,10 @@ static int pbThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
 static int pbThreadPriority = THREAD_PRIORITY_HIGHEST;
 #endif
 #endif
+#if ENABLE_REMOTE_CTRL
+static std::string rmCtrlFilePath;
+static int fileRemoteCtrl = -1;
+#endif
 
 static std::map<std::string, iconv_t> hCpConvs;
 static std::vector<iconv_t> hCurIConv;
@@ -190,7 +197,7 @@ int main(int argc, char* argv[])
 		printf("           0x%02X..%02X = MU50/80/90/100/128/1000, 0x%02X = MT-32\n",
 			MODULE_MU50, MODULE_MU1000, MODULE_MT32);
 		printf("    -m n - enforce playback on module with ID n\n");
-		printf("    -x   - send .syx file to all ports before playing the MIDI\n");
+		printf("    -x f - send .syx file \"f\" to all ports before playing the MIDI\n");
 		printf("    -l n - play looping songs n times (default: 2) \n");
 		printf("    -S n - begin playing at the n-th file\n");
 #if ENABLE_SCREEN_REC
@@ -198,6 +205,9 @@ int main(int argc, char* argv[])
 #endif
 #ifndef _WIN32
 		printf("    -I   - Ices2 PID (for Metadata refresh)\n");
+#endif
+#if ENABLE_REMOTE_CTRL
+		printf("    -C f - enable remote control mode, using named pipe \"f\"\n");
 #endif
 		return 0;
 	}
@@ -318,6 +328,16 @@ int main(int argc, char* argv[])
 			screenRecordMode = true;
 		}
 #endif
+#if ENABLE_REMOTE_CTRL
+		else if (optChr == 'C')
+		{
+			argbase ++;
+			if (argbase >= argc)
+				break;
+			
+			rmCtrlFilePath = argv[argbase];
+		}
+#endif
 		else
 		{
 			break;
@@ -414,6 +434,16 @@ int main(int argc, char* argv[])
 		midPlay.SetInstrumentBank(tmpInsSet->setType, insBank);
 	}
 	
+#if ENABLE_REMOTE_CTRL
+	if (! rmCtrlFilePath.empty())
+	{
+		mkfifo(rmCtrlFilePath.c_str(), 0666);	// rw for ugo
+		fileRemoteCtrl = open(rmCtrlFilePath.c_str(), O_RDWR);	// open as rw to keep pipe open
+		if (fileRemoteCtrl < 0)
+			printf("Unable to open pipe for remote control!\n");
+	}
+#endif
+	
 #if ENABLE_SCREEN_REC
 	if (screenRecordMode)
 	{
@@ -439,6 +469,10 @@ int main(int argc, char* argv[])
 	SetVisualizationCharsets(NULL);
 	vis_set_midi_modules(&midiModColl);
 	didSendSyx = 0;
+#if ENABLE_REMOTE_CTRL
+	if (fileRemoteCtrl >= 0)
+		vis_set_opts(0x5243544C, 1);
+#endif
 	
 	if (! syxFile.empty())
 		LoadSyxData(syxFile, gblSyxData);
@@ -626,6 +660,14 @@ int main(int argc, char* argv[])
 	{
 		ScrRec_DeinitVideo();
 		ScrRec_DeinitCapture();
+	}
+#endif
+	
+#if ENABLE_REMOTE_CTRL
+	if (fileRemoteCtrl >= 0)
+	{
+		close(fileRemoteCtrl);
+		unlink(rmCtrlFilePath.c_str());
 	}
 #endif
 	
@@ -1214,6 +1256,105 @@ UINT8* main_GetForcedModule(void)
 	return &forceModID;
 }
 
+UINT8 main_CanQuitAfterSong(void)
+{
+#if ENABLE_REMOTE_CTRL
+	if (fileRemoteCtrl >= 0)
+	{
+		if (curSong == songList.size() - 1)
+			return 0;
+	}
+#endif
+	return 1;
+}
+
+int main_CheckRemoteCommand(void)
+{
+#if ! ENABLE_REMOTE_CTRL
+	return 0;
+#else
+	if (fileRemoteCtrl < 0)
+		return 0;
+	
+	fd_set fds;
+	FD_ZERO(&fds);
+	FD_SET(fileRemoteCtrl, &fds);
+	struct timeval timeout;
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 0;
+	int ready = select(fileRemoteCtrl + 1, &fds, NULL, NULL, &timeout);
+	if (ready <= 0)
+		return 0;
+	
+	std::string text;
+	size_t txtOfs = 0;
+	ssize_t readByt;
+	do
+	{
+		text.resize(text.size() + 0x100);
+		readByt = read(fileRemoteCtrl, &text[txtOfs], text.size() - txtOfs);
+		if (readByt >= 0)
+			txtOfs += readByt;
+	} while(readByt > 0 && txtOfs >= text.size());
+	text.resize(txtOfs);
+	while(text.length() > 0 && (UINT8)text.back() < 0x20)
+		text.pop_back();	// strip trailing whitespace
+	//vis_rcl_printf("Received Remote Command: %s\n", text.c_str());
+	
+	size_t spcPos = text.find(' ');
+	std::string command = text.substr(0, spcPos);
+	text = (spcPos == std::string::npos) ? "" : text.substr(spcPos + 1);
+	if (command == "ENQUEUE")
+	{
+		vis_rcl_printf("Enqueueing file: %s\n", GetFileTitle(text.c_str()));
+		SongFileList sfl;
+		sfl.fileName = text;
+		sfl.playlistID = (size_t)-1;
+		songList.push_back(sfl);
+		return -8;
+	}
+	else if (command == "MESSAGE")
+	{
+		vis_rcl_printf("%s\n", text.c_str());
+	}
+	else if (command == "PAUSE")
+	{
+		vis_rcl_printf("Pause request.\n");
+		midPlay.Pause();
+	}
+	else if (command == "RESUME")
+	{
+		vis_rcl_printf("Resume request.\n");
+		midPlay.Resume();
+	}
+	else if (command == "RESTART")
+	{
+		vis_rcl_printf("Restart request.\n");
+		midPlay.Stop();
+		midPlay.Start();
+	}
+	else if (command == "FADE")
+	{
+		midPlay.FadeOutT(main_GetFadeTime());
+	}
+	else if (command == "PREV")
+	{
+		vis_rcl_printf("Previous song requested.\n");
+		return -1;
+	}
+	else if (command == "NEXT")
+	{
+		vis_rcl_printf("Skip request.\n");
+		return +1;
+	}
+	else if (command == "QUIT")
+	{
+		vis_rcl_printf("Quit.\n");
+		return 9;
+	}
+	return -9;	// request refresh
+#endif
+}
 
 void PlayMidi(void)
 {

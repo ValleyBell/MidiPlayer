@@ -585,9 +585,6 @@ UINT8 MidiPlayer::FlushEvents(void)
 
 UINT8 MidiPlayer::StopAllNotes(void)
 {
-	if (! _playing)
-		return 0xFF;
-	
 	size_t curChn;
 	
 	if (! _paused)

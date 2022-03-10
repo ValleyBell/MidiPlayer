@@ -4,6 +4,12 @@ project(MidiPlayer)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
+option(CHARSET_DETECTION "Detect song character charset" OFF)
+option(SCREEN_RECORDING "Enable screen recording using ffmpeg" OFF)
+option(REMOTE_CONTROL "Enable remote control using pipes" OFF)
+
+
 if(CMAKE_COMPILER_IS_GNUCC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-psabi")
 endif(CMAKE_COMPILER_IS_GNUCC)
@@ -78,7 +84,6 @@ elseif(UNIX)
 endif()
 
 # --- character set detection ---
-option(CHARSET_DETECTION "Detect song character charset" OFF)
 if (CHARSET_DETECTION)
 	find_path(UCHARDET_INCLUDE_DIR NAMES uchardet.h PATH_SUFFIXES uchardet)
 	find_library(UCHARDET_LIBRARY_RELEASE NAMES uchardet)
@@ -115,7 +120,6 @@ endif()
 
 
 # --- screen recording ---
-option(SCREEN_RECORDING "Enable screen recording using ffmpeg" OFF)
 if (SCREEN_RECORDING)
 	if (WIN32)
 		find_path(AVCODEC_INCLUDE_DIRS NAMES avcodec.h PATH_SUFFIXES libavcodec)
@@ -152,6 +156,10 @@ if (SCREEN_RECORDING)
 	endif()
 endif()
 
+
+if(REMOTE_CONTROL)
+	set(DEFINES ${DEFINES} ENABLE_REMOTE_CTRL=1)
+endif()
 
 add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES})
 target_compile_definitions(${PROJECT_NAME} PRIVATE ${DEFINES})

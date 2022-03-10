@@ -3,6 +3,7 @@
 
 #include <stdtype.h>
 #include <bitset>
+#include <curses.h>	// for WINDOW
 
 class MidiPlayer;
 class NoteVisualization;
