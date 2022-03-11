@@ -166,3 +166,21 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE ${DEFINES})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR} ${INCLUDES})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBRARIES})
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "bin")
+
+
+set(HEADERS_BSCAN
+		MidiLib.hpp
+		MidiBankScan.hpp
+		MidiInsReader.h
+		)
+set(SOURCES_BSCAN
+		MidiLib.cpp
+		MidiBankScan.cpp
+		MidiInsReader.c
+		MidiBankScanTool.cpp
+		)
+add_executable(midiBankScan ${HEADERS_BSCAN} ${SOURCES_BSCAN})
+target_compile_definitions(midiBankScan PRIVATE )
+target_include_directories(midiBankScan PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(midiBankScan PRIVATE)
+install(TARGETS midiBankScan RUNTIME DESTINATION "bin")
