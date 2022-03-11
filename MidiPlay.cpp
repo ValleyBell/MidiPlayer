@@ -469,13 +469,13 @@ UINT8 MidiPlayer::Start(void)
 				vis_printf("Sending Device Reset (%s) ...", "SC");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					SendMidiEventL(curPort, sizeof(RESET_SC), RESET_SC);
+				_hardReset = true;
 			}
 			else
 			{
 				vis_printf("Sending Device Reset (%s) ...", "GS");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					SendMidiEventL(curPort, sizeof(RESET_GS), RESET_GS);
-				_hardReset = true;
 			}
 			initDelay += 200;
 		}
@@ -494,10 +494,37 @@ UINT8 MidiPlayer::Start(void)
 		}
 		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_K5)
 		{
-			// send GM reset
-			vis_printf("Sending Device Reset (%s) ...", "GM");
-			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-				SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
+			if (MMASK_MOD(_options.dstType) >= MTK5_NS5R)
+			{
+				// The NS5R can switch between GS and XG defaults.
+				// This affects the default drum kit + some bank assignments. (e.g. Bank MSB 127)
+				// Thus we need to send GS or XG depending on the "source" setting.
+				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
+				{
+					vis_printf("Sending Device Reset (%s) ...", "GS");
+					for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+						SendMidiEventL(curPort, sizeof(RESET_GS), RESET_GS);
+				}
+				else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+				{
+					vis_printf("Sending Device Reset (%s) ...", "XG");
+					for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+						SendMidiEventL(curPort, sizeof(RESET_XG), RESET_XG);
+				}
+				else
+				{
+					vis_printf("Sending Device Reset (%s) ...", "GM");
+					for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+						SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
+				}
+			}
+			else
+			{
+				// send GM reset
+				vis_printf("Sending Device Reset (%s) ...", "GM");
+				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+					SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
+			}
 			initDelay += 500;	// Korg modules take extra long, because is also updates the display
 		}
 		else
