@@ -257,7 +257,7 @@ static int mdsCount;
 // Remote Control Log
 static WINDOW* rcWin = NULL;
 static PANEL* rcPan = NULL;
-static bool rcEnable = true;
+static bool rcEnable = false;
 
 static UINT8 count_digits(UINT32 value)
 {
@@ -560,7 +560,8 @@ static void vis_resize(void)
 	
 	// move/resize log window
 	posY += sizeY;	sizeY = LINES - posY;
-	wresize(logWin, sizeY, COLS);
+	sizeX = (rcPan != NULL) ? (COLS / 2) : COLS;
+	wresize(logWin, sizeY, sizeX);
 	move_panel(logPan, posY, 0);
 	
 	// move LCD Display window
@@ -622,7 +623,7 @@ void vis_new_song(void)
 	size_t maxTitleLen;
 	const PlayerOpts* midOpts;
 	MidiModule* mMod;
-	int posX, posY, sizeY;
+	int posX, posY, sizeX, sizeY;
 	
 	vis_clear_all_menus();
 	clear();
@@ -643,8 +644,9 @@ void vis_new_song(void)
 	wresize(nvWin, sizeY, COLS);
 	
 	posY += sizeY;	sizeY = LINES - posY;
+	sizeX = rcEnable ? (COLS / 2) : COLS;
 	wclear(logWin);
-	wresize(logWin, sizeY, COLS);
+	wresize(logWin, sizeY, sizeX);
 	move_panel(logPan, posY, 0);
 	
 	lcdDisp.GetSize(&posX, &sizeY);

@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <locale.h>
 #include <errno.h>
+#include <tuple>
 #include <vector>
 #include <string>
 #include <map>
@@ -119,6 +120,7 @@ static UINT8 didSendSyx;
 static UINT8 tempSrcType;
 
 static std::vector<SongFileList> songList;
+static std::vector< std::tuple<UINT8, UINT8> > songListMod;
 static std::vector<std::string> plList;
 static int controlVal;
 static size_t curSong;
@@ -1306,11 +1308,38 @@ int main_CheckRemoteCommand(void)
 	text = (spcPos == std::string::npos) ? "" : text.substr(spcPos + 1);
 	if (command == "ENQUEUE")
 	{
-		vis_rcl_printf("Enqueueing file: %s\n", GetFileTitle(text.c_str()));
+		UINT8 modType = 0xFF;
+		UINT8 modID = 0xFF;
+		bool specifyModule = false;
+		char* end = NULL;
+		long value = strtol(text.c_str(), &end, 0);
+		if (end != NULL && *end != '\0' && isspace((UINT8)*end))	// first number end with a space?
+		{
+			char* str = end;
+			modType = (UINT8)value;
+			modID = (UINT8)strtol(str, &end, 0);
+			while(*end != '\0' && isspace((UINT8)*end))
+				end ++;
+			text = text.substr(end - text.c_str());
+			specifyModule = true;
+		}
+		if (specifyModule)
+		{
+			vis_rcl_printf("Enqueueing file [0x%02X on %d]: %s\n",
+				modType, (INT8)modID, GetFileTitle(text.c_str()));
+			if (songListMod.size() < songList.size())
+				songListMod.resize(songList.size(), std::tuple<UINT8, UINT8>(0xFF, 0xFF));
+			songListMod.push_back(std::tuple<UINT8, UINT8>(modType, modID));
+		}
+		else
+		{
+			vis_rcl_printf("Enqueueing file: %s\n", GetFileTitle(text.c_str()));
+		}
 		SongFileList sfl;
 		sfl.fileName = text;
 		sfl.playlistID = (size_t)-1;
 		songList.push_back(sfl);
+		vis_set_track_count(songList.size());
 		return -8;
 	}
 	else if (command == "MESSAGE")
@@ -1374,6 +1403,12 @@ void PlayMidi(void)
 	}
 	if (forceSrcType != 0xFF)
 		scanRes.modType = forceSrcType;
+	if (curSong < songListMod.size())
+	{
+		const std::tuple<UINT8, UINT8> slMod = songListMod[curSong];
+		if (std::get<0>(slMod) != 0xFF)
+			scanRes.modType = std::get<0>(slMod);
+	}
 	songInsMap = scanRes.modType;
 	
 	if (scanRes.modType == 0xFF)
@@ -1384,9 +1419,15 @@ void PlayMidi(void)
 	
 	songOptDev = midiModColl.GetOptimalModuleID(scanRes.modType);
 	chosenModule = (forceModID != 0xFF) ? forceModID : songOptDev;
+	if (curSong < songListMod.size())
+	{
+		const std::tuple<UINT8, UINT8> slMod = songListMod[curSong];
+		if (std::get<1>(slMod) != 0xFF)
+			chosenModule = std::get<1>(slMod);
+	}
 	if (chosenModule == (size_t)-1 || chosenModule >= midiModColl.GetModuleCount())
 	{
-		vis_printf("Unable to find an appropriate MIDI module for %s!\n", GetModuleTypeNameL(songInsMap));
+		vis_printf("Unable to find an appropriate MIDI module for %s!\n", GetModuleTypeNameL(scanRes.modType));
 		vis_update();
 		vis_getch_wait();
 		return;

@@ -56,6 +56,14 @@ static std::string Bin2Str(UINT32 value, size_t len)
 	return str;
 }
 
+static std::string ModuleID2Str(UINT8 baseType, UINT8 modID)
+{
+	std::string name = shortIDName[baseType | (modID & 0x0F)];
+	if (modID & 0x80)
+		name += ", bad instruments";
+	return name;
+}
+
 int main(int argc, char* argv[])
 {
 	int argbase;
@@ -149,7 +157,7 @@ int main(int argc, char* argv[])
 	BANKSCAN_RESULT scanRes;
 	CalcSongLength();
 	MidiBankScan(&cMidi, ignoreEmptyChns, &scanRes);
-	printf("Song Len:\t%.3f s\n", _songLength / (double)_tmrFreq);
+	printf("SongLen:\t%.3f s\n", _songLength / (double)_tmrFreq);
 	printf("modType:\t0x%02X (%s)\n", scanRes.modType, shortIDName[scanRes.modType].c_str());
 	printf("numPorts:\t%u\n", scanRes.numPorts);
 	printf("hasReset:\t0x%02X\n", scanRes.hasReset);
@@ -160,9 +168,9 @@ int main(int argc, char* argv[])
 			printf("    Bit %d - %s: %s\n", 0, "Soft Karaoke (.kar) Lyrics", "YES");
 	}
 	printf("ChannelUsage:\t0b%s\n", Bin2Str(scanRes.details.chnUseMask, 16).c_str());
-	printf("minimalGS:\t0x%02X (%s)\n", scanRes.GS_Min, shortIDName[scanRes.GS_Min].c_str());
-	printf("optimalGS:\t0x%02X (%s)\n", scanRes.GS_Opt, shortIDName[scanRes.GS_Opt].c_str());
-	printf("optimalXG:\t0x%02X (%s)\n", scanRes.XG_Opt, shortIDName[scanRes.XG_Opt].c_str());
+	printf("minimalGS:\t0x%02X (%s)\n", scanRes.GS_Min, ModuleID2Str(MODULE_TYPE_GS, scanRes.GS_Min).c_str());
+	printf("optimalGS:\t0x%02X (%s)\n", scanRes.GS_Opt, ModuleID2Str(MODULE_TYPE_GS, scanRes.GS_Opt).c_str());
+	printf("optimalXG:\t0x%02X (%s)\n", scanRes.XG_Opt, ModuleID2Str(MODULE_TYPE_XG, scanRes.XG_Opt).c_str());
 	printf("FeatureMaskGM:\t0x%08X\n", scanRes.details.fmGM);
 	PrintFeatureMask(MODULE_TYPE_GM, scanRes.details.fmGM);
 	printf("FeatureMaskGS:\t0x%08X\n", scanRes.details.fmGS);
@@ -203,8 +211,8 @@ static void PrintFeatureMask(UINT8 fmType, UINT32 fm)
 	static const std::map<int, std::string> fmtxtGM{
 		{FMBALL_INSSET + MTGM_LVL1, "uses GM Level 1 instruments"},
 		{FMBALL_INSSET + MTGM_LVL2, "uses GM Level 2 instruments"},
-		{FMBGM_L1_RESET, "found GM Level 1"},
-		{FMBGM_L1_RESET, "found GM Level 2"},
+		{FMBGM_L1_RESET, "found GM Level 1 Reset"},
+		{FMBGM_L2_RESET, "found GM Level 2 Reset"},
 	};
 	static const std::map<int, std::string> fmtxtGS{
 		{FMBALL_INSSET + MTGS_SC55, "uses SC-55 instruments"},
