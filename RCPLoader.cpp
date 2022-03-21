@@ -26,7 +26,7 @@ struct RCP_INFO
 	UINT8 beatNum;
 	UINT8 beatDen;
 	UINT8 keySig;
-	UINT8 playBias;
+	INT8 gblTransp;
 	std::string cm6File;
 	std::string gsdFile1;
 	std::string gsdFile2;
@@ -254,7 +254,7 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile, std::vector<std::string>& i
 		rcpInf.beatNum = fgetc(infile);
 		rcpInf.beatDen = fgetc(infile);
 		rcpInf.keySig = fgetc(infile);
-		rcpInf.playBias = fgetc(infile);
+		rcpInf.gblTransp = fgetc(infile);
 		
 		// names of additional files
 		fread(tempBuf, 0x01, 0x10, infile);	tempBuf[0x10] = '\0';
@@ -295,7 +295,7 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile, std::vector<std::string>& i
 		rcpInf.beatNum = fgetc(infile);
 		rcpInf.beatDen = fgetc(infile);
 		rcpInf.keySig = fgetc(infile);
-		rcpInf.playBias = fgetc(infile);
+		rcpInf.gblTransp = fgetc(infile);
 		fseek(infile, 0x06, SEEK_CUR);	// skip dummy?
 		fseek(infile, 0x10, SEEK_CUR);	// skip ??
 		fseek(infile, 0x70, SEEK_CUR);	// skip ??
@@ -347,9 +347,6 @@ UINT8 LoadRCPAsMidi(FILE* infile, MidiFile& midFile, std::vector<std::string>& i
 	
 	RcpKeySig2Mid(rcpInf.keySig, tempBufU);
 	newTrk->AppendMetaEvent(0, 0x59, 0x02, tempBufU);
-	
-	if (rcpInf.playBias)
-		printf("Warning: PlayBIAS == %u!\n", rcpInf.playBias);
 	
 	newTrk->AppendEvent(0, 0xFF, 0x2F, 0x00);
 	midFile.Track_Append(newTrk);
@@ -407,7 +404,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	UINT8 trkID;
 	UINT8 rhythmMode;
 	UINT8 midiDev;
-	UINT8 transp;
+	INT8 transp;
 	INT32 startTick;
 	UINT8 trkMute;
 	char tempBuf[0x40];
@@ -463,7 +460,7 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 		midiDev = midChn >> 4;
 		midChn &= 0x0F;
 	}
-	transp = fgetc(infile);				// transposition
+	transp = (INT8)fgetc(infile);		// transposition
 	startTick = (INT8)fgetc(infile);	// start tick
 	trkMute = fgetc(infile);			// mute
 	curDly = fread(tempBuf, 0x01, 0x24, infile);	tempBuf[0x24] = '\0';
@@ -480,11 +477,15 @@ static UINT8 ReadRCPTrackAsMid(FILE* infile, const RCP_INFO* rcpInf, MidiTrack* 
 	}
 	if (rhythmMode != 0)
 		printf("Warning: RCP Track %u: Rhythm Mode %u!\n", trkID, rhythmMode);
-	if (transp > 0x80)
+	if (transp & 0x80)
 	{
-		// known values are: 0x00..0x3F (+0 .. +63), 0x40..0x7F (-64 .. -1), 0x80 (drums)
-		printf("Warning: RCP Track %u: Key 0x%02X!\n", trkID, transp);
-		transp = 0x00;
+		// bit 7 set = rhythm channel -> ignore transposition setting
+		transp = 0;
+	}
+	else
+	{
+		transp = (transp & 0x40) ? (-0x80 + transp) : transp;	// 7-bit -> 8-bit sign extension
+		transp += rcpInf->gblTransp;	// add global transposition
 	}
 	
 	memset(gsParams, 0x00, 6);
