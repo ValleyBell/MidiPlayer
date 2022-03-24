@@ -187,6 +187,7 @@ private:
 	void HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo* insInf);
 	bool HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
 	void DoChangedPartMode(ChannelState* chnSt, UINT8 moduleType);
+	void DoChangedPartMode_Post(void);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syxData);
 	bool HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxData);
@@ -273,6 +274,8 @@ private:
 	bool _breakMidiProc;
 	bool _hardReset;		// enforce "hard" reset (resets custom instrument maps)
 	bool _initChnPost;
+	UINT16 _partModeChg_PortChnID;
+	UINT8 _partModeChg_ModType;	// 0xFF = no action, 0x00..0x7F = MIDI type
 	bool _meqDoSort;		// MIDI Event Queue: do resorting
 	UINT32 _midiTempo;
 	UINT8 _midiTimeSig[4];	// numerator, denominator (pow2), metronome pulse, 32nd notes per beat

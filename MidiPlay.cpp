@@ -948,6 +948,8 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 			memcpy(&msgData[0x01], &midiEvt->evtData[0x00], midiEvt->evtData.size());
 			SendMidiEventL(trkState->portID, msgData.size(), &msgData[0x00]);
 		}
+		if (_partModeChg_PortChnID != 0xFF)
+			DoChangedPartMode_Post();
 		if (_initChnPost)
 			InitializeChannels_Post();
 		break;
@@ -2914,6 +2916,21 @@ void MidiPlayer::DoChangedPartMode(ChannelState* chnSt, UINT8 moduleType)
 		}
 	}
 	
+	_partModeChg_ModType = moduleType;
+	_partModeChg_PortChnID = chnSt->fullChnID;
+	return;
+}
+
+void MidiPlayer::DoChangedPartMode_Post(void)
+{
+	if (_partModeChg_ModType == 0xFF || _partModeChg_PortChnID >= _chnStates.size())
+		return;
+	
+	UINT8 moduleType = _partModeChg_ModType;
+	ChannelState* chnSt = &_chnStates[_partModeChg_PortChnID];
+	_partModeChg_ModType = 0xFF;
+	_partModeChg_PortChnID = 0xFF;
+	
 	if (chnSt->curIns & 0x80)
 		return;	// skip all the refreshing if the instrument wasn't set by the MIDI yet
 	
@@ -4841,6 +4858,8 @@ void MidiPlayer::InitializeChannels_Post(void)
 	UINT8 defDstPbRange;
 	
 	_initChnPost = false;
+	_partModeChg_ModType = 0xFF;
+	_partModeChg_PortChnID = 0xFFFF;
 	
 	_defDstInsMap = 0x00;
 	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
