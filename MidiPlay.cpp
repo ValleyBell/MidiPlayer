@@ -277,6 +277,11 @@ void MidiPlayer::SendMidiEventS(size_t portID, UINT8 event, UINT8 data1, UINT8 d
 	MidiQueueEvt evt;
 	evt.time = _tmrStep + _outPortDelay[portID] * _tmrFreq / 1000;
 	evt.flag = 0x00;
+	{
+		UINT16 portChnID = FULL_CHN_ID(portID, event & 0x0F) % _chnStates.size();
+		if (! _chnStates[portChnID].notes.empty())
+			evt.flag |= 0x01;	// mark as "unmovable" when notes are still playing
+	}
 	if ((event & 0xE0) == 0x80)
 	{
 		evt.flag |= 0x01;	// mark Note Off/On
@@ -712,10 +717,10 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 	tmrTick -= (_tmrStep - curTime);
 	double secTime = U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
 #if 1	// for debugging time overflow
-	if (secTime > 6000.0)
+	if (secTime > 6000.0 && tmrTick > _songLength)
 		vis_printf("Showing large time: %.3f sec (curTime = %f, tmrStep = %f, tempoTick = %u, nextEvtTick = %u)\n",
 					secTime, curTime / (double)_tmrFreq, _tmrStep / (double)_tmrFreq, _tempoPos->tick, _nextEvtTick);
-	if (secTime > 60000.0)
+	if (secTime > 60000.0 && tmrTick > _songLength)
 		return 0.0f;	// TODO: fix looping
 #endif
 	return secTime;
@@ -724,6 +729,7 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 {
 	UINT32 curTick;
+	double ctf;
 	
 	if (! _tmrStep)
 	{
@@ -757,7 +763,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	{
 		CalcMeasureTime(*_timeSigPos, _cMidi->GetMidiResolution() * 4, curTick, bar, beat, tick);
 #if 1	// for debugging bar overflow
-		if (*bar > 10000)
+		if (*bar > 10000 && *bar > _songMeasLen[0])
 			vis_printf("Showing large tick %u = bar %0*u:%0*u.%0*u\n", curTick, 2, 1 + *bar, 2, 1 + *beat, 3, *tick);
 #endif
 	}
