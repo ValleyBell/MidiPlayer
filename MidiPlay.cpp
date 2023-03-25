@@ -2384,6 +2384,8 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		}
 		else if (_options.flags & PLROPTS_ENABLE_CTF)
 		{
+			UINT8 devBankIgn = insInf->bnkIgn;
+			
 			// handle device-specific fallback modes
 			if (MMASK_TYPE(devType) == MODULE_TYPE_GS)
 			{
@@ -2465,6 +2467,7 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 				insInf->bank[1] = insInf->bankPtr->bankLSB;
 				insInf->ins = insInf->bankPtr->program;
 			}
+			insInf->bnkIgn = devBankIgn;
 			strictPatch = BNKMSK_NONE;
 		}
 	}
@@ -2874,7 +2877,7 @@ static UINT8 CalcRolandChecksum(size_t dataLen, const UINT8* data)
 	size_t curPos;
 	UINT8 sum = 0x00;
 	
-	for (curPos = 0x00; curPos < dataLen - 1; curPos ++)
+	for (curPos = 0x00; curPos < dataLen; curPos ++)
 		sum += data[curPos];
 	return (0x100 - sum) & 0x7F;
 }
@@ -3030,7 +3033,8 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			UINT32 size = ReadBE21(&syxData[0x07]);
 			vis_printf("SysEx: GS Request: Address %06X, size %06X\n", addr, size);
 		}
-		else if (syxData[0x03] == 0x12)	// Data Transmit 1 (DT1)
+		else if (syxData[0x03] == 0x12 ||	// Data Transmit 1 (DT1)
+			(syxData[0x02] == 0x16 && syxData[0x03] == 0x42))	// Data Set (DAT) (same effect as DT1 on MT-32)
 		{
 			if (syxSize < 0x08)
 				break;	// We need enough bytes for a full address + checksum.
@@ -3039,7 +3043,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			UINT8 goodSum = 0xFF;
 			if (! CheckRolandChecksum(syxSize - 0x05, &syxData[0x04]))	// check data from address until (not including) 0xF7 byte
 			{
-				goodSum = CalcRolandChecksum(syxSize - 0x05, &syxData[0x04]);
+				goodSum = CalcRolandChecksum(syxSize - 0x06, &syxData[0x04]);
 				vis_printf("Warning: SysEx Roland checksum invalid! (is %02X, should be %02X)\n",
 						syxData[syxSize - 2], goodSum);
 			}
@@ -4801,7 +4805,7 @@ void MidiPlayer::InitializeChannels(void)
 			_cm32pPatchTMedia[0x40 | curIns] = 0x01;	// external PCM card
 			_cm32pPatchTNum[0x40 | curIns] = curIns;
 			_mt32TimbreNames[curIns] = std::string(0x0A, ' ');
-			_mt32TimbreNames[curIns][0] = '\0';
+			snprintf(&_mt32TimbreNames[curIns][0], 0x0A, "UserIns %u", curIns);
 		}
 	}
 	

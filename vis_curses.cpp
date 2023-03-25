@@ -1067,11 +1067,14 @@ void vis_do_syx_text(UINT16 chn, UINT8 mode, size_t textLen, const char* text)
 
 void vis_do_syx_bitmap(UINT16 chn, UINT8 mode, UINT32 dataLen, const UINT8* data)
 {
-	if (! dataLen || data == NULL)
-		return;
 	if (! lcdEnable)
 		return;
 	
+	if (! dataLen || data == NULL)
+	{
+		lcdDisp.EraseTemporaryBitmap();
+		return;
+	}
 	switch(mode)
 	{
 	case 0x43:	// Yamaha MU Dot Bitmap
