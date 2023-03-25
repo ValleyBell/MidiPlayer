@@ -202,6 +202,11 @@ UINT8 MidiPlayer::GetModuleType(void) const
 	return _options.dstType;
 }
 
+UINT8 MidiPlayer::GetPortOptions(void) const
+{
+	return _portOpts;
+}
+
 void MidiPlayer::SetSrcModuleType(UINT8 modType, bool insRefresh)
 {
 	_options.srcType = modType;

@@ -11,6 +11,7 @@
 
 #define MMOD_OPT_SIMPLE_VOL	0x01	// simple volume control
 #define MMOD_OPT_AOT_INS	0x02	// early/premature instrument changes
+#define MMOD_OPT_INSTANT	0x04	// SyxEx transmissions are instant and need no delay (for software drivers)
 
 struct MidiModule
 {

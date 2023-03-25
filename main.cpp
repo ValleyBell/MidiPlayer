@@ -1097,6 +1097,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 			mMod.options |= MMOD_OPT_SIMPLE_VOL;
 		if (iniFile.GetBoolean(mMod.name, "AoTInsChange", false))
 			mMod.options |= MMOD_OPT_AOT_INS;
+		if (iniFile.GetBoolean(mMod.name, "InstantSyx", false))
+			mMod.options |= MMOD_OPT_INSTANT;
 		
 		if (mMod.ports.empty())
 		{
@@ -1729,10 +1731,13 @@ void PlayMidi(void)
 static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_t dataLen, const UINT8* data)
 {
 	std::vector<MIDIOUT_PORT*>::const_iterator portIt;
+	bool needDelay = true;
 	
+	if (midPlay.GetPortOptions() & MMOD_OPT_INSTANT)
+		needDelay = false;
 	midPlay.HandleRawEvent(dataLen, data);
 	portIt = outPorts.begin();
-	if (portIt != outPorts.end())	// HandleRawEvent already sends it to the first port
+	if (portIt != outPorts.end() && false)	// HandleRawEvent already sends it to the first port
 	{
 		if (data[0] < 0xF0)
 		{
@@ -1749,9 +1754,12 @@ static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_
 		}
 	}
 	
-	// wait for data to be transferred (3125 bytes per second)
-	// (31250 bits per second transfer rate, 1 byte of payload = 10 bits: 1 start bit, 8 data bits, 1 stop bit)
-	Sleep(dataLen * 1000 / 3125);
+	if (needDelay)
+	{
+		// wait for data to be transferred (3125 bytes per second)
+		// (31250 bits per second transfer rate, 1 byte of payload = 10 bits: 1 start bit, 8 data bits, 1 stop bit)
+		Sleep(dataLen * 1000 / 3125);
+	}
 	
 	return;
 }

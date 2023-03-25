@@ -130,6 +130,7 @@ public:
 	void SetOptions(const PlayerOpts& plrOpts);
 	const PlayerOpts& GetOptions(void) const;
 	UINT8 GetModuleType(void) const;	// current MIDI module type used for playback
+	UINT8 GetPortOptions(void) const;
 	void SetSrcModuleType(UINT8 modType, bool insRefresh = false);
 	void SetDstModuleType(UINT8 modType, bool chnRefresh = false);
 	UINT32 _numLoops;
