@@ -40,12 +40,12 @@
 // filtered volume bits
 #define FILTVOL_CCVOL	0	// Main Volume controller
 #define FILTVOL_CCEXPR	1	// Expression controller
-#define FILTVOL_GMSYX	2	// GM Master Volume SysEx
+#define FILTVOL_SYXVOL	2	// GM Master Volume SysEx
 
 // fade volume mode constants
 #define FDVMODE_CCVOL	FILTVOL_CCVOL
 #define FDVMODE_CCEXPR	FILTVOL_CCEXPR
-#define FDVMODE_GMSYX	FILTVOL_GMSYX
+#define FDVMODE_SYXVOL	FILTVOL_SYXVOL
 
 #define BNKBIT_MSB		0
 #define BNKBIT_LSB		1
@@ -68,6 +68,8 @@ static const UINT8 RESET_XG[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7E, 0x00,
 static const UINT8 RESET_XG_ALL[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x7F, 0x00, 0xF7};
 static const UINT8 XG_VOICE_MAP[] = {0xF0, 0x43, 0x10, 0x49, 0x00, 0x00, 0x12, 0xFF, 0xF7};
 static const UINT8 GM_MST_VOL[] = {0xF0, 0x7F, 0x7F, 0x04, 0x01, 0x00, 0x7F, 0xF7};
+static const UINT8 GS_MST_VOL[] = {0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x04, 0xFF, 0xCC, 0xF7};
+static const UINT8 XG_MST_VOL[] = {0xF0, 0x43, 0x10, 0x4C, 0x00, 0x00, 0x04, 0xFF, 0xF7};
 static const UINT8 MT32_MST_VOL[] = {0xF0, 0x41, 0x10, 0x16, 0x12, 0x10, 0x00, 0x16, 0x64, 0x76, 0xF7};
 static const UINT8 CM32P_MST_VOL[] = {0xF0, 0x41, 0x10, 0x16, 0x12, 0x52, 0x00, 0x10, 0x64, 0x3A, 0xF7};
 
@@ -652,8 +654,8 @@ UINT8 MidiPlayer::FadeOutT(double fadeTime)
 	{
 		// prefer using GM Master Volume SysEx for GM2, GS and XG
 		// ("GM1" might be used for all sorts of generic stuff that doesn't know SysEx.)
-		_fadeVolMode = FDVMODE_GMSYX;
-		_filteredVol |= (1 << FILTVOL_GMSYX);
+		_fadeVolMode = FDVMODE_SYXVOL;
+		_filteredVol |= (1 << FILTVOL_SYXVOL);
 	}
 	else
 	{
@@ -3202,12 +3204,21 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				// F0 7F 7F 04 01 ll mm F7
 				_mstVol = syxData[0x05];
 				vis_printf("SysEx GM: Master Volume = %u", _mstVol);
-				if (_filteredVol & (1 << FILTVOL_GMSYX))
+				if (_filteredVol & (1 << FILTVOL_SYXVOL))
 					return true;	// don't send when fading
 				_noteVis.GetAttributes().volume = _mstVol;
 				if (_portOpts & MMOD_OPT_SIMPLE_VOL)
 				{
 					FadeVolRefresh();
+					return true;
+				}
+				if (false && _options.dstType == MODULE_SC55)	// TODO: option
+				{
+					// fix for first-generation SC-55
+					std::vector<UINT8> syxData(GS_MST_VOL, GS_MST_VOL + sizeof(GS_MST_VOL));
+					syxData[0x08] = _mstVol;	// master volume
+					syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
+					SendMidiEventL(trkSt->portID, syxData.size(), &syxData[0x00]);
 					return true;
 				}
 				break;
@@ -3361,7 +3372,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
 				_mstVol = 0x7F;
-			if (_filteredVol & (1 << FILTVOL_GMSYX))
+			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
@@ -3427,7 +3438,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
 				_mstVol = 0x7F;
-			if (_filteredVol & (1 << FILTVOL_GMSYX))
+			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
@@ -3634,7 +3645,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
-			if (_filteredVol & (1 << FILTVOL_GMSYX))
+			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
@@ -3983,7 +3994,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
-			if (_filteredVol & (1 << FILTVOL_GMSYX))
+			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
@@ -4349,19 +4360,34 @@ UINT8 MidiPlayer::CalcSimpleChnMainVol(const ChannelState* chnSt) const
 
 void MidiPlayer::FadeVolRefresh(void)
 {
-	if (_fadeVolMode == FDVMODE_GMSYX)
+	if (_fadeVolMode == FDVMODE_SYXVOL)
 	{
 		UINT8 newVol = (_mstVol * _fadeVol + 0x80) / 0x100;
 		if (newVol == _mstVolFade)
 			return;
 		_mstVolFade = newVol;
 		
-		std::vector<UINT8> syxData(sizeof(GM_MST_VOL));
+		std::vector<UINT8> syxData;
 		size_t curPort;
 		
-		memcpy(&syxData[0], GM_MST_VOL, syxData.size());
-		syxData[0x05] = 0x00;			// master volume LSB
-		syxData[0x06] = _mstVolFade;	// master volume MSB
+		//if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+		if (false && _options.dstType == MODULE_SC55)	// TODO: option
+		{
+			syxData.assign(GS_MST_VOL, GS_MST_VOL + sizeof(GS_MST_VOL));
+			syxData[0x08] = _mstVolFade;	// master volume
+			syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
+		}
+		else if (false && MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+		{
+			syxData.assign(XG_MST_VOL, XG_MST_VOL + sizeof(XG_MST_VOL));
+			syxData[0x07] = _mstVolFade;	// master volume
+		}
+		else
+		{
+			syxData.assign(GM_MST_VOL, GM_MST_VOL + sizeof(GM_MST_VOL));
+			syxData[0x05] = 0x00;			// master volume LSB
+			syxData[0x06] = _mstVolFade;	// master volume MSB
+		}
 		for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 			SendMidiEventL(curPort, syxData.size(), &syxData[0]);
 		
