@@ -174,23 +174,13 @@ void LCDDisplay::AdvanceTime(UINT32 time)
 				_ttTimeout = 0;
 		}
 		if (_ttTimeout <= 0)
-		{
-			_ttTimeout = 0;
-			wmove(_hWin, 0, MATRIX_BASE_X);	wclrtoeol(_hWin);
-			wmove(_hWin, 1, MATRIX_BASE_X);	wclrtoeol(_hWin);
-			_ttMode = TTMODE_NONE;
-		}
+			EraseTemporaryText();
 	}
 	if (_tbTimeout > 0)
 	{
 		_tbTimeout -= time;
 		if (_tbTimeout <= 0)
-		{
-			_tbTimeout = 0;
-			_noDrawXStart = _noDrawXEnd = 0;
-			DrawBitmap(std::bitset<0x100>(), _tbScaleX);
-			DrawDotMatrix(_dotMatrix);
-		}
+			EraseTemporaryBitmap();
 	}
 	
 	return;
@@ -525,6 +515,15 @@ void LCDDisplay::SetTemporaryText(const char* text, UINT8 ttMode, UINT32 dispTim
 	return;
 }
 
+void LCDDisplay::EraseTemporaryText(void)
+{
+	_ttTimeout = 0;
+	wmove(_hWin, 0, MATRIX_BASE_X);	wclrtoeol(_hWin);
+	wmove(_hWin, 1, MATRIX_BASE_X);	wclrtoeol(_hWin);
+	_ttMode = TTMODE_NONE;
+	return;
+}
+
 void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 dispMode, UINT32 dispTime)
 {
 	UINT8 newScaleX = _tbScaleX;
@@ -551,6 +550,15 @@ void LCDDisplay::SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 disp
 	PrepareBitmapDisplay();
 	DrawBitmap(_tBitmap, _tbScaleX);
 	
+	return;
+}
+
+void LCDDisplay::EraseTemporaryBitmap(void)
+{
+	_tbTimeout = 0;
+	_noDrawXStart = _noDrawXEnd = 0;
+	DrawBitmap(std::bitset<0x100>(), _tbScaleX);
+	DrawDotMatrix(_dotMatrix);
 	return;
 }
 

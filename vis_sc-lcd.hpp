@@ -90,7 +90,9 @@ public:
 	void DrawPage(const LCDPage& page);
 	void DrawTitleText(void);
 	void SetTemporaryText(const char* text, UINT8 ttMode, UINT32 dispTime);
+	void EraseTemporaryText(void);
 	void SetTemporaryBitmap(const std::bitset<0x100>& bitmap, UINT8 dispMode, UINT32 dispTime);
+	void EraseTemporaryBitmap(void);
 	void DrawDotMatrix(const std::bitset<0x100>& matrix, bool isOverlay = false);
 	void DrawBitmap(const std::bitset<0x100>& bitmap, UINT8 scale);
 	void DrawBitmap_2x2(const std::bitset<0x100>& bitmap);

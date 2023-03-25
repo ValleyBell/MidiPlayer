@@ -3099,7 +3099,10 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 						UINT8 pageID;
 						
 						pageID = syxData[0x07];	// 00 = bar display, 01..0A = page 1..10
-						vis_printf("SysEx SC: Dot Display: Show Page %u", pageID);
+						if (pageID == 0)
+							vis_printf("SysEx SC: Dot Display: Show Bars");
+						else
+							vis_printf("SysEx SC: Dot Display: Show Page %u", pageID);
 						if (pageID >= 1 && pageID <= 10)
 							vis_do_syx_bitmap(FULL_CHN_ID(trkSt->portID, pageID), 0x45, 0x40, _pixelPageMem[pageID - 1]);
 						else
