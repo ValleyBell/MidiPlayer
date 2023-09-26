@@ -920,22 +920,22 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 		case 0xE0:
 			{
 				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
-				INT32 pbVal = (midiEvt->evtValB << 7) | (midiEvt->evtValA << 0);
-				pbVal -= 0x2000;	// centre: 0x2000 -> 0
+				chnSt->pBendRaw = (midiEvt->evtValB << 7) | (midiEvt->evtValA << 0);
+				chnSt->pBendScl = chnSt->pBendRaw - 0x2000;	// centre: 0x2000 -> 0
 				if (chnSt->pbRangeUnscl != chnSt->pbRange)
 				{
 					UINT16 pbSend;
-					pbVal = pbVal * chnSt->pbRangeUnscl / chnSt->pbRange;
-					if (pbVal < -0x2000)
-						pbVal = -0x2000;
-					else if (pbVal > 0x1FFF)
-						pbVal = 0x1FFF;
-					pbSend = 0x2000 + (INT16)pbVal;
+					chnSt->pBendScl = chnSt->pBendScl * chnSt->pbRangeUnscl / chnSt->pbRange;
+					if (chnSt->pBendScl < -0x2000)
+						chnSt->pBendScl = -0x2000;
+					else if (chnSt->pBendScl > 0x1FFF)
+						chnSt->pBendScl = 0x1FFF;
+					pbSend = 0x2000 + (INT16)chnSt->pBendScl;
 					SendMidiEventS(chnSt->portID, midiEvt->evtType, (pbSend >> 0) & 0x7F, (pbSend >> 7) & 0x7F);
 					didEvt = true;
 				}
-				pbVal *= nvChn->_pbRange;
-				nvChn->_attr.detune[0] = (INT16)(pbVal / 0x20);	// make 8.8 fixed point
+				chnSt->pBendScl *= nvChn->_pbRange;
+				nvChn->_attr.detune[0] = (INT16)(chnSt->pBendScl / 0x20);	// make 8.8 fixed point
 			}
 			break;
 		}
@@ -1754,6 +1754,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		// does NOT reset pitch bend range on Roland SoundCanvas devices
 		//chnSt->pbRangeUnscl = _defPbRange;
 		//chnSt->pbRange = _defPbRange;
+		chnSt->pBendRaw = 0;
+		chnSt->pBendScl = 0;
 		nvChn->_attr.volume = chnSt->ctrls[0x07] & 0x7F;
 		nvChn->_attr.pan = (INT8)(chnSt->ctrls[0x0A] & 0x7F) - 0x40;
 		nvChn->_attr.expression = chnSt->ctrls[0x0B] & 0x7F;
@@ -4498,6 +4500,16 @@ void MidiPlayer::AllChannelRefresh(void)
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, 0x00);
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x06, chnSt.pbRange);
 		}
+		{
+			// restore Pitch Bend
+			INT32 pbUnscaled = chnSt.pBendScl / chnSt.pbRange;
+			if (pbUnscaled < -0x2000)
+				pbUnscaled = -0x2000;
+			else if (pbUnscaled > 0x1FFF)
+				pbUnscaled = 0x1FFF;
+			UINT16 pbSend = 0x2000 + (INT16)pbUnscaled;
+			SendMidiEventS(chnSt.portID, 0xE0 | chnSt.midChn, (pbSend >> 0) & 0x7F, (pbSend >> 7) & 0x7F);
+		}
 		if (chnSt.tuneCoarse != 0)
 		{
 			// set Coarse Tuning
@@ -4526,8 +4538,7 @@ void MidiPlayer::AllChannelRefresh(void)
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x64, chnSt.rpnCtrl[0x01] & 0x7F);
 		else
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, 0x62, chnSt.rpnCtrl[0x01]);
-		
-		// TODO: restore Pitch Bend and NRPNs
+		// TODO: restore NRPNs
 	}
 	
 	return;
@@ -4841,6 +4852,8 @@ void MidiPlayer::InitializeChannels(void)
 		chnSt.hadDrumNRPN = false;
 		chnSt.pbRangeUnscl = _defPbRange;
 		chnSt.pbRange = chnSt.pbRangeUnscl;
+		chnSt.pBendRaw = 0;
+		chnSt.pBendScl = 0;
 		chnSt.tuneCoarse = 0;
 		chnSt.tuneFine = 0;
 		

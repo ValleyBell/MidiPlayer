@@ -78,6 +78,8 @@ public:
 		INT8 pbRangeUnscl;	// unscaled PB range set via RPN (used for MIDIs that expect non-standard PB ranges)
 		INT8 tuneCoarse;
 		INT16 tuneFine;		// stored as 8.8 fixed point (-0x4000 = -1 semitone .. 0 = centre .. +0x3FFF = +1 semitone)
+		UINT16 pBendRaw;
+		INT32 pBendScl;		// "full" pitch bend, scaled to 8192 ticks per semitone
 		
 		const char* userInsName;
 		const InstrumentInfo* userInsRef;
