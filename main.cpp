@@ -105,6 +105,7 @@ static UINT32 videoFrameRate;
 static UINT32 numLoops;
 static UINT32 defNumLoops;
 static double fadeTime;
+static double endPauseTime;
 static UINT8 playerCfgFlags;	// see PlayerOpts::flags
 static std::string plrLoopText[2];
 static UINT8 forceSrcType;
@@ -1015,6 +1016,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
 	defNumLoops = iniFile.GetInteger("General", "LoopCount", 2);
 	fadeTime = iniFile.GetFloat("General", "FadeTime", 5.0);
+	endPauseTime = iniFile.GetFloat("General", "EndPause", 0.0);
 	plrLoopText[0] = iniFile.GetString("General", "Marker_LoopStart", plrLoopText[0]);
 	plrLoopText[1] = iniFile.GetString("General", "Marker_LoopEnd", plrLoopText[1]);
 	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", false);
@@ -1238,6 +1240,11 @@ UINT8 main_OpenModule(size_t modID)
 double main_GetFadeTime(void)
 {
 	return fadeTime;
+}
+
+double main_GetEndPauseTime(void)
+{
+	return endPauseTime;
 }
 
 UINT8 main_GetSongInsMap(void)

@@ -1321,7 +1321,7 @@ void MidiPlayer::DoPlaybackStep(void)
 		_tmrFadeNext = _tmrFadeStart;
 	}
 	
-	if (_tmrFadeLen && curTime >= _tmrFadeNext)
+	if (_tmrFadeLen && curTime >= _tmrFadeNext && _playing)
 	{
 		UINT64 fadeStep;
 		

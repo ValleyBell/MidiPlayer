@@ -43,6 +43,7 @@ size_t main_GetOpenedModule(void);
 UINT8 main_CloseModule(void);
 UINT8 main_OpenModule(size_t modID);
 double main_GetFadeTime(void);
+double main_GetEndPauseTime(void);
 UINT8 main_GetSongInsMap(void);
 size_t main_GetSongOptDevice(void);
 UINT8* main_GetForcedInsMap(void);
@@ -1477,19 +1478,24 @@ int vis_main(void)
 	//	+9 - quit
 	UINT64 newUpdateTime;
 	int result;
+	UINT64 songEndTime = 0;
+	UINT8 lastPbState = 0xFF;
 	
 	lastUpdateTime = 0;
 	result = 0;
-	while(midPlay->GetState() & 0x03)	// loop while playing OR paused
+	while(true)
 	{
 		int retval = 0;
+		UINT8 pbState;
 		
 		midPlay->DoPlaybackStep();
+		pbState = midPlay->GetState();
 		
 		newUpdateTime = (UINT64)(midPlay->GetPlaybackPos() * 1000.0);
 		// update after reset OR when 20+ ms have passed
-		if (newUpdateTime < lastUpdateTime || newUpdateTime >= lastUpdateTime + 20)
+		if (newUpdateTime < lastUpdateTime || newUpdateTime >= lastUpdateTime + 20 || pbState != lastPbState)
 			vis_update();
+		lastPbState = pbState;
 		
 		retval = currentKeyHandler.back()();
 		if (retval == 0)
@@ -1511,7 +1517,8 @@ int vis_main(void)
 			break;
 		}
 		
-		if ((midPlay->GetState() & 0x03) == 0x00)	// song ended?
+		pbState = midPlay->GetState();
+		if ((pbState & 0x03) == 0x00)	// song ended?
 		{
 			if (pauseAfterSong)
 			{
@@ -1524,6 +1531,14 @@ int vis_main(void)
 				midPlay->Pause();
 				midPlay->StopAllNotes();
 				vis_update();
+			}
+			else if (! (pbState & 0x03))	// NOT (playing OR paused)
+			{
+				UINT64 songTime = (UINT64)(midPlay->GetPlaybackPos(true) * 1000.0);
+				if (! songEndTime)
+					songEndTime = songTime + (UINT64)(main_GetEndPauseTime() * 1000.0);
+				if (songTime >= songEndTime)
+					break;
 			}
 		}
 		Sleep(1);
