@@ -723,7 +723,7 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 	// current in-song time = [in-song time of next event] - ([clock time of next event] - [current clock time])
 	tmrTick -= (_tmrStep - curTime);
 	double secTime = U64_TO_DBL(tmrTick) / U64_TO_DBL(_tmrFreq);
-#if 1	// for debugging time overflow
+#ifdef _DEBUG	// for debugging time overflow
 	if (secTime > 6000.0 && tmrTick > _songLength)
 		vis_printf("Showing large time: %.3f sec (curTime = %f, tmrStep = %f, tempoTick = %u, nextEvtTick = %u)\n",
 					secTime, curTime / (double)_tmrFreq, _tmrStep / (double)_tmrFreq, _tempoPos->tick, _nextEvtTick);
@@ -736,7 +736,9 @@ double MidiPlayer::GetPlaybackPos(bool allowOverflow) const
 void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 {
 	UINT32 curTick;
-	double ctf;
+#ifdef _DEBUG
+	double curTick_Float = 0.0;
+#endif
 	
 	if (! _tmrStep)
 	{
@@ -755,6 +757,9 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 			curTick = (UINT32)-1;	// waiting for the song to begin
 		else
 			curTick = _nextEvtTick - (UINT32)tickDiff;
+#ifdef _DEBUG
+		curTick_Float = _nextEvtTick - (_tmrStep - curTime) / (double)_curTickTime;
+#endif
 	}
 	
 	if (curTick == (UINT32)-1)
@@ -769,7 +774,7 @@ void MidiPlayer::GetPlaybackPosM(UINT32* bar, UINT32* beat, UINT32* tick) const
 	else
 	{
 		CalcMeasureTime(*_timeSigPos, _cMidi->GetMidiResolution() * 4, curTick, bar, beat, tick);
-#if 1	// for debugging bar overflow
+#ifdef _DEBUG	// for debugging bar overflow
 		if (*bar > 10000 && *bar > _songMeasLen[0])
 			vis_printf("Showing large tick %u = bar %0*u:%0*u.%0*u\n", curTick, 2, 1 + *bar, 2, 1 + *beat, 3, *tick);
 #endif

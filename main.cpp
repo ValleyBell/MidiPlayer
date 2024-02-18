@@ -70,6 +70,7 @@ struct InstrumentSetCfg
 
 
 //int main(int argc, char* argv[]);
+static void HandleKeyPress_ErrorMode(void);
 static UINT8 LoadSyxData(const std::string& filePath, std::vector<UINT8>& buffer);
 static char* GetAppFilePath(void);
 #if ENABLE_ZIP_SUPPORT
@@ -545,10 +546,12 @@ int main(int argc, char* argv[])
 			vis_printf("Error 0x%02X opening %s\n", retVal, midFileName.c_str());
 			vis_update();
 			resVal = 1;
-			if (controlVal == -1 && curSong == 0)
+			HandleKeyPress_ErrorMode();
+			if (controlVal == +9)
+				break;
+			if (curSong == 0 && controlVal == -1)
 				controlVal = +1;
 			curSong += controlVal;
-			vis_getch_wait();
 			continue;
 		}
 		//printf("File loaded.\n");
@@ -588,7 +591,9 @@ int main(int argc, char* argv[])
 			if (hadError)
 			{
 				vis_update();
-				vis_getch_wait();
+				HandleKeyPress_ErrorMode();
+				if (controlVal == +9)
+					break;
 			}
 		}
 		else if (loadSongSyx)
@@ -628,6 +633,8 @@ int main(int argc, char* argv[])
 		
 		// done in PlayMidi
 		//CMidi.ClearAll();
+		if (curSong == 0 && controlVal < 0)
+			controlVal = +1;
 		if (controlVal == +1)
 		{
 			curSong ++;
@@ -679,6 +686,37 @@ int main(int argc, char* argv[])
 	insBanks.clear();
 	
 	return 0;
+}
+
+static void HandleKeyPress_ErrorMode(void)
+{
+	int inkey = vis_getch_wait();
+	if (! inkey)
+		return;
+	
+	if (inkey < 0x100 && isalpha(inkey))
+		inkey = toupper(inkey);
+	switch(inkey)
+	{
+	case 0x1B:	// ESC
+		inkey = vis_getch();
+		if (inkey == '[')
+			return;	// escape code sequence - ignore
+		controlVal = +9;	// quit
+		break;
+	case 'Q':
+		controlVal = +9;	// quit
+		break;
+	case 'B':
+		if (curSong > 1)
+			controlVal = -1;	// previous song
+		break;
+	case 'N':
+		if (curSong < songList.size())
+			controlVal = +1;	// next song
+		break;
+	}
+	return;
 }
 
 static UINT8 LoadSyxData(const std::string& filePath, std::vector<UINT8>& buffer)
@@ -1438,7 +1476,7 @@ void PlayMidi(void)
 	{
 		vis_printf("Unable to find an appropriate MIDI module for %s!\n", GetModuleTypeNameL(scanRes.modType));
 		vis_update();
-		vis_getch_wait();
+		HandleKeyPress_ErrorMode();
 		return;
 	}
 	mMod = midiModColl.GetModule(chosenModule);
@@ -1449,7 +1487,7 @@ void PlayMidi(void)
 	retVal = main_OpenModule(chosenModule);
 	if (retVal && mopList->mOuts.empty())
 	{
-		vis_getch_wait();
+		HandleKeyPress_ErrorMode();
 		return;
 	}
 	vis_update();
