@@ -1069,17 +1069,17 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 				if (text == _options.loopStartText)
 				{
 					SaveLoopState(_loopPt, trkState);
-					if (_numLoops > 1)
-						vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+					if (_options.numLoops > 1)
+						vis_printf("Loop %u / %u\n", 1 + _curLoop, _options.numLoops);
 				}
 				else if (text == _options.loopEndText)
 				{
 					if (_loopPt.used && _loopPt.tick < _nextEvtTick)
 					{
 						_curLoop ++;
-						if (! _numLoops || _curLoop < _numLoops)
+						if (! _options.numLoops || _curLoop < _options.numLoops)
 						{
-							vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+							vis_printf("Loop %u / %u\n", 1 + _curLoop, _options.numLoops);
 							_breakMidiProc = true;
 							RestoreLoopState(_loopPt);
 						}
@@ -1362,9 +1362,9 @@ void MidiPlayer::DoPlaybackStep(void)
 			if (_loopPt.used && _loopPt.tick < _nextEvtTick)
 			{
 				_curLoop ++;
-				if (! _numLoops || _curLoop < _numLoops)
+				if (! _options.numLoops || _curLoop < _options.numLoops)
 				{
-					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+					vis_printf("Loop %u / %u\n", 1 + _curLoop, _options.numLoops);
 					RestoreLoopState(_loopPt);
 					continue;
 				}
@@ -1704,17 +1704,17 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		{
 			vis_addstr("NRPN Loop Start found.");
 			SaveLoopState(_loopPt, trkSt);
-			if (_numLoops > 1)
-				vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+			if (_options.numLoops > 1)
+				vis_printf("Loop %u / %u\n", 1 + _curLoop, _options.numLoops);
 		}
 		else if (chnSt->ctrls[ctrlID] == 30)
 		{
 			if (_loopPt.used && _loopPt.tick < _nextEvtTick)
 			{
 				_curLoop ++;
-				if (! _numLoops || _curLoop < _numLoops)
+				if (! _options.numLoops || _curLoop < _options.numLoops)
 				{
-					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+					vis_printf("Loop %u / %u\n", 1 + _curLoop, _options.numLoops);
 					_breakMidiProc = true;
 					RestoreLoopState(_loopPt);
 				}
@@ -1735,8 +1735,8 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 				if (! _useManualTiming)
 					vis_addstr("RPG Maker Loop Point found.");
 				SaveLoopState(_loopPt, trkSt);
-				if (_numLoops > 1)
-					vis_printf("Loop %u / %u\n", 1 + _curLoop, _numLoops);
+				if (_options.numLoops > 1)
+					vis_printf("Loop %u / %u\n", 1 + _curLoop, _options.numLoops);
 			}
 		}
 		else

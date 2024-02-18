@@ -103,12 +103,9 @@ static bool dummyOutput;
 static bool screenRecordMode;
 static bool loadSongSyx;
 static UINT32 videoFrameRate;
-static UINT32 numLoops;
-static UINT32 defNumLoops;
 static double fadeTime;
 static double endPauseTime;
-static UINT8 playerCfgFlags;	// see PlayerOpts::flags
-static std::string plrLoopText[2];
+static PlayerOpts playerCfg;
 static UINT8 forceSrcType;
 static UINT8 forceModID;
 static std::vector<InstrumentSetCfg> insSetFiles;
@@ -179,6 +176,7 @@ int main(int argc, char* argv[])
 	size_t curInsBnk;
 	UINT8 curCP;
 	size_t initSongID;
+	UINT32 numLoopsCLI;
 	
 	setlocale(LC_ALL, "");	// enable UTF-8 support on Linux
 	setlocale(LC_NUMERIC, "C");	// enforce decimal dot
@@ -228,11 +226,11 @@ int main(int argc, char* argv[])
 	
 	screenRecordMode = false;
 	videoFrameRate = 60;
-	playerCfgFlags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
-	plrLoopText[0] = "loopStart";
-	plrLoopText[1] = "loopEnd";
+	playerCfg.flags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
+	playerCfg.loopStartText = "loopStart";
+	playerCfg.loopEndText = "loopEnd";
 	dummyOutput = false;
-	numLoops = 0;
+	numLoopsCLI = 0;
 	forceSrcType = 0xFF;
 	forceModID = 0xFF;
 	syxFile = "";
@@ -255,7 +253,7 @@ int main(int argc, char* argv[])
 			if (argbase >= argc)
 				break;
 			
-			playerCfgFlags = (UINT8)strtoul(argv[argbase], NULL, 0);
+			playerCfg.flags = (UINT8)strtoul(argv[argbase], NULL, 0);
 		}
 		else if (optChr == 's')
 		{
@@ -279,7 +277,7 @@ int main(int argc, char* argv[])
 			if (argbase >= argc)
 				break;
 			
-			numLoops = (UINT32)strtoul(argv[argbase], NULL, 0);
+			numLoopsCLI = (UINT32)strtoul(argv[argbase], NULL, 0);
 		}
 		else if (optChr == 'x')
 		{
@@ -396,6 +394,8 @@ int main(int argc, char* argv[])
 		printf("Error: No modules defined!\n");
 		return 0;
 	}
+	if (numLoopsCLI > 0)
+		playerCfg.numLoops = numLoopsCLI;
 	
 	retVal = ParseSongFiles(std::vector<const char*>(argv + argbase, argv + argc), songList, plList);
 	if (retVal)
@@ -1052,11 +1052,11 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	}
 	
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
-	defNumLoops = iniFile.GetInteger("General", "LoopCount", 2);
+	playerCfg.numLoops = iniFile.GetInteger("General", "LoopCount", 2);
 	fadeTime = iniFile.GetFloat("General", "FadeTime", 5.0);
 	endPauseTime = iniFile.GetFloat("General", "EndPause", 0.0);
-	plrLoopText[0] = iniFile.GetString("General", "Marker_LoopStart", plrLoopText[0]);
-	plrLoopText[1] = iniFile.GetString("General", "Marker_LoopEnd", plrLoopText[1]);
+	playerCfg.loopStartText = iniFile.GetString("General", "Marker_LoopStart", playerCfg.loopStartText);
+	playerCfg.loopEndText = iniFile.GetString("General", "Marker_LoopEnd", playerCfg.loopEndText);
 	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", false);
 	
 	strmSrv_pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
@@ -1434,7 +1434,7 @@ int main_CheckRemoteCommand(void)
 
 void PlayMidi(void)
 {
-	PlayerOpts plrOpts;
+	PlayerOpts plrOpts = playerCfg;
 	UINT8 retVal;
 	size_t chosenModule;
 	MidiModule* mMod;
@@ -1500,9 +1500,6 @@ void PlayMidi(void)
 	
 	plrOpts.srcType = scanRes.modType;
 	plrOpts.dstType = mMod->modType;
-	plrOpts.flags = playerCfgFlags;
-	plrOpts.loopStartText = plrLoopText[0];
-	plrOpts.loopEndText = plrLoopText[1];
 	if (scanRes.hasReset != 0xFF)
 	{
 		bool resetOff = true;
@@ -1519,7 +1516,6 @@ void PlayMidi(void)
 			plrOpts.flags &= ~PLROPTS_RESET;
 	}
 	midPlay.SetOptions(plrOpts);
-	midPlay._numLoops = numLoops ? numLoops : defNumLoops;
 	
 	if (optDetectCP)
 	{

@@ -25,6 +25,7 @@ struct PlayerOpts
 	UINT8 flags;	// see PLROPTS_ defines
 	std::string loopStartText;
 	std::string loopEndText;
+	UINT32 numLoops;
 };
 
 struct MidiQueueEvt
@@ -135,7 +136,6 @@ public:
 	UINT8 GetPortOptions(void) const;
 	void SetSrcModuleType(UINT8 modType, bool insRefresh = false);
 	void SetDstModuleType(UINT8 modType, bool chnRefresh = false);
-	UINT32 _numLoops;
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);
 	UINT8 Start(void);
 	UINT8 Stop(void);
