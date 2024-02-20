@@ -10,6 +10,7 @@
 #include "MidiPlay.hpp"
 #include "NoteVis.hpp"
 #include "vis_sc-lcd.hpp"
+#include "vis.hpp"
 
 
 /*
@@ -26,16 +27,12 @@
 	           	01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16
 */
 
-#define LVMODE_OFF		0
-#define LVMODE_NOTES	1
-#define LVMODE_VOL		2
-
 #define MATRIX_BASE_X	16
 #define MATRIX_BASE_Y	2
 #define MAT_XY2IDX(x, y)	((y) * 0x10 + (x))
 #define DEFAULT_NOTE_AGE	800.0f	// in msec
 static int MATRIX_COL_SIZE = 3;
-static int liveVisMode = LVMODE_NOTES;
+static DisplayOptions* dispOpts;
 
 static const char* BLOCK2x2_CHRS[0x10] =
 {
@@ -51,6 +48,7 @@ LCDDisplay::LCDDisplay() :
 	_mPlr(NULL),
 	_nVis(NULL)
 {
+	dispOpts = vis_get_options();
 }
 
 LCDDisplay::~LCDDisplay()
@@ -270,11 +268,11 @@ void LCDDisplay::RefreshDisplay(void)
 		float barHeight = 0.0;
 		int barYHeight;
 		
-		if (liveVisMode == LVMODE_VOL)
+		if (dispOpts->barVisMode == BVMODE_VOL)
 		{
 			barHeight = chnVol;
 		}
-		else if (liveVisMode == LVMODE_NOTES)
+		else if (dispOpts->barVisMode == BVMODE_NOTES)
 		{
 			for (nlIt = noteList.begin(); nlIt != noteList.end(); ++nlIt)
 			{
@@ -291,7 +289,7 @@ void LCDDisplay::RefreshDisplay(void)
 					barHeight = noteVol;
 			}
 		}
-		if (liveVisMode != LVMODE_OFF)
+		if (dispOpts->barVisMode != BVMODE_OFF)
 		{
 			int chnID = curChn & 0x0F;
 			int chnGrp = curChn >> 4;
@@ -316,7 +314,7 @@ void LCDDisplay::RefreshDisplay(void)
 		DrawPage(_allPage);
 	else if (_pageMode == PAGEMODE_CHN)
 		DrawPage(_chnPage);
-	if (liveVisMode != LVMODE_OFF)
+	if (dispOpts->barVisMode != BVMODE_OFF)
 		DrawDotMatrix(_dotMatrix);
 	
 	return;
@@ -354,7 +352,7 @@ void LCDDisplay::DrawLayout(void)
 	mvwprintw(_hWin, 8, 1, "K.Shift");
 	mvwprintw(_hWin, 9, 1, "MIDI Ch");
 	
-	if (liveVisMode != LVMODE_OFF)
+	if (dispOpts->barVisMode != BVMODE_OFF)
 	{
 		if (MATRIX_COL_SIZE < 3)
 		{

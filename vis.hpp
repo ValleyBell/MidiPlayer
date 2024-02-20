@@ -9,10 +9,15 @@ class MidiModuleCollection;
 class MidiFile;
 class MidiPlayer;
 
+#define BVMODE_OFF		0x00
+#define BVMODE_NOTES	0x01
+#define BVMODE_VOL		0x02
 struct DisplayOptions
 {
+	bool showFilePath;
+	bool showInsChange;
 	std::vector<UINT8> showMeta;
-	UINT8 showInsChange;
+	UINT8 barVisMode;
 	std::string defCodepages[2];
 	bool detectCP;
 };

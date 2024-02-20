@@ -1473,7 +1473,7 @@ bool MidiPlayer::HandleNoteEvent(ChannelState* chnSt, const TrackState* trkSt, c
 	
 	if ((evtType & 0x10) && midiEvt->evtValB > 0x00)
 	{
-		if (false)	// TODO: option NoNoteOverlap
+		if (_options.noNoteOverlap)
 			ForceNoteOff(chnSt, midiEvt->evtValA);
 		
 		// Note On (90 xx 01..7F)
@@ -1699,7 +1699,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		break;
 	case 0x63:	// NRPN MSB
 		chnSt->rpnCtrl[0] = 0x80 | chnSt->ctrls[ctrlID];
-		if (true)
+		if (! _options.nrpnLoops)
 			break;
 		if (chnSt->ctrls[ctrlID] == 20)
 		{
@@ -2197,10 +2197,17 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 			if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
 			{
 				// drum kit fallback for GM songs
-				// TODO: make this an option
-				if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
+				if (_options.gmDrumFallback == PLROPTS_GDF_GS)
 				{
-					insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+					if ((insInf->ins & 0x47) > 0x00 && insInf->ins != (0x80|0x19))
+					{
+						insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+						strictPatch |= BNKMSK_INS;
+					}
+				}
+				else if (_options.gmDrumFallback == PLROPTS_GDF_ALL)
+				{
+					insInf->ins = 0x80 | 0x00;	// fall back to GM drum kit for all drum kits
 					strictPatch |= BNKMSK_INS;
 				}
 			}
@@ -2251,19 +2258,26 @@ void MidiPlayer::HandleIns_GetRemapped(const ChannelState* chnSt, InstrumentInfo
 		if ((chnSt->insOrg.bnkIgn & BNKMSK_INS) && (chnSt->flags & 0x80))
 		{
 			// drum kit fallback for GM songs
-			// TODO: make this an option
-			UINT8 isValid;
-			UINT8 insID = insInf->ins & 0x7F;
-			
-			// accept all "XG Level 1" drum kits
-			isValid = (insID < 0x38) && ((insID & 0x07) == 0x00);
-			isValid |= (insID == 0x01);	// Standard Kit 2
-			isValid |= (insID == 0x19);	// Analog Kit
-			if (MMASK_MOD(devType) >= MTXG_MU100)
-				isValid |= (insID >= 0x7E);	// Standard Kit (MU100 native / MU basic)
-			if (! isValid)
+			if (_options.gmDrumFallback == PLROPTS_GDF_GS)
 			{
-				insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-GS drum kits
+				UINT8 isValid;
+				UINT8 insID = insInf->ins & 0x7F;
+				
+				// accept all "XG Level 1" drum kits
+				isValid = (insID < 0x38) && ((insID & 0x07) == 0x00);
+				isValid |= (insID == 0x01);	// Standard Kit 2
+				isValid |= (insID == 0x19);	// Analog Kit
+				if (MMASK_MOD(devType) >= MTXG_MU100)
+					isValid |= (insID >= 0x7E);	// Standard Kit (MU100 native / MU basic)
+				if (! isValid)
+				{
+					insInf->ins = 0x80 | 0x00;	// for GM, enforce Standard Kit 1 for non-XG drum kits
+					strictPatch |= BNKMSK_INS;
+				}
+			}
+			else if (_options.gmDrumFallback == PLROPTS_GDF_ALL)
+			{
+				insInf->ins = 0x80 | 0x00;	// fall back to GM drum kit for all drum kits
 				strictPatch |= BNKMSK_INS;
 			}
 		}
@@ -3128,7 +3142,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 			}
 			if (retVal)
 				return retVal;
-			if (goodSum != 0xFF && true)	// TODO: make this an option
+			if (goodSum != 0xFF && _options.fixSysExChksum)
 			{
 				// send SysEx message with fixed checksum
 				std::vector<UINT8> msgData(0x01 + syxSize);

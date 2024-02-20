@@ -18,6 +18,9 @@ struct MidiModule;	// from MidiModules.hpp
 #define PLROPTS_RESET		0x01	// needs GM/GS/XG reset
 #define PLROPTS_STRICT		0x02	// strict mode (GS Mode: enforces instrument map if Bank LSB == 0)
 #define PLROPTS_ENABLE_CTF	0x04	// enable Capital Tone Fallback
+#define PLROPTS_GDF_NONE	0x00	// no fallback
+#define PLROPTS_GDF_ALL		0x01	// fallback for all to GM drums (patch 1)
+#define PLROPTS_GDF_GS		0x02	// fallback for all but GS/XG drums
 struct PlayerOpts
 {
 	UINT8 srcType;
@@ -28,6 +31,10 @@ struct PlayerOpts
 	UINT32 numLoops;
 	double fadeTime;
 	double endPauseTime;
+	bool nrpnLoops;
+	bool noNoteOverlap;
+	UINT8 gmDrumFallback;
+	bool fixSysExChksum;
 };
 
 struct MidiQueueEvt

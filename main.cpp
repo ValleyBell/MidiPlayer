@@ -72,6 +72,7 @@ struct StreamServerOptions
 {
 	std::string metaFile;
 	std::string pidFile;
+	bool showFilePath;
 	int fixedPID;	// fixed PID set via command line
 	int curPID;		// PID read from pidFile
 };
@@ -1059,10 +1060,27 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	playerCfg.loopStartText = iniFile.GetString("General", "Marker_LoopStart", playerCfg.loopStartText);
 	playerCfg.loopEndText = iniFile.GetString("General", "Marker_LoopEnd", playerCfg.loopEndText);
 	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", true);
+	playerCfg.nrpnLoops = iniFile.GetBoolean("General", "NRPNLoops", false);
+	playerCfg.noNoteOverlap = iniFile.GetBoolean("General", "NoNoteOverlap", false);
+	{
+		std::string gmDrmFB = iniFile.GetString("General", "GMDrumFallback", "KeepGS");
+		std::transform(gmDrmFB.begin(), gmDrmFB.end(), gmDrmFB.begin(), ::toupper);	// for case-insensitive comparison
+		if (gmDrmFB == "NONE")
+			playerCfg.gmDrumFallback = PLROPTS_GDF_NONE;
+		else if (gmDrmFB == "ALL")
+			playerCfg.gmDrumFallback = PLROPTS_GDF_ALL;
+		else if (gmDrmFB == "KEEPGS")
+			playerCfg.gmDrumFallback = PLROPTS_GDF_GS;
+		else
+			playerCfg.gmDrumFallback = PLROPTS_GDF_NONE;
+	}
+	playerCfg.fixSysExChksum = iniFile.GetBoolean("General", "FixSysExChecksums", false);
 	
 	strmSrv.pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
 	strmSrv.metaFile = iniFile.GetString("StreamServer", "MetadataFile", "");
+	strmSrv.showFilePath = iniFile.GetBoolean("StreamServer", "ShowFilePath", true);
 	
+	dispOpts->showFilePath = iniFile.GetBoolean("Display", "ShowFilePath", true);
 	dispOpts->showInsChange = iniFile.GetBoolean("Display", "ShowInsChange", true);
 	dispOpts->showMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
 	dispOpts->showMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
@@ -1073,6 +1091,19 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	dispOpts->detectCP = iniFile.GetBoolean("Display", "DetectCodepage", true);
 	dispOpts->defCodepages[0] = iniFile.GetString("Display", "DefaultCodepage", "");
 	dispOpts->defCodepages[1] = iniFile.GetString("Display", "FallbackCodepage", "");
+	
+	{
+		std::string barVisMode = iniFile.GetString("Display", "BarVisMode", "Notes");
+		std::transform(barVisMode.begin(), barVisMode.end(), barVisMode.begin(), ::toupper);	// for case-insensitive comparison
+		if (barVisMode == "NONE")
+			dispOpts->barVisMode = BVMODE_OFF;
+		else if (barVisMode == "VOLUME")
+			dispOpts->barVisMode = BVMODE_VOL;
+		else if (barVisMode == "NOTES")
+			dispOpts->barVisMode = BVMODE_NOTES;
+		else
+			dispOpts->barVisMode = BVMODE_OFF;
+	}
 	
 	insSetFiles.clear();
 	insSetXG = (size_t)-1;
@@ -1537,12 +1568,12 @@ void PlayMidi(void)
 		vis_set_track_number(1 + curSong);
 		vis_set_track_count(songList.size());
 	}
-	vis_set_midi_file(midFileName.c_str(), &CMidi);
-	if (screenRecordMode)
-	{
+	if (dispOpts->showFilePath)
+		vis_set_midi_file(midFileName.c_str(), &CMidi);
+	else
 		vis_set_midi_file(GetFileTitle(midFileName.c_str()), &CMidi);
+	if (screenRecordMode)
 		vis_set_track_count(0);
-	}
 	vis_set_midi_player(&midPlay);
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
@@ -1571,8 +1602,10 @@ void PlayMidi(void)
 			const char* fileTitle;
 			std::string songTitle;
 			
-			//fileTitle = GetFileTitle(midFileName.c_str());
-			fileTitle = midFileName.c_str();
+			if (strmSrv.showFilePath)
+				fileTitle = midFileName.c_str();
+			else
+				fileTitle = GetFileTitle(midFileName.c_str());
 			songTitle = GetMidiSongTitle(&CMidi);
 			fprintf(hFile, "TITLE=%s", fileTitle);
 			if (1)
