@@ -3,10 +3,21 @@
 
 #include <stddef.h>	// for size_t
 #include <stdtype.h>
+#include <vector>
+#include <string>
 class MidiModuleCollection;
 class MidiFile;
 class MidiPlayer;
 
+struct DisplayOptions
+{
+	std::vector<UINT8> showMeta;
+	UINT8 showInsChange;
+	std::string defCodepages[2];
+	bool detectCP;
+};
+
+DisplayOptions* vis_get_options(void);
 void vis_init(void);
 void vis_deinit(void);
 int vis_getch(void);

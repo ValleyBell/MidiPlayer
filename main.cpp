@@ -68,6 +68,14 @@ struct InstrumentSetCfg
 	std::vector<std::string> pathNames;
 };
 
+struct StreamServerOptions
+{
+	std::string metaFile;
+	std::string pidFile;
+	int fixedPID;	// fixed PID set via command line
+	int curPID;		// PID read from pidFile
+};
+
 
 //int main(int argc, char* argv[]);
 static void HandleKeyPress_ErrorMode(void);
@@ -103,8 +111,6 @@ static bool dummyOutput;
 static bool screenRecordMode;
 static bool loadSongSyx;
 static UINT32 videoFrameRate;
-static double fadeTime;
-static double endPauseTime;
 static PlayerOpts playerCfg;
 static UINT8 forceSrcType;
 static UINT8 forceModID;
@@ -126,17 +132,11 @@ static size_t curSong;
 static UINT8 songInsMap;	// detected instrument map
 static size_t songOptDev;	// optimal device
 
-extern std::vector<UINT8> optShowMeta;
-extern UINT8 optShowInsChange;
-static std::string defCodepages[2];
-static bool optDetectCP;
+static DisplayOptions* dispOpts;
 
 static std::vector<std::string> appSearchPaths;
 static std::string cfgBasePath;
-static std::string strmSrv_metaFile;
-static std::string strmSrv_pidFile;
-static int strmSrv_PIDopt;
-static int strmSrv_curPID;
+static StreamServerOptions strmSrv;
 #ifdef _WIN32
 #ifndef _DEBUG
 static int pbThreadPriority = THREAD_PRIORITY_TIME_CRITICAL;
@@ -224,6 +224,7 @@ int main(int argc, char* argv[])
 	}
 #endif
 	
+	dispOpts = vis_get_options();
 	screenRecordMode = false;
 	videoFrameRate = 60;
 	playerCfg.flags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
@@ -234,12 +235,12 @@ int main(int argc, char* argv[])
 	forceSrcType = 0xFF;
 	forceModID = 0xFF;
 	syxFile = "";
-	optShowMeta.resize(9, 1);
-	optShowInsChange = 1;
-	optDetectCP = true;
-	defCodepages[0] = "";
-	defCodepages[1] = "";
-	strmSrv_PIDopt = 0;
+	dispOpts->showMeta.resize(9, 1);
+	dispOpts->showInsChange = 1;
+	dispOpts->detectCP = true;
+	dispOpts->defCodepages[0] = "";
+	dispOpts->defCodepages[1] = "";
+	strmSrv.fixedPID = 0;
 	initSongID = 0;
 	
 	argbase = 1;
@@ -293,7 +294,7 @@ int main(int argc, char* argv[])
 			if (argbase >= argc)
 				break;
 			
-			strmSrv_PIDopt = (int)strtol(argv[argbase], NULL, 0);
+			strmSrv.fixedPID = (int)strtol(argv[argbase], NULL, 0);
 		}
 		else if (optChr == 'S')
 		{
@@ -458,16 +459,16 @@ int main(int argc, char* argv[])
 	}
 #endif
 	
-	if (defCodepages[0].empty())
-		defCodepages[0] = "CP1252";
+	if (dispOpts->defCodepages[0].empty())
+		dispOpts->defCodepages[0] = "CP1252";
 	for (curCP = 0; curCP < 2; curCP ++)
 	{
 		// Printing is always done in UTF-8.
-		if (defCodepages[curCP].empty())
+		if (dispOpts->defCodepages[curCP].empty())
 			continue;
-		iconv_t hIConv = iconv_open("UTF-8", defCodepages[curCP].c_str());
+		iconv_t hIConv = iconv_open("UTF-8", dispOpts->defCodepages[curCP].c_str());
 		if (hIConv != (iconv_t)-1)
-			hCpConvs[defCodepages[curCP]] = hIConv;
+			hCpConvs[dispOpts->defCodepages[curCP]] = hIConv;
 	}
 	vis_init();
 	SetVisualizationCharsets(NULL);
@@ -662,8 +663,8 @@ int main(int argc, char* argv[])
 	if (! lastUnzFN.empty())
 		ZIP_Unload(&lastZipFile);
 #endif
-	if (! strmSrv_metaFile.empty())
-		remove(strmSrv_metaFile.c_str());
+	if (! strmSrv.metaFile.empty())
+		remove(strmSrv.metaFile.c_str());
 	
 #if ENABLE_SCREEN_REC
 	if (screenRecordMode)
@@ -1053,25 +1054,25 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	
 	midiModColl._keepPortsOpen = iniFile.GetBoolean("General", "KeepPortsOpen", false);
 	playerCfg.numLoops = iniFile.GetInteger("General", "LoopCount", 2);
-	fadeTime = iniFile.GetFloat("General", "FadeTime", 5.0);
-	endPauseTime = iniFile.GetFloat("General", "EndPause", 0.0);
+	playerCfg.fadeTime = iniFile.GetFloat("General", "FadeTime", 5.0);
+	playerCfg.endPauseTime = iniFile.GetFloat("General", "EndPause", 0.0);
 	playerCfg.loopStartText = iniFile.GetString("General", "Marker_LoopStart", playerCfg.loopStartText);
 	playerCfg.loopEndText = iniFile.GetString("General", "Marker_LoopEnd", playerCfg.loopEndText);
-	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", false);
+	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", true);
 	
-	strmSrv_pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
-	strmSrv_metaFile = iniFile.GetString("StreamServer", "MetadataFile", "");
+	strmSrv.pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
+	strmSrv.metaFile = iniFile.GetString("StreamServer", "MetadataFile", "");
 	
-	optShowInsChange = iniFile.GetBoolean("Display", "ShowInsChange", true);
-	optShowMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
-	optShowMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
-	optShowMeta[0] = iniFile.GetBoolean("Display", "ShowMetaOther", true);
-	optShowMeta[4] = iniFile.GetBoolean("Display", "ShowMetaInsName", true);
-	optShowMeta[3] = iniFile.GetBoolean("Display", "ShowMetaTrkName", true);
+	dispOpts->showInsChange = iniFile.GetBoolean("Display", "ShowInsChange", true);
+	dispOpts->showMeta[1] = iniFile.GetBoolean("Display", "ShowMetaText", true);
+	dispOpts->showMeta[6] = iniFile.GetBoolean("Display", "ShowMetaMarker", true);
+	dispOpts->showMeta[0] = iniFile.GetBoolean("Display", "ShowMetaOther", true);
+	dispOpts->showMeta[4] = iniFile.GetBoolean("Display", "ShowMetaInsName", true);
+	dispOpts->showMeta[3] = iniFile.GetBoolean("Display", "ShowMetaTrkName", true);
 	
-	optDetectCP = iniFile.GetBoolean("Display", "DetectCodepage", true);
-	defCodepages[0] = iniFile.GetString("Display", "DefaultCodepage", "");
-	defCodepages[1] = iniFile.GetString("Display", "FallbackCodepage", "");
+	dispOpts->detectCP = iniFile.GetBoolean("Display", "DetectCodepage", true);
+	dispOpts->defCodepages[0] = iniFile.GetString("Display", "DefaultCodepage", "");
+	dispOpts->defCodepages[1] = iniFile.GetString("Display", "FallbackCodepage", "");
 	
 	insSetFiles.clear();
 	insSetXG = (size_t)-1;
@@ -1176,11 +1177,11 @@ static void SetVisualizationCharsets(const char* preferredCharset)
 	
 	for (curCP = 0; curCP < 2; curCP ++)
 	{
-		if (defCodepages[curCP].empty())
+		if (dispOpts->defCodepages[curCP].empty())
 			continue;
-		if (preferredCharset != NULL && defCodepages[curCP] == preferredCharset)
+		if (preferredCharset != NULL && dispOpts->defCodepages[curCP] == preferredCharset)
 			continue;
-		cpIt = hCpConvs.find(defCodepages[curCP]);
+		cpIt = hCpConvs.find(dispOpts->defCodepages[curCP]);
 		if (cpIt != hCpConvs.end())
 			hCurIConv.push_back(cpIt->second);
 	}
@@ -1273,16 +1274,6 @@ UINT8 main_OpenModule(size_t modID)
 		vis_addstr("Warning: One or more ports could not be opened!");
 	
 	return retVal;
-}
-
-double main_GetFadeTime(void)
-{
-	return fadeTime;
-}
-
-double main_GetEndPauseTime(void)
-{
-	return endPauseTime;
 }
 
 UINT8 main_GetSongInsMap(void)
@@ -1411,7 +1402,7 @@ int main_CheckRemoteCommand(void)
 	}
 	else if (command == "FADE")
 	{
-		midPlay.FadeOutT(main_GetFadeTime());
+		midPlay.FadeOutT(midPlay.GetOptions().fadeTime);
 	}
 	else if (command == "PREV")
 	{
@@ -1517,7 +1508,7 @@ void PlayMidi(void)
 	}
 	midPlay.SetOptions(plrOpts);
 	
-	if (optDetectCP)
+	if (dispOpts->detectCP)
 	{
 		std::string charSet = (scanRes.charset != NULL) ? scanRes.charset : "";
 		// do some minor remapping
@@ -1555,26 +1546,26 @@ void PlayMidi(void)
 	vis_set_midi_player(&midPlay);
 	vis_printf("Song length: %.3f s\n", midPlay.GetSongLength());
 	
-	if (! strmSrv_metaFile.empty())
+	if (! strmSrv.metaFile.empty())
 	{
 		FILE* hFile;
 		
-		if (strmSrv_PIDopt)
+		if (strmSrv.fixedPID)
 		{
-			strmSrv_curPID = strmSrv_PIDopt;
+			strmSrv.curPID = strmSrv.fixedPID;
 		}
 		else
 		{
-			strmSrv_curPID = 0;
-			hFile = fopen(strmSrv_pidFile.c_str(), "rt");
+			strmSrv.curPID = 0;
+			hFile = fopen(strmSrv.pidFile.c_str(), "rt");
 			if (hFile != NULL)
 			{
-				fscanf(hFile, "%d", &strmSrv_curPID);
+				fscanf(hFile, "%d", &strmSrv.curPID);
 				fclose(hFile);
 			}
 		}
 		
-		hFile = fopen(strmSrv_metaFile.c_str(), "wt");
+		hFile = fopen(strmSrv.metaFile.c_str(), "wt");
 		if (hFile != NULL)
 		{
 			const char* fileTitle;
@@ -1597,18 +1588,18 @@ void PlayMidi(void)
 			fclose(hFile);
 			
 #ifndef _WIN32
-			if (strmSrv_curPID)
+			if (strmSrv.curPID)
 			{
-				int retValI = kill(strmSrv_curPID, SIGUSR1);
+				int retValI = kill(strmSrv.curPID, SIGUSR1);
 				if (retValI)
-					vis_printf("Unable to send signal to stream server!! (PID %d)\n", strmSrv_curPID);
+					vis_printf("Unable to send signal to stream server!! (PID %d)\n", strmSrv.curPID);
 			}
 #endif
 		}
 	}
 	
 	vis_new_song();
-	if (optDetectCP && scanRes.charset != NULL && ! screenRecordMode)
+	if (dispOpts->detectCP && scanRes.charset != NULL && ! screenRecordMode)
 		vis_printf("Detected Codepage: %s\n", scanRes.charset);
 	
 	UINT32 curFrame = 0;

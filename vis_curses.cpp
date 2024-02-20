@@ -42,8 +42,6 @@
 size_t main_GetOpenedModule(void);
 UINT8 main_CloseModule(void);
 UINT8 main_OpenModule(size_t modID);
-double main_GetFadeTime(void);
-double main_GetEndPauseTime(void);
 UINT8 main_GetSongInsMap(void);
 size_t main_GetSongOptDevice(void);
 UINT8* main_GetForcedInsMap(void);
@@ -221,8 +219,7 @@ static bool showMeasureTicks = true;
 static std::string lastMeta01;
 static std::string lastMeta03;
 static std::string lastMeta04;
-       std::vector<UINT8> optShowMeta;
-       UINT8 optShowInsChange;
+static DisplayOptions dispOpts;
 
 static std::vector<KEYHANDLER> currentKeyHandler;
 
@@ -319,6 +316,11 @@ static int mvwattrtoggle(WINDOW* win, int y, int x, int n, attr_t attr)
 			return ret;
 	}
 	return 0;
+}
+
+DisplayOptions* vis_get_options(void)
+{
+	return &dispOpts;
 }
 
 void vis_init(void)
@@ -1186,7 +1188,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	
 	if (metaType < 0x10)
 	{
-		if (! optShowMeta[0] && (metaType != 1 && metaType != 6))
+		if (! dispOpts.showMeta[0] && (metaType != 1 && metaType != 6))
 			return;
 	}
 	
@@ -1195,7 +1197,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 	switch(metaType)
 	{
 	case 0x01:	// Text
-		if (! optShowMeta[1])
+		if (! dispOpts.showMeta[1])
 			break;
 		if (lastMeta01 == text)
 			break;
@@ -1228,7 +1230,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		}
 		else
 		{
-			if (! optShowMeta[3])
+			if (! dispOpts.showMeta[3])
 				break;
 			if (string_is_empty(text))
 				break;
@@ -1238,7 +1240,7 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		}
 		break;
 	case 0x04:	// Instrument Name
-		if (! optShowMeta[4])
+		if (! dispOpts.showMeta[4])
 			break;
 		//if (lastMeta04 == text)
 		//	break;
@@ -1249,14 +1251,14 @@ void vis_print_meta(UINT16 trk, UINT8 metaType, size_t dataLen, const char* data
 		curYline ++;
 		break;
 	case 0x05:	// Lyric
-		//if (! optShowMeta[5])
+		//if (! dispOpts.showMeta[5])
 		//	break;
 		str_prepare_print(text);
 		wprintw(logWin, "Lyric: %s", text.c_str());
 		curYline ++;
 		break;
 	case 0x06:	// Marker
-		if (! optShowMeta[6])
+		if (! dispOpts.showMeta[6])
 			break;
 		str_prepare_print(text);
 		if (trk == 0 || midFile->GetMidiFormat() == 2)
@@ -1445,7 +1447,7 @@ static int vis_keyhandler_normal(void)
 		vis_show_device_selection();
 		break;
 	case 'F':
-		midPlay->FadeOutT(main_GetFadeTime());
+		midPlay->FadeOutT(midPlay->GetOptions().fadeTime);
 		break;
 	case KEY_CTRL('P'):
 		pauseAfterSong = ! pauseAfterSong;
@@ -1536,7 +1538,7 @@ int vis_main(void)
 			{
 				UINT64 songTime = (UINT64)(midPlay->GetPlaybackPos(true) * 1000.0);
 				if (! songEndTime)
-					songEndTime = songTime + (UINT64)(main_GetEndPauseTime() * 1000.0);
+					songEndTime = songTime + (UINT64)(midPlay->GetOptions().endPauseTime * 1000.0);
 				if (songTime >= songEndTime)
 					break;
 			}

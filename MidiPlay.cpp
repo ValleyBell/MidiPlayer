@@ -85,7 +85,7 @@ static const UINT8 CM32P_DEF_INS[0x40] =
 	75, 77, 78, 79, 80, 81, 82, 83,
 };
 
-extern UINT8 optShowInsChange;
+static DisplayOptions* dispOpts;
 static bool tmpSyxIgnore = false;
 
 static inline UINT32 ReadBE24(const UINT8* data)
@@ -108,6 +108,7 @@ MidiPlayer::MidiPlayer() :
 	_insBankGM1(NULL), _insBankGM2(NULL), _insBankGS(NULL), _insBankXG(NULL), _insBankYGS(NULL), _insBankKorg(NULL), _insBankMT32(NULL),
 	_hardReset(true), _manTimeTick(0)
 {
+	dispOpts = vis_get_options();
 	_osTimer = OSTimer_Init();
 	_tmrFreq = OSTimer_GetFrequency(_osTimer) << TICK_FP_SHIFT;
 }
@@ -2685,7 +2686,7 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 		}
 	}
 	
-	if (optShowInsChange && ! (noact & 0x10))
+	if (dispOpts->showInsChange && ! (noact & 0x10))
 	{
 		const char* oldName;
 		const char* newName;

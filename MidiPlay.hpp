@@ -26,6 +26,8 @@ struct PlayerOpts
 	std::string loopStartText;
 	std::string loopEndText;
 	UINT32 numLoops;
+	double fadeTime;
+	double endPauseTime;
 };
 
 struct MidiQueueEvt
