@@ -56,6 +56,30 @@ UINT8 GetMidiModResetType(UINT8 modType)
 	}
 }
 
+UINT8 GetMidiModMasterVolType(UINT8 modType)
+{
+	switch(MMASK_TYPE(modType))
+	{
+	case MODULE_TYPE_GM:
+	case MODULE_TYPE_XG:
+		return MODULE_TYPE_GM;
+	case MODULE_TYPE_GS:
+		if (modType == MODULE_SC55)
+			return MODULE_SC55;	// early SC-55 models don't support GM Master Volume SysEx
+		else
+			return MODULE_TYPE_GM;	// prefer GM SysEx due to being shorter than the GS variant
+	case MODULE_TYPE_K5:
+		if (modType == MODULE_NS5R)
+			return MODULE_TYPE_GM;
+		else
+			return MMO_MSTVOL_CC_VOL;
+	case MODULE_TYPE_LA:
+		return MODULE_TYPE_LA;
+	default:
+		return MMO_MSTVOL_CC_VOL;
+	}
+}
+
 ModuleNames::ModuleNames()
 {
 	size_t curID;

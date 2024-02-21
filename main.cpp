@@ -114,10 +114,19 @@ static const ModuleTypeNameMap resetModTypeMap[] = {
 	{MODULE_SC88, "SC-88"},
 	{MMO_RESET_XG, "XG"},
 	{MMO_RESET_XG_ALL, "XGALL"},
-	{MMO_RESET_LA_HARD, "LAHard"},
-	{MMO_RESET_LA_SOFT, "LASoft"},
+	{MMO_RESET_LA_HARD, "LAHARD"},
+	{MMO_RESET_LA_SOFT, "LASOFT"},
 	{MMO_RESET_CC, "CC"},
-	{0xFF, "NULL"},
+	{0xFF, NULL},
+};
+static const ModuleTypeNameMap masterVolTypeMap[] = {
+	{MMO_MSTVOL_CC_VOL, "VOLUMECC"},
+	{MMO_MSTVOL_CC_EXPR, "EXPRCC"},
+	{MODULE_TYPE_GM, "GMSYX"},
+	{MODULE_TYPE_GS, "GSSYX"},
+	{MODULE_TYPE_XG, "XGSYX"},
+	{MODULE_TYPE_LA, "LASYX"},
+	{0xFF, NULL},
 };
 
 static const char* INS_SET_PATH = "_MidiInsSets/";
@@ -1195,6 +1204,20 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 				if (resetType == resetModTypeMap[typeIdx].name)
 				{
 					mMod.options.resetType = resetModTypeMap[typeIdx].modType;
+					break;
+				}
+			}
+		}
+		mMod.options.masterVol = GetMidiModMasterVolType(mMod.modType);
+		{
+			std::string mstVolType = iniFile.GetString(mMod.name, "MasterVolType", "");
+			std::transform(mstVolType.begin(), mstVolType.end(), mstVolType.begin(), ::toupper);	// for case-insensitive comparison
+			size_t typeIdx;
+			for (typeIdx = 0; masterVolTypeMap[typeIdx].name != NULL; typeIdx ++)
+			{
+				if (mstVolType == masterVolTypeMap[typeIdx].name)
+				{
+					mMod.options.masterVol = masterVolTypeMap[typeIdx].modType;
 					break;
 				}
 			}

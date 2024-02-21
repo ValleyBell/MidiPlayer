@@ -37,16 +37,6 @@
 
 #define FULL_CHN_ID(portID, midChn)	(((portID) << 4) | ((midChn) << 0))
 
-// filtered volume bits
-#define FILTVOL_CCVOL	0	// Main Volume controller
-#define FILTVOL_CCEXPR	1	// Expression controller
-#define FILTVOL_SYXVOL	2	// GM Master Volume SysEx
-
-// fade volume mode constants
-#define FDVMODE_CCVOL	FILTVOL_CCVOL
-#define FDVMODE_CCEXPR	FILTVOL_CCEXPR
-#define FDVMODE_SYXVOL	FILTVOL_SYXVOL
-
 #define BNKBIT_MSB		0
 #define BNKBIT_LSB		1
 #define BNKBIT_INS		2
@@ -420,8 +410,6 @@ UINT8 MidiPlayer::Start(void)
 	_tmrFadeStart = 0;
 	_tmrFadeLen = 0;
 	_fadeVol = 0x100;
-	_fadeVolMode = 0xFF;
-	_filteredVol = 0x00;
 	
 	_defSrcInsMap = 0xFF;
 	_defDstInsMap = 0xFF;
@@ -651,24 +639,6 @@ UINT8 MidiPlayer::FadeOutT(double fadeTime)
 	_tmrFadeStart = (UINT64)-1;
 	_tmrFadeLen = DBL_TO_U64(fadeTime *_tmrFreq);
 	vis_printf("Fading Out ... (%.2f s)", fadeTime);
-	
-	UINT8 devType = MMASK_TYPE(_options.dstType);
-	UINT8 devMod = MMASK_MOD(_options.dstType);
-	
-	if ((devType == MODULE_TYPE_GM && devMod >= MTGM_LVL2) ||
-		devType == MODULE_TYPE_GS || devType == MODULE_TYPE_XG)
-	{
-		// prefer using GM Master Volume SysEx for GM2, GS and XG
-		// ("GM1" might be used for all sorts of generic stuff that doesn't know SysEx.)
-		_fadeVolMode = FDVMODE_SYXVOL;
-		_filteredVol |= (1 << FILTVOL_SYXVOL);
-	}
-	else
-	{
-		// for all others, send Main Volume controller
-		_fadeVolMode = FDVMODE_CCVOL;
-		_filteredVol |= (1 << FILTVOL_CCVOL);
-	}
 	
 	return 0x00;
 }
@@ -1572,7 +1542,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			return true;	// suppress in strict mode when ignored by destination device
 		break;
 	case 0x07:	// Main Volume
-		if (_filteredVol & (1 << FILTVOL_CCVOL))
+		if (_tmrFadeLen && _portOpts.masterVol == MMO_MSTVOL_CC_VOL)
 		{
 			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
 			nvChn->_attr.volume = val;
@@ -1609,7 +1579,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 		}
 		break;
 	case 0x0B:	// Expression
-		if (_filteredVol & (1 << FILTVOL_CCEXPR))
+		if (_tmrFadeLen && _portOpts.masterVol == MMO_MSTVOL_CC_EXPR)
 		{
 			UINT8 val = (UINT8)((chnSt->ctrls[ctrlID] * _fadeVol + 0x80) / 0x100);
 			nvChn->_attr.expression = val;
@@ -3238,7 +3208,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				// F0 7F 7F 04 01 ll mm F7
 				_mstVol = syxData[0x05];
 				vis_printf("SysEx GM: Master Volume = %u", _mstVol);
-				if (_filteredVol & (1 << FILTVOL_SYXVOL))
+				if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 					return true;	// don't send when fading
 				_noteVis.GetAttributes().volume = _mstVol;
 				if (_portOpts.simpleVol)
@@ -3406,7 +3376,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
 				_mstVol = 0x7F;
-			if (_filteredVol & (1 << FILTVOL_SYXVOL))
+			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts.simpleVol)
@@ -3472,7 +3442,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			_mstVol = xData[0x00] * 0x7F / 100;
 			if (_mstVol > 0x7F)
 				_mstVol = 0x7F;
-			if (_filteredVol & (1 << FILTVOL_SYXVOL))
+			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts.simpleVol)
@@ -3679,7 +3649,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
-			if (_filteredVol & (1 << FILTVOL_SYXVOL))
+			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts.simpleVol)
@@ -3858,7 +3828,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x401019:	// Part Level
 			chnSt->ctrls[0x07] = xData[0x00];
-			if (_filteredVol & (1 << FILTVOL_CCVOL))
+			if (_tmrFadeLen && _portOpts.masterVol == MMO_MSTVOL_CC_VOL)
 				return true;
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
 			vis_do_ctrl_change(portChnID, 0x07);
@@ -4028,7 +3998,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
-			if (_filteredVol & (1 << FILTVOL_SYXVOL))
+			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
 			if (_portOpts.simpleVol)
@@ -4245,7 +4215,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x08000B:	// Volume
 			chnSt->ctrls[0x07] = xData[0x00];
-			if (_filteredVol & (1 << FILTVOL_CCVOL))
+			if (_tmrFadeLen && _portOpts.masterVol == MMO_MSTVOL_CC_VOL)
 				return true;
 			nvChn->_attr.volume = chnSt->ctrls[0x07];
 			vis_do_ctrl_change(portChnID, 0x07);
@@ -4394,7 +4364,7 @@ UINT8 MidiPlayer::CalcSimpleChnMainVol(const ChannelState* chnSt) const
 
 void MidiPlayer::FadeVolRefresh(void)
 {
-	if (_fadeVolMode == FDVMODE_SYXVOL)
+	if (_portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 	{
 		UINT8 newVol = (_mstVol * _fadeVol + 0x80) / 0x100;
 		if (newVol == _mstVolFade)
@@ -4404,26 +4374,40 @@ void MidiPlayer::FadeVolRefresh(void)
 		std::vector<UINT8> syxData;
 		size_t curPort;
 		
-		//if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
-		if (false && _options.dstType == MODULE_SC55)	// TODO: option
+		switch(MMASK_TYPE(_portOpts.masterVol))
 		{
+		case MODULE_TYPE_GS:
 			syxData.assign(GS_MST_VOL, GS_MST_VOL + sizeof(GS_MST_VOL));
 			syxData[0x08] = _mstVolFade;	// master volume
 			syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
-		}
-		else if (false && MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
-		{
+			break;
+		case MODULE_TYPE_XG:
 			syxData.assign(XG_MST_VOL, XG_MST_VOL + sizeof(XG_MST_VOL));
 			syxData[0x07] = _mstVolFade;	// master volume
-		}
-		else
-		{
+			break;
+		case MODULE_TYPE_GM:
 			syxData.assign(GM_MST_VOL, GM_MST_VOL + sizeof(GM_MST_VOL));
 			syxData[0x05] = 0x00;			// master volume LSB
 			syxData[0x06] = _mstVolFade;	// master volume MSB
+			break;
+		case MODULE_TYPE_LA:
+			syxData.assign(MT32_MST_VOL, MT32_MST_VOL + sizeof(MT32_MST_VOL));
+			syxData[0x08] = _mstVolFade * 100 / 127;	// master volume
+			syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
+			break;
 		}
 		for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 			SendMidiEventL(curPort, syxData.size(), &syxData[0]);
+		
+		if (MMASK_MOD(_portOpts.masterVol))
+		{
+			// LA SyxEx mode: also send CM-32P master volume
+			syxData.assign(CM32P_MST_VOL, CM32P_MST_VOL + sizeof(CM32P_MST_VOL));
+			syxData[0x08] = _mstVolFade * 100 / 127;	// master volume
+			syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
+			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+				SendMidiEventL(curPort, syxData.size(), &syxData[0]);
+		}
 		
 		_noteVis.GetAttributes().volume = _mstVolFade;
 		//vis_printf("Master Volume (fade): %u", _mstVolFade);
@@ -4435,7 +4419,7 @@ void MidiPlayer::FadeVolRefresh(void)
 		UINT8 val;
 		
 		// Expression or Main Volume controller
-		ctrlID = (_fadeVolMode == FDVMODE_CCEXPR) ? 0x0B : 0x07;
+		ctrlID = (_portOpts.masterVol == MMO_MSTVOL_CC_EXPR) ? 0x0B : 0x07;
 		
 		// send volume controllers to all channels
 		for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
@@ -4444,9 +4428,9 @@ void MidiPlayer::FadeVolRefresh(void)
 			NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
 			
 			val = (UINT8)(((chnSt.ctrls[ctrlID] & 0x7F) * _fadeVol + 0x80) / 0x100);
-			if (_fadeVolMode == FDVMODE_CCVOL)
+			if (_portOpts.masterVol == MMO_MSTVOL_CC_VOL)
 				nvChn->_attr.volume = val;
-			else if (_fadeVolMode == FDVMODE_CCEXPR)
+			else if (_portOpts.masterVol == MMO_MSTVOL_CC_EXPR)
 				nvChn->_attr.expression = val;
 			
 			if (_portOpts.simpleVol)

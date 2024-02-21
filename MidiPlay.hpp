@@ -263,9 +263,6 @@ private:
 	std::vector<TrackState> _trkStates;
 	std::vector<ChannelState> _chnStates;
 	UINT8 _mstVol;			// master volume, according to SysEx
-	
-	UINT8 _fadeVolMode;		// see FDVMODE_ constants
-	UINT8 _filteredVol;		// bitmask for types of filtered volume
 	UINT8 _mstVolFade;		// master volume, after applying FadeOut value
 	
 	UINT8 _pixelPageMem[10][0x40];

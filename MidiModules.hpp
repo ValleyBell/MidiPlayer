@@ -14,7 +14,8 @@ struct MidiModOpts
 	bool simpleVol;		// simple volume control
 	bool aotIns;		// early/premature instrument changes
 	bool instantSyx;	// SyxEx transmissions are instant and need no delay (for software drivers)
-	UINT8 resetType;	// device reset SysEx type (0x00 GM, 0x01, GM2, 0x10 GS, 0x11 SC-88, 0x20 XG, 0x21 XGAll, 0x60 MT32, 0xFF none)
+	UINT8 resetType;	// device reset SysEx type (see MMO_RESET_* constants and MODULE_GM_*/MODULE_SC55/88)
+	UINT8 masterVol;	// master volume control type
 };
 // most reset types map to the respective GM/GS/XG module types
 #define MMO_RESET_XG		0x20	// "normal" XG reset
@@ -24,9 +25,13 @@ struct MidiModOpts
 #define MMO_RESET_GMGSXG	0xF0	// GM/GS/XG depending on source type (special for Korg NS5R)
 #define MMO_RESET_CC		0xFE	// reset via Control Changes only
 #define MMO_RESET_NONE		0xFF	// no reset
+// master volume types
+#define MMO_MSTVOL_CC_VOL	0xF0	// Control Change: Main Volume
+#define MMO_MSTVOL_CC_EXPR	0xF1	// Control Change: Expression
 
 MidiModOpts GetDefaultMidiModOpts(void);
 UINT8 GetMidiModResetType(UINT8 modType);
+UINT8 GetMidiModMasterVolType(UINT8 modType);
 
 struct MidiModule
 {
