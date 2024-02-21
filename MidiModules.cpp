@@ -28,6 +28,34 @@ MidiModOpts GetDefaultMidiModOpts(void)
 	return mmo;
 }
 
+UINT8 GetMidiModResetType(UINT8 modType)
+{
+	switch(MMASK_TYPE(modType))
+	{
+	case MODULE_TYPE_GM:
+		if (MMASK_MOD(modType) <= MTGM_LVL2)
+			return modType;
+		else
+			return MODULE_GM_1;
+	case MODULE_TYPE_GS:
+		if (modType == MODULE_SC55 || modType == MODULE_TG300B)
+			return MODULE_SC55;
+		else
+			return MODULE_SC88;
+	case MODULE_TYPE_XG:
+		return MMO_RESET_XG_ALL;
+	case MODULE_TYPE_K5:
+		if (modType == MODULE_NS5R)
+			return MMO_RESET_GMGSXG;
+		else
+			return MODULE_GM_1;
+	case MODULE_TYPE_LA:
+		return MMO_RESET_LA_SOFT;
+	default:
+		return MMO_RESET_NONE;
+	}
+}
+
 ModuleNames::ModuleNames()
 {
 	size_t curID;

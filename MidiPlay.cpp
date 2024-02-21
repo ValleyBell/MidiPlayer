@@ -429,18 +429,32 @@ UINT8 MidiPlayer::Start(void)
 	if (_options.flags & PLROPTS_RESET)
 	{
 		size_t curPort;
-		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_LA)
+		UINT32 resetTime;
+		
+		resetTime = 200;	// 0.2 s seems to be good for most devices (SC-55/88, MT-32, etc.)
+		if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+			resetTime = 400;	// XG modules take a bit to fully reset
+		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_K5)
+			resetTime = 500;	// Korg modules take extra long, because they also update the display
+		
+		if (_portOpts.resetType == MMO_RESET_LA_HARD)
+		{
+			// MT-32 mode - hard reset
+			vis_printf("Sending Device Reset (%s) ...", "MT-32");
+			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+			{
+				// This resets all custom instruments as well.
+				SendMidiEventL(curPort, sizeof(RESET_MT), RESET_MT);
+				_hardReset = true;
+			}
+		}
+		else if (_portOpts.resetType == MMO_RESET_LA_SOFT)
 		{
 			// MT-32 mode - soft reset all channels
 			vis_printf("Sending Device Reset (%s) ...", "MT-32");
 			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 			{
-#if 0
-				// This resets all custom instruments as well.
-				SendMidiEventL(curPort, sizeof(RESET_MT), RESET_MT);
-				_hardReset = true;
-#else
-				size_t curChn;
+				UINT8 curChn;
 				SendMidiEventL(curPort, sizeof(MT32_MST_VOL), MT32_MST_VOL);
 				SendMidiEventL(curPort, sizeof(CM32P_MST_VOL), CM32P_MST_VOL);
 				for (curChn = 0; curChn < 0x10; curChn ++)
@@ -453,46 +467,42 @@ UINT8 MidiPlayer::Start(void)
 					SendMidiEventS(curPort, 0xB0 | curChn, 0x64, 0x00);
 					SendMidiEventS(curPort, 0xB0 | curChn, 0x06, 12);	// reset pitch bend range
 				}
-#endif
 			}
-			initDelay += 200;
 		}
-		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GM)
+		else if (MMASK_TYPE(_portOpts.resetType) == MODULE_TYPE_GM)
 		{
 			// send GM reset
-			if (MMASK_MOD(_options.dstType) == MTGM_LVL2)
+			if (MMASK_MOD(_portOpts.resetType) == MTGM_LVL2)
 			{
 				vis_printf("Sending Device Reset (%s) ...", "GM Level 2");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					SendMidiEventL(curPort, sizeof(RESET_GM2), RESET_GM2);
 			}
-			else //if (MMASK_MOD(_options.dstType) == MTGM_LVL1)
+			else //if (MMASK_MOD(_portOpts.resetType) == MTGM_LVL1)
 			{
 				vis_printf("Sending Device Reset (%s) ...", "GM");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
 			}
-			initDelay += 200;
 		}
-		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
+		else if (MMASK_TYPE(_portOpts.resetType) == MODULE_TYPE_GS)
 		{
 			// send GS reset
-			if (MMASK_MOD(_options.dstType) >= MTGS_SC88 && MMASK_MOD(_options.dstType) != MTGS_TG300B)
+			if (_portOpts.resetType == MODULE_SC88)
 			{
 				vis_printf("Sending Device Reset (%s) ...", "SC");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					SendMidiEventL(curPort, sizeof(RESET_SC), RESET_SC);
 				_hardReset = true;
 			}
-			else
+			else //if (_portOpts.resetType == MODULE_SC55)
 			{
 				vis_printf("Sending Device Reset (%s) ...", "GS");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					SendMidiEventL(curPort, sizeof(RESET_GS), RESET_GS);
 			}
-			initDelay += 200;
 		}
-		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
+		else if (MMASK_TYPE(_portOpts.resetType) == MODULE_TYPE_XG)
 		{
 			// send XG reset
 			vis_printf("Sending Device Reset (%s) ...", "XG");
@@ -500,47 +510,37 @@ UINT8 MidiPlayer::Start(void)
 			{
 				SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
 				SendMidiEventL(curPort, sizeof(RESET_XG), RESET_XG);
-				SendMidiEventL(curPort, sizeof(RESET_XG_ALL), RESET_XG_ALL);
+				if (_portOpts.resetType == MMO_RESET_XG_ALL)
+					SendMidiEventL(curPort, sizeof(RESET_XG_ALL), RESET_XG_ALL);
 			}
-			_hardReset = true;	// due to XG All Parameter Reset
-			initDelay += 400;	// XG modules take a bit to fully reset
+			if (_portOpts.resetType == MMO_RESET_XG_ALL)
+				_hardReset = true;	// due to XG All Parameter Reset
 		}
-		else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_K5)
+		else if (MMASK_TYPE(_portOpts.resetType) == MMO_RESET_GMGSXG)
 		{
-			if (MMASK_MOD(_options.dstType) >= MTK5_NS5R)
+			// The NS5R can switch between GS and XG defaults.
+			// This affects the default drum kit + some bank assignments. (e.g. Bank MSB 127)
+			// Thus we need to send GS or XG depending on the "source" setting.
+			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
 			{
-				// The NS5R can switch between GS and XG defaults.
-				// This affects the default drum kit + some bank assignments. (e.g. Bank MSB 127)
-				// Thus we need to send GS or XG depending on the "source" setting.
-				if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_GS)
-				{
-					vis_printf("Sending Device Reset (%s) ...", "GS");
-					for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-						SendMidiEventL(curPort, sizeof(RESET_GS), RESET_GS);
-				}
-				else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
-				{
-					vis_printf("Sending Device Reset (%s) ...", "XG");
-					for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-						SendMidiEventL(curPort, sizeof(RESET_XG), RESET_XG);
-				}
-				else
-				{
-					vis_printf("Sending Device Reset (%s) ...", "GM");
-					for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-						SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
-				}
+				vis_printf("Sending Device Reset (%s) ...", "GS");
+				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+					SendMidiEventL(curPort, sizeof(RESET_GS), RESET_GS);
+			}
+			else if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
+			{
+				vis_printf("Sending Device Reset (%s) ...", "XG");
+				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+					SendMidiEventL(curPort, sizeof(RESET_XG), RESET_XG);
 			}
 			else
 			{
-				// send GM reset
 				vis_printf("Sending Device Reset (%s) ...", "GM");
 				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
 					SendMidiEventL(curPort, sizeof(RESET_GM1), RESET_GM1);
 			}
-			initDelay += 500;	// Korg modules take extra long, because is also updates the display
 		}
-		else
+		else if (MMASK_TYPE(_portOpts.resetType) == MMO_RESET_CC)
 		{
 			// soft reset all channels
 			vis_printf("Sending Device Reset (%s) ...", "MIDI CC");
@@ -558,8 +558,8 @@ UINT8 MidiPlayer::Start(void)
 					SendMidiEventS(curPort, 0xB0 | curChn, 0x40, 0x00);	// Sustain Pedal
 				}
 			}
-			initDelay += 200;
 		}
+		initDelay += resetTime;
 	}
 	InitializeChannels();
 	InitializeChannels_Post();

@@ -76,6 +76,10 @@ struct StreamServerOptions
 	int fixedPID;	// fixed PID set via command line
 	int curPID;		// PID read from pidFile
 };
+struct ModuleTypeNameMap {
+	UINT8 modType;
+	const char* name;
+};
 
 
 //int main(int argc, char* argv[]);
@@ -102,6 +106,19 @@ static void SendSyxData(const std::vector<MIDIOUT_PORT*>& outPorts, const std::v
 static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 chnID);
 static std::string GetMidiSongTitle(MidiFile* cMidi);
 
+
+static const ModuleTypeNameMap resetModTypeMap[] = {
+	{MODULE_GM_1, "GM"},
+	{MODULE_GM_2, "GM_L2"},
+	{MODULE_SC55, "GS"},
+	{MODULE_SC88, "SC-88"},
+	{MMO_RESET_XG, "XG"},
+	{MMO_RESET_XG_ALL, "XGALL"},
+	{MMO_RESET_LA_HARD, "LAHard"},
+	{MMO_RESET_LA_SOFT, "LASoft"},
+	{MMO_RESET_CC, "CC"},
+	{0xFF, "NULL"},
+};
 
 static const char* INS_SET_PATH = "_MidiInsSets/";
 static std::string midFileName;
@@ -1168,6 +1185,20 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		mMod.options.simpleVol = iniFile.GetBoolean(mMod.name, "SimpleVolCtrl", false);
 		mMod.options.aotIns = iniFile.GetBoolean(mMod.name, "AoTInsChange", false);
 		mMod.options.instantSyx = iniFile.GetBoolean(mMod.name, "InstantSyx", false);
+		mMod.options.resetType = GetMidiModResetType(mMod.modType);
+		{
+			std::string resetType = iniFile.GetString(mMod.name, "ResetType", "");
+			std::transform(resetType.begin(), resetType.end(), resetType.begin(), ::toupper);	// for case-insensitive comparison
+			size_t typeIdx;
+			for (typeIdx = 0; resetModTypeMap[typeIdx].name != NULL; typeIdx ++)
+			{
+				if (resetType == resetModTypeMap[typeIdx].name)
+				{
+					mMod.options.resetType = resetModTypeMap[typeIdx].modType;
+					break;
+				}
+			}
+		}
 		
 		if (mMod.ports.empty())
 		{
