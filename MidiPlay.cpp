@@ -2980,6 +2980,11 @@ void MidiPlayer::DoChangedPartMode_Post(void)
 	return;
 }
 
+bool MidiPlayer::NeedMasterVolRemap(UINT8 syxType)
+{
+	return _portOpts.remapMVolSyx && (syxType != _portOpts.masterVol);
+}
+
 bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt)
 {
 	size_t syxSize = midiEvt->evtData.size();
@@ -3211,18 +3216,9 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 					return true;	// don't send when fading
 				_noteVis.GetAttributes().volume = _mstVol;
-				if (_portOpts.simpleVol)
+				if (_portOpts.simpleVol || NeedMasterVolRemap(MODULE_TYPE_GM))
 				{
-					FadeVolRefresh();
-					return true;
-				}
-				if (false && _options.dstType == MODULE_SC55)	// TODO: option
-				{
-					// fix for first-generation SC-55
-					std::vector<UINT8> syxData(GS_MST_VOL, GS_MST_VOL + sizeof(GS_MST_VOL));
-					syxData[0x08] = _mstVol;	// master volume
-					syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
-					SendMidiEventL(trkSt->portID, syxData.size(), &syxData[0x00]);
+					FadeVolRefresh(trkSt->portID);
 					return true;
 				}
 				break;
@@ -3379,9 +3375,9 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts.simpleVol)
+			if (_portOpts.simpleVol || NeedMasterVolRemap(MODULE_TYPE_LA))
 			{
-				FadeVolRefresh();
+				FadeVolRefresh(portID);
 				return true;
 			}
 			break;
@@ -3445,9 +3441,9 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts.simpleVol)
+			if (_portOpts.simpleVol || NeedMasterVolRemap(MODULE_TYPE_LA))
 			{
-				FadeVolRefresh();
+				FadeVolRefresh(portID);
 				return true;
 			}
 			break;
@@ -3652,9 +3648,9 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts.simpleVol)
+			if (_portOpts.simpleVol || NeedMasterVolRemap(MODULE_TYPE_GS))
 			{
-				FadeVolRefresh();
+				FadeVolRefresh(portID);
 				return true;
 			}
 			break;
@@ -3994,22 +3990,22 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			break;
 		case 0x000004:	// Master Volume
 			if (! tmpSyxIgnore)
-					vis_printf("SysEx XG: Master Volume = %u", xData[0x00]);
+				vis_printf("SysEx XG: Master Volume = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_mstVol = xData[0x00];
 			if (_tmrFadeLen && _portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts.simpleVol)
+			if (_portOpts.simpleVol || NeedMasterVolRemap(MODULE_TYPE_XG))
 			{
-				FadeVolRefresh();
+				FadeVolRefresh(portID);
 				return true;
 			}
 			break;
 		case 0x000005:	// Master Attenuator
 			if (! tmpSyxIgnore)
-					vis_printf("SysEx XG: Master Attenuator = %u", xData[0x00]);
+				vis_printf("SysEx XG: Master Attenuator = %u", xData[0x00]);
 			if (MMASK_TYPE(_options.dstType) >= MODULE_TYPE_LA)
 				break;
 			_noteVis.GetAttributes().expression = 0x7F - xData[0x00];
@@ -4362,7 +4358,7 @@ UINT8 MidiPlayer::CalcSimpleChnMainVol(const ChannelState* chnSt) const
 	return (vol + 0x1F80) / 0x3F01;
 }
 
-void MidiPlayer::FadeVolRefresh(void)
+void MidiPlayer::FadeVolRefresh(size_t portID)
 {
 	if (_portOpts.masterVol < MMO_MSTVOL_CC_VOL)
 	{
@@ -4396,17 +4392,23 @@ void MidiPlayer::FadeVolRefresh(void)
 			syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
 			break;
 		}
-		for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-			SendMidiEventL(curPort, syxData.size(), &syxData[0]);
+		if (portID != (size_t)-1)
+			SendMidiEventL(portID, syxData.size(), &syxData[0]);
+		else
+			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+				SendMidiEventL(curPort, syxData.size(), &syxData[0]);
 		
 		if (MMASK_MOD(_portOpts.masterVol))
 		{
-			// LA SyxEx mode: also send CM-32P master volume
+			// LA SysEx mode: also send CM-32P master volume
 			syxData.assign(CM32P_MST_VOL, CM32P_MST_VOL + sizeof(CM32P_MST_VOL));
 			syxData[0x08] = _mstVolFade * 100 / 127;	// master volume
 			syxData[0x09] = CalcRolandChecksum(0x04, &syxData[0x05]);	// checksum
-			for (curPort = 0; curPort < _outPorts.size(); curPort ++)
-				SendMidiEventL(curPort, syxData.size(), &syxData[0]);
+			if (portID != (size_t)-1)
+				SendMidiEventL(portID, syxData.size(), &syxData[0]);
+			else
+				for (curPort = 0; curPort < _outPorts.size(); curPort ++)
+					SendMidiEventL(curPort, syxData.size(), &syxData[0]);
 		}
 		
 		_noteVis.GetAttributes().volume = _mstVolFade;
@@ -4414,6 +4416,8 @@ void MidiPlayer::FadeVolRefresh(void)
 	}
 	else
 	{
+		size_t cStart = 0x00;
+		size_t cEnd = _chnStates.size();
 		size_t curChn;
 		UINT8 ctrlID;
 		UINT8 val;
@@ -4422,7 +4426,12 @@ void MidiPlayer::FadeVolRefresh(void)
 		ctrlID = (_portOpts.masterVol == MMO_MSTVOL_CC_EXPR) ? 0x0B : 0x07;
 		
 		// send volume controllers to all channels
-		for (curChn = 0x00; curChn < _chnStates.size(); curChn ++)
+		if (portID != (size_t)-1)
+		{
+			cStart = portID * 0x10;
+			cEnd = cStart + 0x10;
+		}
+		for (curChn = cStart; curChn < cEnd; curChn ++)
 		{
 			ChannelState& chnSt = _chnStates[curChn];
 			NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(curChn);
@@ -4435,6 +4444,8 @@ void MidiPlayer::FadeVolRefresh(void)
 			
 			if (_portOpts.simpleVol)
 				val = CalcSimpleChnMainVol(&chnSt);
+			else if (_portOpts.remapMVolSyx)
+				val = (_mstVol * val + 0x3F) / 0x7F;
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, ctrlID, val);
 			vis_do_ctrl_change(curChn, ctrlID);
 		}

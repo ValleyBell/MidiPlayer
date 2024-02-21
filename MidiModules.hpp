@@ -16,6 +16,7 @@ struct MidiModOpts
 	bool instantSyx;	// SyxEx transmissions are instant and need no delay (for software drivers)
 	UINT8 resetType;	// device reset SysEx type (see MMO_RESET_* constants and MODULE_GM_*/MODULE_SC55/88)
 	UINT8 masterVol;	// master volume control type
+	bool remapMVolSyx;	// remap master volume SysEx to the one defined in 'masterVol'
 };
 // most reset types map to the respective GM/GS/XG module types
 #define MMO_RESET_XG		0x20	// "normal" XG reset

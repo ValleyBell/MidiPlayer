@@ -200,6 +200,7 @@ private:
 	bool HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* midiEvt, UINT8 noact = 0x00);
 	void DoChangedPartMode(ChannelState* chnSt, UINT8 moduleType);
 	void DoChangedPartMode_Post(void);
+	bool NeedMasterVolRemap(UINT8 syxType);
 	bool HandleSysExMessage(const TrackState* trkSt, const MidiEvent* midiEvt);
 	bool HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syxData);
 	bool HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxData);
@@ -208,7 +209,7 @@ private:
 	void AllNotesRestart(void);
 	void AllInsRefresh(void);
 	UINT8 CalcSimpleChnMainVol(const ChannelState* chnSt) const;
-	void FadeVolRefresh(void);
+	void FadeVolRefresh(size_t portID = (size_t)-1);
 	void AllChannelRefresh(void);
 	void SaveLoopState(LoopPoint& lp, const TrackState* loopMarkTrk = NULL);
 	void RestoreLoopState(const LoopPoint& lp);

@@ -1222,6 +1222,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 				}
 			}
 		}
+		mMod.options.remapMVolSyx = iniFile.GetBoolean(mMod.name, "RemapMasterVolSyx", false);
 		
 		if (mMod.ports.empty())
 		{
