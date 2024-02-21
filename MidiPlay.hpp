@@ -12,7 +12,7 @@
 #include "MidiOut.h"
 #include "OSTimer.h"
 #include "MidiInsReader.h"
-struct MidiModule;	// from MidiModules.hpp
+#include "MidiModules.hpp"	// for MidiModOpts and MidiModule
 
 
 #define PLROPTS_RESET		0x01	// needs GM/GS/XG reset
@@ -142,7 +142,7 @@ public:
 	void SetOptions(const PlayerOpts& plrOpts);
 	const PlayerOpts& GetOptions(void) const;
 	UINT8 GetModuleType(void) const;	// current MIDI module type used for playback
-	UINT8 GetPortOptions(void) const;
+	MidiModOpts GetPortOptions(void) const;
 	void SetSrcModuleType(UINT8 modType, bool insRefresh = false);
 	void SetDstModuleType(UINT8 modType, bool chnRefresh = false);
 	void SetInstrumentBank(UINT8 moduleType, const INS_BANK* insBank);
@@ -239,7 +239,7 @@ private:
 	std::vector<MIDIOUT_PORT*> _outPorts;
 	std::vector<UINT32> _outPortDelay;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
 	std::vector<UINT16> _portChnMask;	// delay (in ms) for all event on this port (for sync'ing HW/SW)
-	UINT8 _portOpts;
+	MidiModOpts _portOpts;
 	std::vector< std::queue<MidiQueueEvt> > _midiEvtQueue;
 	
 	OS_TIMER* _osTimer;

@@ -20,6 +20,14 @@ struct ModuleNames
 
 static ModuleNames modNames;
 
+MidiModOpts GetDefaultMidiModOpts(void)
+{
+	MidiModOpts mmo;
+	memset(&mmo, 0x00, sizeof(MidiModOpts));
+	mmo.resetType = 0xFF;
+	return mmo;
+}
+
 ModuleNames::ModuleNames()
 {
 	size_t curID;

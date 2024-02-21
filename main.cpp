@@ -1164,13 +1164,10 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		CfgString2Vector(iniFile.GetString(mMod.name, "PlayTypes", ""), list);
 		mMod.SetPlayTypes(list, midiModColl.GetShortModNameLUT());
 		
-		mMod.options = 0x00;
-		if (iniFile.GetBoolean(mMod.name, "SimpleVolCtrl", false))
-			mMod.options |= MMOD_OPT_SIMPLE_VOL;
-		if (iniFile.GetBoolean(mMod.name, "AoTInsChange", false))
-			mMod.options |= MMOD_OPT_AOT_INS;
-		if (iniFile.GetBoolean(mMod.name, "InstantSyx", false))
-			mMod.options |= MMOD_OPT_INSTANT;
+		mMod.options = GetDefaultMidiModOpts();
+		mMod.options.simpleVol = iniFile.GetBoolean(mMod.name, "SimpleVolCtrl", false);
+		mMod.options.aotIns = iniFile.GetBoolean(mMod.name, "AoTInsChange", false);
+		mMod.options.instantSyx = iniFile.GetBoolean(mMod.name, "InstantSyx", false);
 		
 		if (mMod.ports.empty())
 		{
@@ -1798,7 +1795,7 @@ static void SendSyxDataToPorts(const std::vector<MIDIOUT_PORT*>& outPorts, size_
 	std::vector<MIDIOUT_PORT*>::const_iterator portIt;
 	bool needDelay = true;
 	
-	if (midPlay.GetPortOptions() & MMOD_OPT_INSTANT)
+	if (midPlay.GetPortOptions().instantSyx)
 		needDelay = false;
 	midPlay.HandleRawEvent(dataLen, data);
 	portIt = outPorts.begin();

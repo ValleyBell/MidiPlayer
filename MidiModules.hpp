@@ -9,15 +9,20 @@
 
 #include "MidiOut.h"
 
-#define MMOD_OPT_SIMPLE_VOL	0x01	// simple volume control
-#define MMOD_OPT_AOT_INS	0x02	// early/premature instrument changes
-#define MMOD_OPT_INSTANT	0x04	// SyxEx transmissions are instant and need no delay (for software drivers)
+struct MidiModOpts
+{
+	bool simpleVol;		// simple volume control
+	bool aotIns;		// early/premature instrument changes
+	bool instantSyx;	// SyxEx transmissions are instant and need no delay (for software drivers)
+};
+
+MidiModOpts GetDefaultMidiModOpts(void);
 
 struct MidiModule
 {
 	std::string name;
 	UINT8 modType;	// module type
-	UINT8 options;
+	MidiModOpts options;
 	std::vector<UINT32> ports;
 	std::vector<UINT32> delayTime;	// delay all events by N milliseconds on the respective port
 	std::vector<UINT16> chnMask;	// channels to be received by the respective port

@@ -150,7 +150,7 @@ void MidiPlayer::SetOutputPorts(const std::vector<MIDIOUT_PORT*>& outPorts, cons
 {
 	_outPortDelay = (midiMod != NULL) ? midiMod->delayTime : std::vector<UINT32>();
 	_portChnMask = (midiMod != NULL) ? midiMod->chnMask : std::vector<UINT16>();
-	_portOpts = (midiMod != NULL) ? midiMod->options : 0x00;
+	_portOpts = (midiMod != NULL) ? midiMod->options : GetDefaultMidiModOpts();
 	
 	_outPorts = outPorts;
 	_outPortDelay.resize(_outPorts.size(), 0);	// resize + fill with value 0
@@ -203,7 +203,7 @@ UINT8 MidiPlayer::GetModuleType(void) const
 	return _options.dstType;
 }
 
-UINT8 MidiPlayer::GetPortOptions(void) const
+MidiModOpts MidiPlayer::GetPortOptions(void) const
 {
 	return _portOpts;
 }
@@ -1136,7 +1136,7 @@ void MidiPlayer::ProcessEventQueue(bool flush)
 	size_t curPort;
 	UINT64 curTime;
 	
-	if ((_portOpts & MMOD_OPT_AOT_INS) && _meqDoSort)
+	if (_portOpts.aotIns && _meqDoSort)
 	{
 		// move patch changes 50 ms ahead, as they take veeery long on the Roland U-110
 		// (I measured about 10 ms for loading a single patch.)
@@ -1580,7 +1580,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			return true;
 		}
 		nvChn->_attr.volume = chnSt->ctrls[ctrlID];
-		if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+		if (_portOpts.simpleVol)
 		{
 			UINT8 val = CalcSimpleChnMainVol(chnSt);
 			SendMidiEventS(chnSt->portID, midiEvt->evtType, 0x07, val);
@@ -1617,7 +1617,7 @@ bool MidiPlayer::HandleControlEvent(ChannelState* chnSt, const TrackState* trkSt
 			return true;
 		}
 		nvChn->_attr.expression = chnSt->ctrls[ctrlID];
-		if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+		if (_portOpts.simpleVol)
 		{
 			UINT8 val = CalcSimpleChnMainVol(chnSt);
 			SendMidiEventS(chnSt->portID, midiEvt->evtType, 0x07, val);
@@ -3241,7 +3241,7 @@ bool MidiPlayer::HandleSysExMessage(const TrackState* trkSt, const MidiEvent* mi
 				if (_filteredVol & (1 << FILTVOL_SYXVOL))
 					return true;	// don't send when fading
 				_noteVis.GetAttributes().volume = _mstVol;
-				if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+				if (_portOpts.simpleVol)
 				{
 					FadeVolRefresh();
 					return true;
@@ -3409,7 +3409,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			if (_portOpts.simpleVol)
 			{
 				FadeVolRefresh();
 				return true;
@@ -3475,7 +3475,7 @@ bool MidiPlayer::HandleSysEx_MT32(UINT8 portID, size_t syxSize, const UINT8* syx
 			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			if (_portOpts.simpleVol)
 			{
 				FadeVolRefresh();
 				return true;
@@ -3682,7 +3682,7 @@ bool MidiPlayer::HandleSysEx_GS(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			if (_portOpts.simpleVol)
 			{
 				FadeVolRefresh();
 				return true;
@@ -4031,7 +4031,7 @@ bool MidiPlayer::HandleSysEx_XG(UINT8 portID, size_t syxSize, const UINT8* syxDa
 			if (_filteredVol & (1 << FILTVOL_SYXVOL))
 				return true;	// don't send when fading
 			_noteVis.GetAttributes().volume = _mstVol;
-			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			if (_portOpts.simpleVol)
 			{
 				FadeVolRefresh();
 				return true;
@@ -4449,7 +4449,7 @@ void MidiPlayer::FadeVolRefresh(void)
 			else if (_fadeVolMode == FDVMODE_CCEXPR)
 				nvChn->_attr.expression = val;
 			
-			if (_portOpts & MMOD_OPT_SIMPLE_VOL)
+			if (_portOpts.simpleVol)
 				val = CalcSimpleChnMainVol(&chnSt);
 			SendMidiEventS(chnSt.portID, 0xB0 | chnSt.midChn, ctrlID, val);
 			vis_do_ctrl_change(curChn, ctrlID);
