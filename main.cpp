@@ -229,6 +229,7 @@ int main(int argc, char* argv[])
 	UINT8 curCP;
 	size_t initSongID;
 	UINT32 numLoopsCLI;
+	UINT8 plrCfgFlagsCLI;
 	
 	setlocale(LC_ALL, "");	// enable UTF-8 support on Linux
 	setlocale(LC_NUMERIC, "C");	// enforce decimal dot
@@ -279,7 +280,7 @@ int main(int argc, char* argv[])
 	dispOpts = vis_get_options();
 	screenRecordMode = false;
 	videoFrameRate = 60;
-	playerCfg.flags = PLROPTS_RESET /*| PLROPTS_STRICT | PLROPTS_ENABLE_CTF*/;
+	plrCfgFlagsCLI = 0xFF;
 	playerCfg.loopStartText = "loopStart";
 	playerCfg.loopEndText = "loopEnd";
 	dummyOutput = false;
@@ -306,7 +307,7 @@ int main(int argc, char* argv[])
 			if (argbase >= argc)
 				break;
 			
-			playerCfg.flags = (UINT8)strtoul(argv[argbase], NULL, 0);
+			plrCfgFlagsCLI = (UINT8)strtoul(argv[argbase], NULL, 0);
 		}
 		else if (optChr == 's')
 		{
@@ -447,8 +448,11 @@ int main(int argc, char* argv[])
 		printf("Error: No modules defined!\n");
 		return 0;
 	}
+	// some CLI options can override the config file settings
 	if (numLoopsCLI > 0)
 		playerCfg.numLoops = numLoopsCLI;
+	if (plrCfgFlagsCLI != 0xFF)
+		playerCfg.flags = plrCfgFlagsCLI;
 	
 	retVal = ParseSongFiles(std::vector<const char*>(argv + argbase, argv + argc), songList, plList);
 	if (retVal)
@@ -1122,6 +1126,13 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	playerCfg.loopStartText = iniFile.GetString("General", "Marker_LoopStart", playerCfg.loopStartText);
 	playerCfg.loopEndText = iniFile.GetString("General", "Marker_LoopEnd", playerCfg.loopEndText);
 	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", true);
+	playerCfg.flags = 0x00;
+	if (iniFile.GetBoolean("General", "ResetDevice", true))
+		playerCfg.flags |= PLROPTS_RESET;
+	if (iniFile.GetBoolean("General", "StrictMode", false))
+		playerCfg.flags |= PLROPTS_STRICT;
+	if (iniFile.GetBoolean("General", "EnableCTF", false))
+		playerCfg.flags |= PLROPTS_ENABLE_CTF;
 	playerCfg.nrpnLoops = iniFile.GetBoolean("General", "NRPNLoops", false);
 	playerCfg.noNoteOverlap = iniFile.GetBoolean("General", "NoNoteOverlap", false);
 	playerCfg.gmDrumFallback = String2Opt_LUT(gmDrumFallbackMap, iniFile.GetString("General", "GMDrumFallback", "KeepGS"), PLROPTS_GDF_NONE);
