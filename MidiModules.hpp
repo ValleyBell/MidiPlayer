@@ -17,6 +17,7 @@ struct MidiModOpts
 	UINT8 resetType;	// device reset SysEx type (see MMO_RESET_* constants and MODULE_GM_*/MODULE_SC55/88)
 	UINT8 masterVol;	// master volume control type
 	bool remapMVolSyx;	// remap master volume SysEx to the one defined in 'masterVol'
+	UINT8 defInsMap;	// default instrument map
 };
 // most reset types map to the respective GM/GS/XG module types
 #define MMO_RESET_XG		0x20	// "normal" XG reset
@@ -33,6 +34,7 @@ struct MidiModOpts
 MidiModOpts GetDefaultMidiModOpts(void);
 UINT8 GetMidiModResetType(UINT8 modType);
 UINT8 GetMidiModMasterVolType(UINT8 modType);
+UINT8 GetMidiModDefInsMap(UINT8 modType);
 
 struct MidiModule
 {

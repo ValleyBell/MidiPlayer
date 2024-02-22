@@ -80,6 +80,30 @@ UINT8 GetMidiModMasterVolType(UINT8 modType)
 	}
 }
 
+UINT8 GetMidiModDefInsMap(UINT8 modType)
+{
+	switch(MMASK_TYPE(modType))
+	{
+	case MODULE_TYPE_GS:
+		if (MMASK_MOD(modType) == MTGS_SC8850)
+			return MTGS_SC88PRO;	// default to 88Pro map, because the 8850 has a very weak Standard Kit 1
+		if (MMASK_MOD(modType) < MT_UNKNOWN)
+			return MMASK_MOD(modType);
+		else
+			return MTGS_SC55;	// for TG300B mode
+	case MODULE_TYPE_XG:
+		// MU50/80/90 have only a single instrument map, which is called "MU basic".
+		// MU100 and later add an additional map.
+		//if (MMASK_MOD(modType) >= MTXG_MU100)
+		//	return MTXG_MU100;
+		//else
+		//	return MTXG_MU50;
+		return MTXG_MU50;	// MU basic sounds better with General MIDI stuff, IMO.
+	default:
+		return 0x00;
+	}
+}
+
 ModuleNames::ModuleNames()
 {
 	size_t curID;

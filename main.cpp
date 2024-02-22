@@ -142,6 +142,17 @@ static const TypeMap_StrU8 masterVolTypeMap[] = {
 	{MODULE_TYPE_LA, "LASyx"},
 	{0xFF, NULL},
 };
+static const TypeMap_StrU8 defInsMapMap[] = {
+	{0x00, "Default"},
+	{MTGS_SC55, "SC-55"},
+	{MTGS_SC88, "SC-88"},
+	{MTGS_SC88PRO, "SC-88Pro"},
+	{MTGS_SC8850, "SC-8850"},
+	{MTXG_MU50, "MUBasic"},
+	{MTXG_MU100, "MU100"},
+	{0xFF, NULL},
+};
+
 
 static const char* INS_SET_PATH = "_MidiInsSets/";
 static std::string midFileName;
@@ -1204,6 +1215,8 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		iniStr = iniFile.GetString(mMod.name, "MasterVolType", "");
 		mMod.options.masterVol = String2Opt_LUT(masterVolTypeMap, iniStr, GetMidiModMasterVolType(mMod.modType));
 		mMod.options.remapMVolSyx = iniFile.GetBoolean(mMod.name, "RemapMasterVolSyx", false);
+		iniStr = iniFile.GetString(mMod.name, "DefaultInsMap", "");
+		mMod.options.defInsMap = String2Opt_LUT(defInsMapMap, iniStr, GetMidiModDefInsMap(mMod.modType));
 		
 		if (mMod.ports.empty())
 		{

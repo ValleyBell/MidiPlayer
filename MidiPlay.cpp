@@ -4933,29 +4933,7 @@ void MidiPlayer::InitializeChannels_Post(void)
 	_partModeChg_ModType = 0xFF;
 	_partModeChg_PortChnID = 0xFFFF;
 	
-	_defDstInsMap = 0x00;
-	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_GS)
-	{
-		if (MMASK_MOD(_options.dstType) < MT_UNKNOWN)
-			_defDstInsMap = MMASK_MOD(_options.dstType);
-		else
-			_defDstInsMap = 0x00;
-		if (_defDstInsMap == MTGS_SC8850)
-			_defDstInsMap = MTGS_SC88PRO;	// TODO: make configurable
-	}
-	else if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_XG)
-	{
-		// MU50/80/90 have only a single instrument map, which is called "MU basic".
-		// MU100 and later add an additional map.
-		if (MMASK_MOD(_options.dstType) >= MTXG_MU100)
-		{
-			// TODO: make configurable
-			if (MMASK_TYPE(_options.srcType) == MODULE_TYPE_XG)
-				_defDstInsMap = 0x01;	// default to MU100 native map)
-			else
-				_defDstInsMap = 0x00;	// MU basic sounds better with GM
-		}
-	}
+	_defDstInsMap = _portOpts.defInsMap;
 	if (MMASK_TYPE(_options.dstType) == MODULE_TYPE_LA)
 		defDstPbRange = 12;
 	else
