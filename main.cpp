@@ -76,8 +76,9 @@ struct StreamServerOptions
 	int fixedPID;	// fixed PID set via command line
 	int curPID;		// PID read from pidFile
 };
-struct ModuleTypeNameMap {
-	UINT8 modType;
+struct TypeMap_StrU8
+{
+	UINT8 value;
 	const char* name;
 };
 
@@ -95,6 +96,7 @@ static size_t GetMidiPortList(const std::vector<std::string>& portStrList, std::
 static void Vector_Str2UInt32(const std::vector<std::string>& strList, std::vector<UINT32>& intList);
 static UINT16 ParseChnMask(const std::string& maskStr);
 static void ParseChnMaskList(const std::vector<std::string>& maskStrList, std::vector<UINT16>& maskList);
+static UINT8 String2Opt_LUT(const TypeMap_StrU8* valMap, const std::string& value, UINT8 defaultVal);
 static UINT8 LoadConfig(const std::string& cfgFile);
 static void SetVisualizationCharsets(const char* preferredCharset);
 static const char* GetStr1or2(const char* str1, const char* str2);
@@ -107,25 +109,37 @@ static void MidiEventCallback(void* userData, const MidiEvent* midiEvt, UINT16 c
 static std::string GetMidiSongTitle(MidiFile* cMidi);
 
 
-static const ModuleTypeNameMap resetModTypeMap[] = {
+static const TypeMap_StrU8 gmDrumFallbackMap[] = {
+	{PLROPTS_GDF_NONE, "None"},
+	{PLROPTS_GDF_ALL, "All"},
+	{PLROPTS_GDF_GS, "KeepGS"},
+	{PLROPTS_GDF_NONE, NULL},
+};
+static const TypeMap_StrU8 barVisModeMap[] = {
+	{BVMODE_OFF, "None"},
+	{BVMODE_VOL, "Volume"},
+	{BVMODE_NOTES, "Notes"},
+	{BVMODE_OFF, NULL},
+};
+static const TypeMap_StrU8 resetModTypeMap[] = {
 	{MODULE_GM_1, "GM"},
 	{MODULE_GM_2, "GM_L2"},
 	{MODULE_SC55, "GS"},
 	{MODULE_SC88, "SC-88"},
 	{MMO_RESET_XG, "XG"},
-	{MMO_RESET_XG_ALL, "XGALL"},
-	{MMO_RESET_LA_HARD, "LAHARD"},
-	{MMO_RESET_LA_SOFT, "LASOFT"},
+	{MMO_RESET_XG_ALL, "XGAll"},
+	{MMO_RESET_LA_HARD, "LAHard"},
+	{MMO_RESET_LA_SOFT, "LASoft"},
 	{MMO_RESET_CC, "CC"},
-	{0xFF, NULL},
+	{MMO_RESET_NONE, NULL},
 };
-static const ModuleTypeNameMap masterVolTypeMap[] = {
-	{MMO_MSTVOL_CC_VOL, "VOLUMECC"},
-	{MMO_MSTVOL_CC_EXPR, "EXPRCC"},
-	{MODULE_TYPE_GM, "GMSYX"},
-	{MODULE_TYPE_GS, "GSSYX"},
-	{MODULE_TYPE_XG, "XGSYX"},
-	{MODULE_TYPE_LA, "LASYX"},
+static const TypeMap_StrU8 masterVolTypeMap[] = {
+	{MMO_MSTVOL_CC_VOL, "VolumeCC"},
+	{MMO_MSTVOL_CC_EXPR, "ExprCC"},
+	{MODULE_TYPE_GM, "GMSyx"},
+	{MODULE_TYPE_GS, "GSSyx"},
+	{MODULE_TYPE_XG, "XGSyx"},
+	{MODULE_TYPE_LA, "LASyx"},
 	{0xFF, NULL},
 };
 
@@ -1050,6 +1064,17 @@ static void ParseChnMaskList(const std::vector<std::string>& maskStrList, std::v
 	return;
 }
 
+static UINT8 String2Opt_LUT(const TypeMap_StrU8* valMap, const std::string& value, UINT8 defaultVal)
+{
+	const TypeMap_StrU8* vm;
+	for (vm = valMap; vm->name != NULL; vm ++)
+	{
+		if (! stricmp(value.c_str(), vm->name))
+			return vm->value;
+	}
+	return defaultVal;
+}
+
 static UINT8 LoadConfig(const std::string& cfgFile)
 {
 	std::map<std::string, UINT8> INSSET_NAME_MAP;
@@ -1088,18 +1113,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	loadSongSyx = iniFile.GetBoolean("General", "LoadSongSyx", true);
 	playerCfg.nrpnLoops = iniFile.GetBoolean("General", "NRPNLoops", false);
 	playerCfg.noNoteOverlap = iniFile.GetBoolean("General", "NoNoteOverlap", false);
-	{
-		std::string gmDrmFB = iniFile.GetString("General", "GMDrumFallback", "KeepGS");
-		std::transform(gmDrmFB.begin(), gmDrmFB.end(), gmDrmFB.begin(), ::toupper);	// for case-insensitive comparison
-		if (gmDrmFB == "NONE")
-			playerCfg.gmDrumFallback = PLROPTS_GDF_NONE;
-		else if (gmDrmFB == "ALL")
-			playerCfg.gmDrumFallback = PLROPTS_GDF_ALL;
-		else if (gmDrmFB == "KEEPGS")
-			playerCfg.gmDrumFallback = PLROPTS_GDF_GS;
-		else
-			playerCfg.gmDrumFallback = PLROPTS_GDF_NONE;
-	}
+	playerCfg.gmDrumFallback = String2Opt_LUT(gmDrumFallbackMap, iniFile.GetString("General", "GMDrumFallback", "KeepGS"), PLROPTS_GDF_NONE);
 	playerCfg.fixSysExChksum = iniFile.GetBoolean("General", "FixSysExChecksums", false);
 	
 	strmSrv.pidFile = iniFile.GetString("StreamServer", "PIDFile", "");
@@ -1118,18 +1132,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 	dispOpts->defCodepages[0] = iniFile.GetString("Display", "DefaultCodepage", "");
 	dispOpts->defCodepages[1] = iniFile.GetString("Display", "FallbackCodepage", "");
 	
-	{
-		std::string barVisMode = iniFile.GetString("Display", "BarVisMode", "Notes");
-		std::transform(barVisMode.begin(), barVisMode.end(), barVisMode.begin(), ::toupper);	// for case-insensitive comparison
-		if (barVisMode == "NONE")
-			dispOpts->barVisMode = BVMODE_OFF;
-		else if (barVisMode == "VOLUME")
-			dispOpts->barVisMode = BVMODE_VOL;
-		else if (barVisMode == "NOTES")
-			dispOpts->barVisMode = BVMODE_NOTES;
-		else
-			dispOpts->barVisMode = BVMODE_OFF;
-	}
+	dispOpts->barVisMode = String2Opt_LUT(barVisModeMap, iniFile.GetString("Display", "BarVisMode", "Notes"), BVMODE_OFF);
 	
 	insSetFiles.clear();
 	insSetXG = (size_t)-1;
@@ -1176,6 +1179,7 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		MidiModule mMod;
 		std::vector<std::string> list;
 		size_t validPorts;
+		std::string iniStr;
 		
 		mMod.name = *listIt;
 		if (! MidiModule::GetIDFromNameOrNumber(iniFile.GetString(*listIt, "ModType", ""), midiModColl.GetShortModNameLUT(), mMod.modType))
@@ -1194,34 +1198,11 @@ static UINT8 LoadConfig(const std::string& cfgFile)
 		mMod.options.simpleVol = iniFile.GetBoolean(mMod.name, "SimpleVolCtrl", false);
 		mMod.options.aotIns = iniFile.GetBoolean(mMod.name, "AoTInsChange", false);
 		mMod.options.instantSyx = iniFile.GetBoolean(mMod.name, "InstantSyx", false);
-		mMod.options.resetType = GetMidiModResetType(mMod.modType);
-		{
-			std::string resetType = iniFile.GetString(mMod.name, "ResetType", "");
-			std::transform(resetType.begin(), resetType.end(), resetType.begin(), ::toupper);	// for case-insensitive comparison
-			size_t typeIdx;
-			for (typeIdx = 0; resetModTypeMap[typeIdx].name != NULL; typeIdx ++)
-			{
-				if (resetType == resetModTypeMap[typeIdx].name)
-				{
-					mMod.options.resetType = resetModTypeMap[typeIdx].modType;
-					break;
-				}
-			}
-		}
-		mMod.options.masterVol = GetMidiModMasterVolType(mMod.modType);
-		{
-			std::string mstVolType = iniFile.GetString(mMod.name, "MasterVolType", "");
-			std::transform(mstVolType.begin(), mstVolType.end(), mstVolType.begin(), ::toupper);	// for case-insensitive comparison
-			size_t typeIdx;
-			for (typeIdx = 0; masterVolTypeMap[typeIdx].name != NULL; typeIdx ++)
-			{
-				if (mstVolType == masterVolTypeMap[typeIdx].name)
-				{
-					mMod.options.masterVol = masterVolTypeMap[typeIdx].modType;
-					break;
-				}
-			}
-		}
+		
+		iniStr = iniFile.GetString(mMod.name, "ResetType", "");
+		mMod.options.resetType = String2Opt_LUT(resetModTypeMap, iniStr, GetMidiModResetType(mMod.modType));
+		iniStr = iniFile.GetString(mMod.name, "MasterVolType", "");
+		mMod.options.masterVol = String2Opt_LUT(masterVolTypeMap, iniStr, GetMidiModMasterVolType(mMod.modType));
 		mMod.options.remapMVolSyx = iniFile.GetBoolean(mMod.name, "RemapMasterVolSyx", false);
 		
 		if (mMod.ports.empty())
