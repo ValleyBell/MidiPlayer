@@ -898,7 +898,7 @@ void MidiPlayer::DoEvent(TrackState* trkState, const MidiEvent* midiEvt)
 				NoteVisualization::ChnInfo* nvChn = _noteVis.GetChannel(chnSt->fullChnID);
 				chnSt->pBendRaw = (midiEvt->evtValB << 7) | (midiEvt->evtValA << 0);
 				chnSt->pBendScl = chnSt->pBendRaw - 0x2000;	// centre: 0x2000 -> 0
-				if (chnSt->pbRangeUnscl != chnSt->pbRange)
+				if (chnSt->pbRangeUnscl != chnSt->pbRange && chnSt->pbRange != 0)
 				{
 					UINT16 pbSend;
 					chnSt->pBendScl = chnSt->pBendScl * chnSt->pbRangeUnscl / chnSt->pbRange;
@@ -2782,6 +2782,9 @@ bool MidiPlayer::HandleInstrumentEvent(ChannelState* chnSt, const MidiEvent* mid
 			drmChnSt.curIns = chnSt->curIns;
 			drmChnSt.insOrg = chnSt->insOrg;
 			drmChnSt.insSend = chnSt->insSend;
+			drmChnSt.userInsID = chnSt->userInsID;
+			drmChnSt.userInsName = chnSt->userInsName;
+			drmChnSt.userInsRef = chnSt->userInsRef;
 			vis_do_ins_change(drmChnSt.fullChnID);
 		}
 	}
@@ -4517,7 +4520,7 @@ void MidiPlayer::AllChannelRefresh(void)
 		}
 		{
 			// restore Pitch Bend
-			INT32 pbUnscaled = chnSt.pBendScl / chnSt.pbRange;
+			INT32 pbUnscaled = chnSt.pbRange ? (chnSt.pBendScl / chnSt.pbRange) : 0;
 			if (pbUnscaled < -0x2000)
 				pbUnscaled = -0x2000;
 			else if (pbUnscaled > 0x1FFF)

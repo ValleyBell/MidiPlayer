@@ -1276,11 +1276,13 @@ UINT8 Gsd2Syx(FILE* infile, std::vector<UINT8>& syxData)
 	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x40007F, 0x01, &curChn);	// SC-55 Reset
 	// Recomposer 3.0 sends Master Volume (40 00 04), Key-Shift (40 00 06) and Pan (via GM SysEx) separately,
 	// but doing a bulk-dump works just fine on SC-55/88.
-	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400000, 0x07, &gsdData[0x0020]);	// Common Settings
+	// The SC-55 requires Master Tune (40 00 00) to be sent separately though or it will throw a "DT1 Data Error".
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400000, 0x04, &gsdData[0x0020]);	// Master Tune
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400004, 0x03, &gsdData[0x0024]);	// Common Settings
 	for (curChn = 0x00; curChn < 0x10; curChn ++)
 		voiceRes[curChn] = gsdData[0x0036 + PART2CHN[curChn] * 0x7A + 0x79];
 	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400110, 0x10, voiceRes);	// Voice Reserve
-	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400130, 0x07, &gsdData[0x0027]);	//Reverb Settings
+	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400130, 0x07, &gsdData[0x0027]);	// Reverb Settings
 	WriteRolandSyxData(syxData, SC55_SYX_HDR, 0x400138, 0x08, &gsdData[0x002E]);	// Chorus Settings
 	
 	// Part Settings
