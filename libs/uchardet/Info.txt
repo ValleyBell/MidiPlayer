@@ -1,0 +1,9 @@
+uchardet-0.0.7
+https://www.freedesktop.org/wiki/Software/uchardet/
+
+Compiled using Visual Studio 2010, Static Library, Release Mode, Multithreaded-DLL runtime
+
+Files:
+	include/uchardet.h
+	lib/uchardet.exp
+	lib/uchardet.lib

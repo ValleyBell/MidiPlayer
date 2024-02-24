@@ -172,7 +172,11 @@ char StrCharsetConv(iconv_t hIConv, std::string& outStr, const std::string& inSt
 	
 	size_t remBytesIn;
 	size_t remBytesOut;
+#ifdef _WIN32	// make up for a difference of the iconv API between Windows/FreeBSD and GNU Linux
+	const char* inPtr;
+#else
 	char* inPtr;
+#endif
 	char* outPtr;
 	size_t wrtBytes;
 	char resVal;

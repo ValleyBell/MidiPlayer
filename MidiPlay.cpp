@@ -4837,7 +4837,7 @@ void MidiPlayer::InitializeChannels(void)
 			_cm32pPatchTMedia[0x40 | curIns] = 0x01;	// external PCM card
 			_cm32pPatchTNum[0x40 | curIns] = curIns;
 			_mt32TimbreNames[curIns] = std::string(0x0A, ' ');
-			snprintf(&_mt32TimbreNames[curIns][0], 0x0A, "UserIns %u", curIns);
+			snprintf(&_mt32TimbreNames[curIns][0], 0x0A, "UserIns %u", (unsigned int)curIns);
 		}
 	}
 	

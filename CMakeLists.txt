@@ -10,6 +10,11 @@ option(SCREEN_RECORDING "Enable screen recording using ffmpeg" OFF)
 option(REMOTE_CONTROL "Enable remote control using pipes" OFF)
 
 
+if(MSVC)
+	if(NOT MSVC_VERSION LESS 1400)
+		add_definitions("-D _CRT_SECURE_NO_WARNINGS")
+	endif()
+endif(MSVC)
 if(CMAKE_COMPILER_IS_GNUCC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-psabi")
 endif(CMAKE_COMPILER_IS_GNUCC)
@@ -86,10 +91,10 @@ endif()
 # --- character set detection ---
 if (CHARSET_DETECTION)
 	find_path(UCHARDET_INCLUDE_DIR NAMES uchardet.h PATH_SUFFIXES uchardet)
-	find_library(UCHARDET_LIBRARY_RELEASE NAMES uchardet)
+	find_library(UCHARDET_LIBRARY NAMES uchardet)
 	set(DEFINES ${DEFINES} CHARSET_DETECTION=1)
 	set(INCLUDES ${INCLUDES} ${UCHARDET_INCLUDE_DIR})
-	set(LIBRARIES ${LIBRARIES} ${UCHARDET_LIBRARY_RELEASE})
+	set(LIBRARIES ${LIBRARIES} ${UCHARDET_LIBRARY})
 endif()
 
 
@@ -101,12 +106,15 @@ set(CURSES_NEED_WIDE TRUE)
 # Note: If it segfaults during initscr(), make sure to fix CURSES_EXTRA_LIBRARY and
 # CURSES_FORM_LIBRARY to use the wide-character versions of the libs.
 find_package(Curses REQUIRED)
+get_filename_component(cursesLibDir "${CURSES_CURSES_LIBRARY}" PATH)
+find_library(CURSES_PANEL_LIBRARY NAMES panelw panel HINTS "${cursesLibDir}")
+
 set(SOURCES ${SOURCES}
 	vis_curses.cpp
 	vis_sc-lcd.cpp
 	)
-set(INCLUDES ${INCLUDES} ${CURSES_INCLUDE_DIR})
-set(LIBRARIES ${LIBRARIES} ${CURSES_LIBRARIES} panelw)
+set(INCLUDES ${INCLUDES} ${CURSES_INCLUDE_DIRS})
+set(LIBRARIES ${LIBRARIES} ${CURSES_LIBRARIES} ${CURSES_PANEL_LIBRARY})
 
 
 # --- ZIP file reading ---
@@ -162,12 +170,23 @@ if(REMOTE_CONTROL)
 endif()
 
 add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES})
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_98)
 target_compile_definitions(${PROJECT_NAME} PRIVATE ${DEFINES})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR} ${INCLUDES})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${LIBRARIES})
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "bin")
 
 
+set(ENABLE_BSCAN_TOOL ON)
+if(MSVC)
+	if(MSVC_VERSION LESS 1900)
+		# The Bank Scan tool uses C++11 braced list-initialization.
+		# Apparently they only work properly with MS VC 2015 and later.
+		set(ENABLE_BSCAN_TOOL OFF)
+	endif()
+endif()
+
+if(ENABLE_BSCAN_TOOL)
 set(HEADERS_BSCAN
 		MidiLib.hpp
 		MidiBankScan.hpp
@@ -180,7 +199,9 @@ set(SOURCES_BSCAN
 		MidiBankScanTool.cpp
 		)
 add_executable(midiBankScan ${HEADERS_BSCAN} ${SOURCES_BSCAN})
+target_compile_features(midiBankScan PRIVATE cxx_std_11)
 target_compile_definitions(midiBankScan PRIVATE )
 target_include_directories(midiBankScan PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(midiBankScan PRIVATE)
 install(TARGETS midiBankScan RUNTIME DESTINATION "bin")
+endif(ENABLE_BSCAN_TOOL)
